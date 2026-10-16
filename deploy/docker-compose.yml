@@ -1,0 +1,31 @@
+# Runs on the EC2 instance. The deploy workflow builds the app image on
+# GitHub's runners, loads it here as similarwise:latest, copies this
+# folder to /opt/similarwise/src/deploy and writes deploy/.env.
+services:
+  app:
+    image: similarwise:latest
+    pull_policy: never
+    env_file: .env
+    environment:
+      DATABASE_URL: file:/data/similarwise.sqlite
+      PORT: "3000"
+    volumes:
+      - app-data:/data
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2.10
+    env_file: .env
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    depends_on:
+      - app
+    restart: unless-stopped
+
+volumes:
+  app-data:
+  caddy-data:

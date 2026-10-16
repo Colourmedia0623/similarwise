@@ -1,0 +1,120 @@
+name: Deploy to EC2
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency: deploy
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Write server environment
+        env:
+          SHOPIFY_API_KEY: ${{ secrets.SHOPIFY_API_KEY }}
+          SHOPIFY_API_SECRET: ${{ secrets.SHOPIFY_API_SECRET }}
+          APP_HOST: ${{ vars.APP_HOST }}
+          # Search traffic and Google Ads estimates; off until both are set.
+          DATAFORSEO_LOGIN: ${{ secrets.DATAFORSEO_LOGIN }}
+          DATAFORSEO_PASSWORD: ${{ secrets.DATAFORSEO_PASSWORD }}
+        run: |
+          scopes=$(sed -n 's/^scopes = "\(.*\)"/\1/p' shopify.app.toml)
+          {
+            echo "SHOPIFY_API_KEY=$SHOPIFY_API_KEY"
+            echo "SHOPIFY_API_SECRET=$SHOPIFY_API_SECRET"
+            echo "SHOPIFY_APP_URL=https://$APP_HOST"
+            echo "SCOPES=$scopes"
+            echo "APP_HOST=$APP_HOST"
+            echo "DATAFORSEO_LOGIN=$DATAFORSEO_LOGIN"
+            echo "DATAFORSEO_PASSWORD=$DATAFORSEO_PASSWORD"
+          } > deploy/.env
+
+      # Build here rather than on the small EC2 instance, reusing CI's layer cache.
+      # BuildKit from AWS's public mirror: Docker Hub times out or rate-limits
+      # the shared runners.
+      # That mirror throttles the shared runners now and then ("Rate
+      # exceeded"), which setup-buildx doesn't retry, so pull it here first.
+      - name: Pull BuildKit
+        # Falls back to Docker Hub's copy (tagged with the mirror's name, so
+        # setup-buildx uses it) when the mirror keeps refusing.
+        run: |
+          img=public.ecr.aws/vend/moby/buildkit:buildx-stable-1
+          for i in 1 2 3 4 5 6 7 8; do
+            docker pull -q "$img" && exit 0
+            if [ $((i % 2)) = 0 ] && docker pull -q moby/buildkit:buildx-stable-1; then
+              docker tag moby/buildkit:buildx-stable-1 "$img" && exit 0
+            fi
+            sleep $((i * 8))
+          done
+          exit 1
+      - uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: image=public.ecr.aws/vend/moby/buildkit:buildx-stable-1
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          tags: similarwise:latest
+          load: true
+          cache-from: type=gha,scope=app
+          cache-to: type=gha,scope=app,mode=max
+
+      - name: Load on server and restart
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          # Keys copied on Windows carry CRLF line endings, which OpenSSH rejects.
+          printf '%s\n' "$EC2_SSH_KEY" | tr -d '\r' > ~/.ssh/ec2 && chmod 600 ~/.ssh/ec2
+          ssh-keygen -y -f ~/.ssh/ec2 > /dev/null || {
+            echo "::error::EC2_SSH_KEY is not a valid private key. Paste the whole .pem file, including the BEGIN and END lines."
+            exit 1
+          }
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
+          ssh_ec2() { ssh -i ~/.ssh/ec2 "ubuntu@$EC2_HOST" "$@"; }
+
+          docker save similarwise:latest | gzip -1 | ssh_ec2 'gunzip | docker load'
+          tar czf - deploy | ssh_ec2 '
+            set -e
+            rm -rf /opt/similarwise/src.new && mkdir -p /opt/similarwise/src.new
+            tar xzf - -C /opt/similarwise/src.new
+            rm -rf /opt/similarwise/src && mv /opt/similarwise/src.new /opt/similarwise/src
+            cd /opt/similarwise/src/deploy && docker compose up -d --remove-orphans
+            # The Caddyfiles are replaced on each deploy, so restart Caddy to read the new ones.
+            docker compose up -d --force-recreate --no-deps caddy
+            docker image prune -f'
+
+      # Caddy may need a minute to get the certificate after an address change.
+      - name: Check the app answers over HTTPS
+        env:
+          APP_HOST: ${{ vars.APP_HOST }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          why() {
+            ip=$(getent ahostsv4 "$1" | awk 'NR==1{print $1}')
+            server=$(getent ahostsv4 "$EC2_HOST" | awk 'NR==1{print $1}')
+            if [ -z "$ip" ]; then echo "$1 has no DNS A record yet."
+            elif [ "$ip" != "$server" ]; then echo "$1 points at $ip, not the server."
+            else echo "$1 points at the server. Caddy's recent log:"
+              ssh -i ~/.ssh/ec2 "ubuntu@$EC2_HOST" 'cd /opt/similarwise/src/deploy && docker compose logs --tail 30 caddy'
+            fi
+          }
+          for host in $APP_HOST; do
+            ok=
+            for i in $(seq 1 12); do
+              code=$(curl -s -o /dev/null -w '%{http_code}' -m 10 "https://$host/" || true)
+              echo "https://$host/ answered $code"
+              case "$code" in 2*|3*) ok=1; break ;; esac
+              sleep 10
+            done
+            [ -n "$ok" ] || { why "$host"; echo "::error::https://$host/ isn't answering."; exit 1; }
+          done
