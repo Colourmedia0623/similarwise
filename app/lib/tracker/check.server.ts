@@ -4,6 +4,8 @@ import { diffList, diffProducts, type Change } from "./diff";
 import { fetchPublic, type Fetcher } from "./fetch.server";
 import { MAX_PAGES, PAGE_LIMIT, parseProducts, type SeenProduct } from "./products";
 import { hostOf, normalizeStoreUrl } from "./url";
+import { refreshTraffic } from "../traffic/refresh.server";
+import type { TrafficClient } from "../traffic/dataforseo.server";
 
 // Adding competitors and checking their stores: the home page for the theme,
 // apps and ad pixels, and (for Shopify stores) the public product catalogue
@@ -24,6 +26,7 @@ export async function addCompetitor(
   shop: string,
   input: string,
   fetcher: Fetcher = fetchPublic,
+  client?: TrafficClient | null,
 ): Promise<{ id: string } | { error: string }> {
   const url = normalizeStoreUrl(input);
   if (!url) return { error: "Enter the competitor's website, like rival.com." };
@@ -34,6 +37,7 @@ export async function addCompetitor(
   if (existing) return { error: `You're already tracking ${existing.name}.` };
   const c = await db.competitor.create({ data: { shop, url, name: hostOf(url) } });
   await checkCompetitor(c.id, fetcher);
+  await refreshTraffic(c.id, client === undefined ? {} : { client });
   return { id: c.id };
 }
 

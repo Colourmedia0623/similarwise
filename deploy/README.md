@@ -47,6 +47,8 @@ In the GitHub repo, **Settings → Secrets and variables → Actions**:
 | Secret | `SHOPIFY_API_KEY` | The Client ID |
 | Secret | `SHOPIFY_API_SECRET` | The Client secret |
 | Secret | `SHOPIFY_APP_AUTOMATION_TOKEN` | The App Automation Token |
+| Secret | `DATAFORSEO_LOGIN` | Your DataForSEO API login (optional, for search traffic and Google Ads) |
+| Secret | `DATAFORSEO_PASSWORD` | Your DataForSEO API password |
 | Variable | `APP_HOST` | `similarwise.colourmedia.net` |
 
 ### 5. Deploy

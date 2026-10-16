@@ -4,7 +4,10 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { checkCompetitor, parseStoredList } from "../lib/tracker/check.server";
-import { EVENT_LABEL, EVENT_TONE, formatPrice, timeAgo } from "../lib/format";
+import { refreshTraffic } from "../lib/traffic/refresh.server";
+import { trafficClient } from "../lib/traffic/dataforseo.server";
+import { marketFor } from "../lib/traffic/markets";
+import { EVENT_LABEL, EVENT_TONE, compact, formatPrice, timeAgo } from "../lib/format";
 
 // One competitor: what their store runs, the ad channels they're set up for,
 // their catalogue over time, their latest changes and newest products.
@@ -13,7 +16,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const c = await db.competitor.findFirst({ where: { id: params.id, shop: session.shop } });
   if (!c) throw new Response("Not found", { status: 404 });
-  const [events, newest, snapshots, onSale] = await Promise.all([
+  const [events, newest, snapshots, onSale, keywords, traffic] = await Promise.all([
     db.competitorEvent.findMany({ where: { competitorId: c.id }, orderBy: { createdAt: "desc" }, take: 50 }),
     db.competitorProduct.findMany({
       where: { competitorId: c.id, removedAt: null },
@@ -22,6 +25,8 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     }),
     db.competitorSnapshot.findMany({ where: { competitorId: c.id }, orderBy: { takenAt: "desc" }, take: 14 }),
     db.competitorProduct.count({ where: { competitorId: c.id, removedAt: null, compareAtCents: { not: null } } }),
+    db.competitorKeyword.findMany({ where: { competitorId: c.id }, orderBy: [{ traffic: "desc" }] }),
+    db.trafficSnapshot.findMany({ where: { competitorId: c.id }, orderBy: { takenAt: "desc" }, take: 12 }),
   ]);
   return {
     competitor: {
@@ -39,6 +44,32 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       lastCheckedAt: c.lastCheckedAt?.toISOString() ?? null,
       lastError: c.lastError,
     },
+    search: {
+      on: trafficClient() != null,
+      market: c.trafficMarket ? marketFor(c.trafficMarket).name : null,
+      organicTraffic: c.organicTraffic,
+      organicKeywords: c.organicKeywords,
+      paidTraffic: c.paidTraffic,
+      paidKeywords: c.paidKeywords,
+      paidCostCents: c.paidCostCents,
+      at: c.trafficAt?.toISOString() ?? null,
+      error: c.trafficError,
+    },
+    keywords: keywords.map((k) => ({
+      id: k.id,
+      keyword: k.keyword,
+      type: k.type,
+      position: k.position,
+      searchVolume: k.searchVolume,
+      traffic: k.traffic,
+    })),
+    traffic: traffic.map((t) => ({
+      id: t.id,
+      takenAt: t.takenAt.toISOString(),
+      organicTraffic: t.organicTraffic,
+      paidTraffic: t.paidTraffic,
+      paidCostCents: t.paidCostCents,
+    })),
     events: events.map((e) => ({ id: e.id, kind: e.kind, message: e.message, createdAt: e.createdAt.toISOString() })),
     newest: newest.map((p) => ({
       id: p.id,
@@ -64,11 +95,12 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   const c = await db.competitor.findFirst({ where: { id: params.id, shop: session.shop }, select: { id: true } });
   if (!c) throw new Response("Not found", { status: 404 });
   await checkCompetitor(c.id);
+  await refreshTraffic(c.id);
   return { ok: true };
 };
 
 export default function Competitor() {
-  const { competitor: c, events, newest, snapshots } = useLoaderData<typeof loader>();
+  const { competitor: c, search, keywords, traffic, events, newest, snapshots } = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
   const checking = fetcher.state !== "idle";
   const price = (cents: number | null) => (cents == null ? "–" : formatPrice(cents, c.currency));
@@ -99,6 +131,8 @@ export default function Competitor() {
           <s-text color="subdued">Last checked {timeAgo(c.lastCheckedAt)}. Checked again every day.</s-text>
         </s-box>
       </s-section>
+
+      <SearchSection search={search} keywords={keywords} traffic={traffic} />
 
       <s-section heading="Ad and analytics channels">
         <s-stack gap="base">
@@ -186,6 +220,96 @@ export default function Competitor() {
         </s-section>
       )}
     </s-page>
+  );
+}
+
+type LoaderData = ReturnType<typeof useLoaderData<typeof loader>>;
+
+function SearchSection({ search, keywords, traffic }: Pick<LoaderData, "search" | "keywords" | "traffic">) {
+  const usd = (cents: number | null) => (cents == null ? "–" : formatPrice(cents, "USD"));
+  if (!search.on)
+    return (
+      <s-section heading="Search traffic and Google Ads">
+        <s-paragraph>Search traffic and Google Ads estimates aren&apos;t switched on yet.</s-paragraph>
+      </s-section>
+    );
+  const organic = keywords.filter((k) => k.type === "organic");
+  const paid = keywords.filter((k) => k.type === "paid");
+  return (
+    <s-section heading={`Search traffic and Google Ads${search.market ? ` in ${search.market}` : ""}`}>
+      <s-stack gap="base">
+        {search.error && <s-banner tone="warning">{search.error}</s-banner>}
+        {search.organicTraffic == null ? (
+          <s-paragraph>No search data yet. It arrives with the next check.</s-paragraph>
+        ) : (
+          <>
+            <s-grid gridTemplateColumns="repeat(auto-fit, minmax(160px, 1fr))" gap="base">
+              <Stat label="Search visits a month" value={compact(search.organicTraffic)} />
+              <Stat label="Keywords they rank for" value={compact(search.organicKeywords)} />
+              <Stat label="Visits from Google Ads" value={compact(search.paidTraffic)} />
+              <Stat label="Keywords they bid on" value={compact(search.paidKeywords)} />
+              <Stat label="Google Ads spend a month" value={usd(search.paidCostCents)} />
+            </s-grid>
+            <s-text color="subdued">
+              Estimates from Google search data, updated {timeAgo(search.at)} and refreshed weekly. Spend is what
+              their ad clicks would cost at typical prices, not their actual budget.
+            </s-text>
+            <KeywordTable heading="Top keywords they rank for" rows={organic} />
+            <KeywordTable heading="Keywords they advertise on" rows={paid} />
+            {traffic.length > 1 && (
+              <s-table>
+                <s-table-header-row>
+                  <s-table-header>Updated</s-table-header>
+                  <s-table-header format="numeric">Search visits</s-table-header>
+                  <s-table-header format="numeric">Ads visits</s-table-header>
+                  <s-table-header format="numeric">Ads spend</s-table-header>
+                </s-table-header-row>
+                <s-table-body>
+                  {traffic.map((t) => (
+                    <s-table-row key={t.id}>
+                      <s-table-cell>{new Date(t.takenAt).toLocaleDateString()}</s-table-cell>
+                      <s-table-cell>{compact(t.organicTraffic)}</s-table-cell>
+                      <s-table-cell>{compact(t.paidTraffic)}</s-table-cell>
+                      <s-table-cell>{usd(t.paidCostCents)}</s-table-cell>
+                    </s-table-row>
+                  ))}
+                </s-table-body>
+              </s-table>
+            )}
+          </>
+        )}
+      </s-stack>
+    </s-section>
+  );
+}
+
+function KeywordTable({ heading, rows }: { heading: string; rows: LoaderData["keywords"] }) {
+  return (
+    <s-stack gap="small">
+      <s-heading>{heading}</s-heading>
+      {rows.length === 0 ? (
+        <s-paragraph>None found.</s-paragraph>
+      ) : (
+        <s-table>
+          <s-table-header-row>
+            <s-table-header>Keyword</s-table-header>
+            <s-table-header format="numeric">Position</s-table-header>
+            <s-table-header format="numeric">Searches a month</s-table-header>
+            <s-table-header format="numeric">Their visits</s-table-header>
+          </s-table-header-row>
+          <s-table-body>
+            {rows.map((k) => (
+              <s-table-row key={k.id}>
+                <s-table-cell>{k.keyword}</s-table-cell>
+                <s-table-cell>{k.position ?? "–"}</s-table-cell>
+                <s-table-cell>{compact(k.searchVolume)}</s-table-cell>
+                <s-table-cell>{compact(k.traffic)}</s-table-cell>
+              </s-table-row>
+            ))}
+          </s-table-body>
+        </s-table>
+      )}
+    </s-stack>
   );
 }
 

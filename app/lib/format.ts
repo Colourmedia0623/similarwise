@@ -32,7 +32,17 @@ export const EVENT_LABEL: Record<string, string> = {
   channel_added: "New ad channel",
   channel_removed: "Ad channel dropped",
   theme_changed: "New theme",
+  spend_up: "Ad spend up",
+  spend_down: "Ad spend down",
+  traffic_up: "Traffic up",
+  traffic_down: "Traffic down",
 };
+
+// "12k", "1.4M": big estimates read better rounded.
+export function compact(n: number | null | undefined): string {
+  if (n == null) return "–";
+  return new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(n);
+}
 
 export const EVENT_TONE: Record<string, "info" | "success" | "warning" | "critical" | "neutral"> = {
   launch: "success",
@@ -41,4 +51,6 @@ export const EVENT_TONE: Record<string, "info" | "success" | "warning" | "critic
   removed: "neutral",
   channel_added: "info",
   channel_removed: "neutral",
+  spend_up: "warning",
+  traffic_up: "warning",
 };

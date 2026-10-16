@@ -47,9 +47,21 @@ model Competitor {
   lastError     String?
   createdAt     DateTime  @default(now())
 
+  // Search traffic from DataForSEO, refreshed weekly (lib/traffic).
+  organicTraffic  Int?      // Estimated monthly visits from Google search
+  organicKeywords Int?
+  paidTraffic     Int?      // Estimated monthly visits from Google search ads
+  paidKeywords    Int?
+  paidCostCents   Int?      // Estimated monthly Google search ads spend, in US cents
+  trafficMarket   String?   // Country the numbers are for, e.g. GB
+  trafficAt       DateTime?
+  trafficError    String?
+
   products  CompetitorProduct[]
   events    CompetitorEvent[]
   snapshots CompetitorSnapshot[]
+  traffic   TrafficSnapshot[]
+  keywords  CompetitorKeyword[]
 
   @@unique([shop, url])
   @@index([shop])
@@ -98,4 +110,41 @@ model CompetitorSnapshot {
   onSaleCount   Int        @default(0)
 
   @@index([competitorId, takenAt])
+}
+
+// A shop's settings: the country its traffic and keyword numbers are for.
+model ShopSettings {
+  shop   String @id
+  market String @default("US")
+}
+
+// A competitor's search numbers on each traffic refresh, for trends.
+model TrafficSnapshot {
+  id              String     @id @default(cuid())
+  competitorId    String
+  competitor      Competitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+  takenAt         DateTime   @default(now())
+  market          String
+  organicTraffic  Int
+  organicKeywords Int
+  paidTraffic     Int
+  paidKeywords    Int
+  paidCostCents   Int
+
+  @@index([competitorId, takenAt])
+}
+
+// A competitor's top Google keywords, organic and paid, from the last refresh.
+model CompetitorKeyword {
+  id           String     @id @default(cuid())
+  competitorId String
+  competitor   Competitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+  keyword      String
+  type         String     // organic | paid
+  position     Int?
+  searchVolume Int?
+  traffic      Int?       // Estimated monthly visits from this keyword
+  url          String?
+
+  @@index([competitorId, type])
 }

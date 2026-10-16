@@ -1,5 +1,6 @@
 import db from "../db.server";
 import { parseStoredList } from "./tracker/check.server";
+import { trafficClient } from "./traffic/dataforseo.server";
 
 // The numbers for the overview page: what changed at the shop's competitors
 // this week, and which ad channels each one is set up for.
@@ -36,12 +37,15 @@ export async function overview(shop: string, now = new Date()) {
       adChannels: parseStoredList(c.adChannels),
       lastCheckedAt: c.lastCheckedAt?.toISOString() ?? null,
       lastError: c.lastError,
+      organicTraffic: c.organicTraffic,
+      paidCostCents: c.paidCostCents,
     })),
+    searchOn: trafficClient() != null,
     week: {
       launches: count("launch"),
       priceChanges: count("price_up", "price_down"),
       removed: count("removed"),
-      channelChanges: count("channel_added", "channel_removed"),
+      channelChanges: count("channel_added", "channel_removed", "spend_up", "spend_down"),
     },
     recent: recent.map((e) => ({
       id: e.id,

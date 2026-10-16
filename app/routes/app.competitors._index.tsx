@@ -6,6 +6,9 @@ import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { MAX_COMPETITORS, addCompetitor, removeCompetitor } from "../lib/tracker/check.server";
 import { timeAgo } from "../lib/format";
+import { MARKETS } from "../lib/traffic/markets";
+import { setShopMarket, shopMarket } from "../lib/traffic/refresh.server";
+import { trafficClient } from "../lib/traffic/dataforseo.server";
 
 // The competitors a shop tracks: add one by its website, or stop tracking one.
 
@@ -17,6 +20,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     select: { id: true, name: true, url: true, isShopify: true, productCount: true, lastCheckedAt: true, lastError: true },
   });
   return {
+    market: (await shopMarket(session.shop)).code,
+    markets: MARKETS.map((m) => ({ code: m.code, name: m.name })),
+    searchOn: trafficClient() != null,
     max: MAX_COMPETITORS,
     competitors: competitors.map((c) => ({ ...c, lastCheckedAt: c.lastCheckedAt?.toISOString() ?? null })),
   };
@@ -26,6 +32,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const form = await request.formData();
   const intent = form.get("intent");
+  if (intent === "market") {
+    await setShopMarket(session.shop, String(form.get("market") ?? ""));
+    return { ok: true as const };
+  }
   if (intent === "remove") {
     await removeCompetitor(session.shop, String(form.get("id") ?? ""));
     return { ok: true as const };
@@ -35,7 +45,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function Competitors() {
-  const { max, competitors } = useLoaderData<typeof loader>();
+  const { max, competitors, market, markets, searchOn } = useLoaderData<typeof loader>();
+  const marketFetcher = useFetcher({ key: "market" });
   const fetcher = useFetcher<typeof action>({ key: "add-competitor" });
   const [url, setUrl] = useState("");
   const adding = fetcher.state !== "idle" && fetcher.formData?.get("intent") === "add";
@@ -77,6 +88,31 @@ export default function Competitors() {
           )}
         </s-stack>
       </s-section>
+
+      {searchOn && (
+        <s-section heading="Market">
+          <s-stack gap="base">
+            <s-select
+              label="Country for search traffic and Google Ads numbers"
+              value={market}
+              disabled={marketFetcher.state !== "idle"}
+              onChange={(e) =>
+                marketFetcher.submit(
+                  { intent: "market", market: e.currentTarget.value },
+                  { method: "post" },
+                )
+              }
+            >
+              {markets.map((m) => (
+                <s-option key={m.code} value={m.code}>
+                  {m.name}
+                </s-option>
+              ))}
+            </s-select>
+            {marketFetcher.state !== "idle" && <s-paragraph>Updating your competitors&apos; numbers…</s-paragraph>}
+          </s-stack>
+        </s-section>
+      )}
 
       <s-section heading={`Tracking ${competitors.length} of ${max}`}>
         {competitors.length === 0 ? (

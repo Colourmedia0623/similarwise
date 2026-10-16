@@ -3,7 +3,7 @@ import { useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { overview } from "../lib/dashboard.server";
-import { EVENT_LABEL, EVENT_TONE, formatPrice, timeAgo } from "../lib/format";
+import { EVENT_LABEL, EVENT_TONE, compact, formatPrice, timeAgo } from "../lib/format";
 
 // Overview: what the shop's competitors changed this week, the ad channels
 // each one is set up for, and the latest activity.
@@ -14,7 +14,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 };
 
 export default function Index() {
-  const { competitors, week, recent } = useLoaderData<typeof loader>();
+  const { competitors, week, recent, searchOn } = useLoaderData<typeof loader>();
 
   if (competitors.length === 0) {
     return (
@@ -45,7 +45,7 @@ export default function Index() {
           <Stat label="New products" value={week.launches} />
           <Stat label="Price changes" value={week.priceChanges} />
           <Stat label="Products taken down" value={week.removed} />
-          <Stat label="Ad channel changes" value={week.channelChanges} />
+          <Stat label="Ad changes" value={week.channelChanges} />
         </s-grid>
       </s-section>
 
@@ -54,6 +54,8 @@ export default function Index() {
           <s-table-header-row>
             <s-table-header>Competitor</s-table-header>
             <s-table-header>Ad and analytics channels</s-table-header>
+            {searchOn && <s-table-header format="numeric">Search visits a month</s-table-header>}
+            {searchOn && <s-table-header format="numeric">Google Ads spend a month</s-table-header>}
             <s-table-header format="numeric">Products</s-table-header>
             <s-table-header format="numeric">Average price</s-table-header>
           </s-table-header-row>
@@ -65,6 +67,10 @@ export default function Index() {
                   {c.lastError ? <s-text tone="critical"> Check failed</s-text> : null}
                 </s-table-cell>
                 <s-table-cell>{c.adChannels.length ? c.adChannels.join(", ") : "None seen"}</s-table-cell>
+                {searchOn && <s-table-cell>{compact(c.organicTraffic)}</s-table-cell>}
+                {searchOn && (
+                  <s-table-cell>{c.paidCostCents != null ? formatPrice(c.paidCostCents, "USD") : "–"}</s-table-cell>
+                )}
                 <s-table-cell>{c.productCount.toLocaleString()}</s-table-cell>
                 <s-table-cell>{c.avgPriceCents != null ? formatPrice(c.avgPriceCents, c.currency) : "–"}</s-table-cell>
               </s-table-row>
