@@ -1,0 +1,44 @@
+# This file stores configurations for your Shopify app.
+# client_id comes from the app's page in the Shopify Dev Dashboard.
+client_id = "REPLACE_WITH_CLIENT_ID"
+name = "Similarwise"
+application_url = "https://similarwise.colourmedia.net"
+embedded = true
+
+[build]
+# The app runs on the EC2 server, so `shopify app dev` must not rewrite these URLs.
+automatically_update_urls_on_dev = false
+
+[auth]
+redirect_urls = [ "https://similarwise.colourmedia.net/auth/callback" ]
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+# None needed yet: competitor data comes from their public storefronts.
+scopes = ""
+
+[webhooks]
+api_version = "2026-10"
+
+  # Handled by: /app/routes/webhooks.app.uninstalled.tsx
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/uninstalled"
+  topics = ["app/uninstalled"]
+
+  # Handled by: /app/routes/webhooks.app.scopes_update.tsx
+  [[webhooks.subscriptions]]
+  topics = [ "app/scopes_update" ]
+  uri = "/webhooks/app/scopes_update"
+
+  # Mandatory privacy webhooks for public apps.
+  [[webhooks.subscriptions]]
+  compliance_topics = [ "customers/data_request" ]
+  uri = "/webhooks/customers/data_request"
+
+  [[webhooks.subscriptions]]
+  compliance_topics = [ "customers/redact" ]
+  uri = "/webhooks/customers/redact"
+
+  [[webhooks.subscriptions]]
+  compliance_topics = [ "shop/redact" ]
+  uri = "/webhooks/shop/redact"

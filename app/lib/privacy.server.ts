@@ -1,0 +1,10 @@
+import db from "../db.server";
+
+// Everything the app holds for a shop: its sessions and the competitors it
+// tracks (their products, events and snapshots go with them). Nothing about
+// the shop's customers is stored.
+export async function redactShop(shop: string) {
+  const competitors = await db.competitor.deleteMany({ where: { shop } });
+  const sessions = await db.session.deleteMany({ where: { shop } });
+  return { competitors: competitors.count, sessions: sessions.count };
+}

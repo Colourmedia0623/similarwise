@@ -1,0 +1,101 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Session {
+  id            String    @id
+  shop          String
+  state         String
+  isOnline      Boolean   @default(false)
+  scope         String?
+  expires       DateTime?
+  accessToken   String
+  userId        BigInt?
+  firstName     String?
+  lastName      String?
+  email         String?
+  accountOwner  Boolean   @default(false)
+  locale        String?
+  collaborator  Boolean?  @default(false)
+  emailVerified Boolean?  @default(false)
+  refreshToken        String?
+  refreshTokenExpires DateTime?
+}
+
+// A competitor store a shop tracks, with what its last check found.
+model Competitor {
+  id            String    @id @default(cuid())
+  shop          String
+  url           String    // The store's origin, e.g. https://rival.com
+  name          String
+  isShopify     Boolean   @default(false)
+  theme         String?
+  apps          String    @default("[]") // JSON list of app names seen on the storefront
+  adChannels    String    @default("[]") // JSON list of ad and analytics pixels seen
+  productCount  Int       @default(0)
+  avgPriceCents Int?
+  currency      String?
+  lastCheckedAt DateTime?
+  lastError     String?
+  createdAt     DateTime  @default(now())
+
+  products  CompetitorProduct[]
+  events    CompetitorEvent[]
+  snapshots CompetitorSnapshot[]
+
+  @@unique([shop, url])
+  @@index([shop])
+}
+
+// One product on a competitor's storefront, as last seen.
+model CompetitorProduct {
+  id           String     @id @default(cuid())
+  competitorId String
+  competitor   Competitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+  productId    String
+  handle       String
+  title        String
+  productType  String?
+  priceCents   Int        // Lowest variant price
+  compareAtCents Int?     // Highest compare-at price, when on sale
+  publishedAt  DateTime?
+  firstSeenAt  DateTime   @default(now())
+  lastSeenAt   DateTime   @default(now())
+  removedAt    DateTime?
+
+  @@unique([competitorId, productId])
+}
+
+// Something that changed at a competitor: a launch, a price change, a
+// product taken down, or a new app or ad pixel.
+model CompetitorEvent {
+  id           String     @id @default(cuid())
+  competitorId String
+  competitor   Competitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+  kind         String     // launch | price_up | price_down | removed | app_added | app_removed | channel_added | channel_removed | theme_changed
+  message      String
+  createdAt    DateTime   @default(now())
+
+  @@index([competitorId, createdAt])
+}
+
+// The competitor's numbers on each check, for trends.
+model CompetitorSnapshot {
+  id            String     @id @default(cuid())
+  competitorId  String
+  competitor    Competitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+  takenAt       DateTime   @default(now())
+  productCount  Int
+  avgPriceCents Int?
+  onSaleCount   Int        @default(0)
+
+  @@index([competitorId, takenAt])
+}

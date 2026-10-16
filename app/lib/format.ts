@@ -1,0 +1,44 @@
+export { formatPrice } from "./tracker/diff";
+
+// "3 hours ago", "2 days ago": when something happened, for activity feeds.
+export function timeAgo(iso: string | null, now = Date.now()): string {
+  if (!iso) return "never";
+  const s = Math.max(0, Math.round((now - new Date(iso).getTime()) / 1000));
+  if (s < 60) return "just now";
+  const units: [number, string][] = [
+    [86400 * 30, "month"],
+    [86400 * 7, "week"],
+    [86400, "day"],
+    [3600, "hour"],
+    [60, "minute"],
+  ];
+  for (const [size, name] of units) {
+    if (s >= size) {
+      const n = Math.floor(s / size);
+      return `${n} ${name}${n === 1 ? "" : "s"} ago`;
+    }
+  }
+  return "just now";
+}
+
+export const EVENT_LABEL: Record<string, string> = {
+  tracking: "Tracking",
+  launch: "New product",
+  price_down: "Price cut",
+  price_up: "Price rise",
+  removed: "Taken down",
+  app_added: "New app",
+  app_removed: "App removed",
+  channel_added: "New ad channel",
+  channel_removed: "Ad channel dropped",
+  theme_changed: "New theme",
+};
+
+export const EVENT_TONE: Record<string, "info" | "success" | "warning" | "critical" | "neutral"> = {
+  launch: "success",
+  price_down: "warning",
+  price_up: "info",
+  removed: "neutral",
+  channel_added: "info",
+  channel_removed: "neutral",
+};

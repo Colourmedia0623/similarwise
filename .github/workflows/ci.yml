@@ -1,0 +1,53 @@
+name: CI
+on: [push, pull_request]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate && npx prisma validate
+        env:
+          DATABASE_URL: file:dev.sqlite
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # BuildKit from AWS's public mirror: Docker Hub times out or rate-limits
+      # the shared runners.
+      # That mirror throttles the shared runners now and then ("Rate
+      # exceeded"), which setup-buildx doesn't retry, so pull it here first.
+      - name: Pull BuildKit
+        # Falls back to Docker Hub's copy (tagged with the mirror's name, so
+        # setup-buildx uses it) when the mirror keeps refusing.
+        run: |
+          img=public.ecr.aws/vend/moby/buildkit:buildx-stable-1
+          for i in 1 2 3 4 5 6 7 8; do
+            docker pull -q "$img" && exit 0
+            if [ $((i % 2)) = 0 ] && docker pull -q moby/buildkit:buildx-stable-1; then
+              docker tag moby/buildkit:buildx-stable-1 "$img" && exit 0
+            fi
+            sleep $((i * 8))
+          done
+          exit 1
+      - uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: image=public.ecr.aws/vend/moby/buildkit:buildx-stable-1
+      # Shares its layer cache with the deploy workflow, so a deploy after
+      # CI rebuilds almost nothing.
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          tags: similarwise:latest
+          cache-from: type=gha,scope=app
+          cache-to: type=gha,scope=app,mode=max

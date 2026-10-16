@@ -1,0 +1,4 @@
+# Caddy gets and renews the HTTPS certificate for APP_HOST automatically.
+{$APP_HOST} {
+	reverse_proxy app:3000
+}
