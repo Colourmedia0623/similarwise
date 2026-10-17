@@ -96,9 +96,16 @@ export async function refreshAds(
   try {
     let pageId = c.metaPageId;
     if (!pageId && c.metaCandidates === "[]") {
-      const pages = await client.metaPages(c.name === domain ? domain.split(".")[0] : c.name);
-      const pick = pickMetaPage(c.name, domain, pages);
-      update.metaCandidates = JSON.stringify(pages.slice(0, 8));
+      let pages = await client.metaPages(c.name === domain ? domain.split(".")[0] : c.name);
+      let pick = pickMetaPage(c.name, domain, pages);
+      // A shop named for what it sells ("Wholesale Gift Boxes") often has a
+      // page under its brand, which the domain usually carries.
+      if (!pick && c.name !== domain && stem(domain).length >= 4) {
+        const more = await client.metaPages(stem(domain));
+        pages = [...pages, ...more.filter((p) => !pages.some((q) => q.id === p.id))];
+        pick = pickMetaPage(c.name, domain, pages);
+      }
+      update.metaCandidates = JSON.stringify((pick ? [pick, ...pages.filter((p) => p.id !== pick.id)] : pages).slice(0, 8));
       if (pick) {
         pageId = pick.id;
         update.metaPageId = pick.id;
@@ -112,7 +119,7 @@ export async function refreshAds(
 
   // TikTok: search by advertiser name, keeping only that advertiser's ads.
   try {
-    const result = await client.tiktokAds(c.tiktokAdvertiser ?? c.name);
+    const result = await client.tiktokAds(c.tiktokAdvertiser ?? (update.metaPageName as string | undefined) ?? c.metaPageName ?? c.name);
     update.tiktokCandidates = JSON.stringify(result.matches);
     const who = c.tiktokAdvertiser ?? result.resolved;
     if (who) {
@@ -179,6 +186,33 @@ export async function setMetaPage(shop: string, competitorId: string, pageId: st
   ]);
   await refreshAds(competitorId, { client, force: true });
   return true;
+}
+
+// The page a merchant points to by its Facebook link or name, e.g.
+// "facebook.com/tinyboxcompany". Returns the page found, or null.
+export function metaQuery(input: string) {
+  const s = input.trim();
+  const m = s.match(/facebook\.com\/(?:pg\/)?([^/?#]+)/i);
+  const slug = m && !/^(pages|profile\.php|people)$/i.test(m[1]) ? decodeURIComponent(m[1]) : null;
+  return { query: (slug ?? s).slice(0, 200), slug };
+}
+
+export async function findMetaPage(shop: string, competitorId: string, input: string, client = adsClient()) {
+  const c = await db.competitor.findFirst({ where: { id: competitorId, shop } });
+  if (!c || !client) return null;
+  const { query, slug } = metaQuery(input);
+  if (!query) return null;
+  const pages = await client.metaPages(query);
+  const page =
+    (slug && pages.find((p) => p.alias && norm(p.alias) === norm(slug))) ||
+    pages.find((p) => norm(p.name) === norm(query)) ||
+    pickMetaPage(query, hostOf(c.url), pages) ||
+    pages[0];
+  if (!page) return null;
+  const old = parseList<MetaPage>(c.metaCandidates).filter((p) => p.id && p.id !== page.id);
+  await db.competitor.update({ where: { id: competitorId }, data: { metaCandidates: JSON.stringify([page, ...old].slice(0, 8)) } });
+  await setMetaPage(shop, competitorId, page.id, client);
+  return page;
 }
 
 export async function setTiktokAdvertiser(shop: string, competitorId: string, name: string, client = adsClient()) {
