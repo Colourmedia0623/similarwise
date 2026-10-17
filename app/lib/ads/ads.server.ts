@@ -1,14 +1,13 @@
 import db from "../../db.server";
 import { hostOf } from "../tracker/url";
 import { shopMarket } from "../traffic/refresh.server";
+import { PLATFORM_LABEL } from "./platforms";
 import { adsClient, type AdsClient, type AdsPage, type LibraryAd, type MetaPage, type Platform } from "./scrapecreators.server";
 
 // The ads each competitor runs on Meta (Facebook and Instagram), TikTok and
 // Google, from the platforms' public ad libraries. Refreshed weekly.
 
 const WEEK = 7 * 24 * 3600_000;
-
-export const PLATFORM_LABEL: Record<Platform, string> = { meta: "Meta", tiktok: "TikTok", google: "Google" };
 
 const norm = (s: string) => s.toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9]+/g, "");
 // "www.rival-store.co.uk" → "rivalstore"
