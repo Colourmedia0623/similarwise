@@ -395,6 +395,20 @@ model BlogArticle {
   error           String?
   createdAt       DateTime  @default(now())
   sentAt          DateTime?
+  imageAlt        String?   // Set once an image is made (ArticleImage)
+  imageError      String?
+
+  @@index([shop])
+}
+
+// The picture made for a blog article, served at /images/<articleId>.jpg so
+// Shopify can fetch it when the article is sent.
+model ArticleImage {
+  articleId String   @id
+  shop      String
+  mime      String   @default("image/jpeg")
+  data      Bytes
+  createdAt DateTime @default(now())
 
   @@index([shop])
 }
