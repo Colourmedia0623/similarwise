@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import db from "../../db.server";
-import { cleanHtml, parseArticle, sendArticle, writeArticle } from "./articles.server";
+import { atOrigin, cleanHtml, parseArticle, sendArticle, writeArticle } from "./articles.server";
 import type { Graphql } from "../prices/prices.server";
 
 const SHOP = "articles.myshopify.com";
@@ -20,6 +20,8 @@ describe("blog articles", () => {
     );
     expect(cleanHtml('<a href="//evil.com">x</a><a href="https://ok.com/a">y</a>')).toBe('<a>x</a><a href="https://ok.com/a">y</a>');
     expect(parseArticle({ title: "Hi", bodyHtml: "<p>too short</p>" })).toBeNull();
+    expect(atOrigin("https://giftboxes.co.uk/blogs/news/a", "https://gift-boxes-3000.myshopify.com")).toBe("https://gift-boxes-3000.myshopify.com/blogs/news/a");
+    expect(atOrigin("https://giftboxes.co.uk/blogs/news/a", null)).toBe("https://giftboxes.co.uk/blogs/news/a");
   });
 
   it("writes an article from an idea, then adds it to the shop's blog", async () => {

@@ -6,13 +6,16 @@ import { authenticate } from "../shopify.server";
 import { compact } from "../lib/format";
 import { contentCalendar, deletePost, editPost, planCalendar, setCalendarPublish, writePost } from "../lib/ideas/calendar.server";
 import type { Graphql } from "../lib/prices/prices.server";
+import { atOrigin, storeOrigin } from "../lib/ideas/articles.server";
 
 // Content calendar: a blog post a day planned from the keyword gap, each
 // written and sent to the shop's blog on its day.
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
-  return contentCalendar(session.shop);
+  const { admin, session } = await authenticate.admin(request);
+  const graphql: Graphql = async (query, variables) => (await admin.graphql(query, { variables })).json();
+  const [calendar, origin] = await Promise.all([contentCalendar(session.shop), storeOrigin(graphql)]);
+  return { ...calendar, posts: calendar.posts.map((p) => ({ ...p, url: atOrigin(p.url, origin) })) };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
