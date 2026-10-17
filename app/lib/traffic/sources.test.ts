@@ -51,6 +51,46 @@ describe("traffic sources", () => {
     expect(Object.keys(site.sources).sort()).toEqual(["direct", "search", "social"]);
   });
 
+  it("reads locaihost's full channel split and countries", () => {
+    const [site] = parseSites([
+      {
+        domain: "tinyboxcompany.co.uk",
+        trafficAvailable: true,
+        monthlyVisits: 87268,
+        topTrafficSource: "Direct",
+        trafficSources: {
+          direct: 0.3728,
+          organicSearch: 0.2351,
+          paidSearch: 0.2624,
+          referrals: 0.0519,
+          socialOrganic: 0.0007,
+          socialPaid: 0.0047,
+          email: 0.011,
+          displayAds: 0.0435,
+          affiliates: 0,
+          aiChatbots: 0.0179,
+        },
+        topCountries: [
+          { country: "GB", share: 0.8711 },
+          { country: "US", share: 0.0275 },
+        ],
+        trafficError: null,
+      },
+    ]);
+    expect(site).toMatchObject({
+      domain: "tinyboxcompany.co.uk",
+      visits: 87268,
+      error: null,
+      countries: [
+        { code: "GB", share: 0.8711 },
+        { code: "US", share: 0.0275 },
+      ],
+    });
+    expect(site.sources).toMatchObject({ direct: 0.3728, search: 0.2351, paidSearch: 0.2624, referrals: 0.0519, email: 0.011, display: 0.0435 });
+    expect(site.sources.social).toBeCloseTo(0.0054);
+    expect(site.sources.other).toBeCloseTo(0.0179);
+  });
+
   it("reads due domains in one run, weekly", async () => {
     const runs: string[][] = [];
     const client: SourcesClient = {

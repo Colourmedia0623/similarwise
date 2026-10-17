@@ -2,12 +2,12 @@ import db from "../../db.server";
 import type { Shares, Source } from "./sources";
 
 // Where websites' visits come from, and from which countries: Similarweb's
-// public estimates, read through Apify's Similarweb scraper, one run for all the
+// public estimates, read through an Apify scraper, one run for all the
 // domains that are due. Off unless APIFY_TOKEN is set. Sites too small for
 // Similarweb come back with no figures.
 
 const WEEK = 7 * 24 * 3600_000;
-const ACTOR = "tri_angle~similarweb-scraper";
+const ACTOR = "locaihost~website-traffic";
 
 export type SiteFigures = { domain: string; visits: number | null; sources: Shares; countries: { code: string; share: number }[]; error: string | null };
 export type SourcesClient = { sites(domains: string[]): Promise<SiteFigures[]> };
@@ -31,6 +31,14 @@ const FOLD: Record<string, Source> = {
   display_ads: "display",
   gen_ai: "other",
   affiliate: "other",
+  organicSearch: "search",
+  paidSearch: "paidSearch",
+  socialOrganic: "social",
+  socialPaid: "social",
+  email: "email",
+  displayAds: "display",
+  affiliates: "other",
+  aiChatbots: "other",
   organic: "search",
   paid: "paidSearch",
   ads: "display",
@@ -55,8 +63,13 @@ export function parseSites(json: unknown): SiteFigures[] {
       ? Object.fromEntries(listed.map(obj).flatMap((o) => (typeof o.source === "string" ? [[o.source, o.percentage ?? o.share]] : [])))
       : obj(listed);
     const sources: Shares = {};
+    // Each field counts once, though snake_case names also match camelCase.
+    const read = new Set<string>();
     for (const [from, to] of Object.entries(FOLD)) {
-      const v = share(raw[from] ?? (from.includes("_") ? raw[camel(from)] : undefined));
+      const key = from in raw ? from : camel(from);
+      if (read.has(key)) continue;
+      read.add(key);
+      const v = share(raw[key]);
       if (v > 0) sources[to] = (sources[to] ?? 0) + v;
     }
     // One search share, with organic and paid given as parts of it.
@@ -70,11 +83,11 @@ export function parseSites(json: unknown): SiteFigures[] {
     }
     const countries = (Array.isArray(a.top_countries ?? a.topCountries) ? ((a.top_countries ?? a.topCountries) as unknown[]) : []).flatMap((c) => {
       const o = obj(c);
-      const code = o.cc ?? o.countryCode ?? o.country_code ?? o.countryAlpha2Code;
+      const code = o.cc ?? o.countryCode ?? o.country_code ?? o.countryAlpha2Code ?? o.country;
       const s = share(o.share ?? o.visitsShare ?? o.visits_share);
       return typeof code === "string" && s > 0 ? [{ code: code.toUpperCase().slice(0, 2), share: s }] : [];
     });
-    const visits = num(a.monthly_visits_avg ?? a.monthlyVisitsAvg ?? a.totalVisits ?? a.visits);
+    const visits = num(a.monthly_visits_avg ?? a.monthlyVisitsAvg ?? a.monthlyVisits ?? a.totalVisits ?? a.visits);
     const empty = Object.keys(sources).length === 0;
     return [
       {
@@ -82,7 +95,7 @@ export function parseSites(json: unknown): SiteFigures[] {
         visits: visits != null && visits > 0 ? Math.round(visits) : null,
         sources,
         countries: countries.slice(0, 5),
-        error: typeof a.error === "string" && a.error ? a.error.slice(0, 200) : empty ? "Too few visitors for Similarweb to estimate" : null,
+        error: typeof (a.error ?? a.trafficError) === "string" && (a.error ?? a.trafficError) ? String(a.error ?? a.trafficError).slice(0, 200) : empty ? "Too few visitors for Similarweb to estimate" : null,
       },
     ];
   });
@@ -96,7 +109,7 @@ export function sourcesClient(): SourcesClient | null {
       const res = await fetch(`https://api.apify.com/v2/acts/${ACTOR}/run-sync-get-dataset-items?timeout=280`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ websites: domains }),
+        body: JSON.stringify({ domains, includeWebsiteChecks: false }),
         signal: AbortSignal.timeout(300_000),
       });
       if (!res.ok) throw new Error(`Apify answered ${res.status}`);
