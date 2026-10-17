@@ -9,6 +9,21 @@ import { marketFor } from "./markets";
 
 const WEEK = 7 * 24 * 3600_000;
 
+// Picks a new shop's market from its store country, the first time it opens
+// the app. Countries without a market keep the default. A shop that has
+// already chosen a market is left alone.
+export async function detectShopMarket(shop: string, readCountry: () => Promise<string | null>) {
+  if (await db.shopSettings.findUnique({ where: { shop } })) return;
+  let country: string | null = null;
+  try {
+    country = await readCountry();
+  } catch {
+    // Not knowing the country is fine: they can pick the market themselves.
+  }
+  const market = marketFor(country);
+  await db.shopSettings.upsert({ where: { shop }, create: { shop, market: market.code }, update: {} });
+}
+
 export async function shopMarket(shop: string) {
   const s = await db.shopSettings.findUnique({ where: { shop } });
   return marketFor(s?.market);
