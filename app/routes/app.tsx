@@ -6,9 +6,15 @@ import { AppProvider } from "@shopify/shopify-app-react-router/react";
 import type {} from "@shopify/app-bridge-react";
 
 import { authenticate } from "../shopify.server";
+import { detectShopMarket } from "../lib/traffic/refresh.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
+  await detectShopMarket(session.shop, async () => {
+    const res = await admin.graphql(`{ shop { billingAddress { countryCodeV2 } } }`);
+    const { data } = await res.json();
+    return data?.shop?.billingAddress?.countryCodeV2 ?? null;
+  });
   // eslint-disable-next-line no-undef
   return { apiKey: process.env.SHOPIFY_API_KEY || "" };
 };

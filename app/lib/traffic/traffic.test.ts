@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import db from "../../db.server";
 import { parseKeywords, parseOverview, type DomainTraffic, type TrafficClient } from "./dataforseo.server";
 import { marketFor } from "./markets";
-import { refreshTraffic, setShopMarket, trafficChanges } from "./refresh.server";
+import { detectShopMarket, refreshTraffic, setShopMarket, shopMarket, trafficChanges } from "./refresh.server";
 
 const ok = (result: unknown[]) => ({ status_code: 20000, tasks: [{ status_code: 20000, result }] });
 
@@ -168,5 +168,29 @@ describe("refreshTraffic", () => {
     const c = await db.competitor.create({ data: { shop: SHOP, url: "https://rival.com", name: "Rival" } });
     await refreshTraffic(c.id, { client: null });
     expect((await db.competitor.findUniqueOrThrow({ where: { id: c.id } })).trafficAt).toBeNull();
+  });
+});
+
+describe("detectShopMarket", () => {
+  beforeEach(async () => {
+    await db.shopSettings.deleteMany();
+  });
+
+  it("starts a new shop on its store country, and never overrides a choice", async () => {
+    await detectShopMarket("uk.myshopify.com", async () => "GB");
+    expect((await shopMarket("uk.myshopify.com")).code).toBe("GB");
+
+    await setShopMarket("uk.myshopify.com", "DE", null);
+    await detectShopMarket("uk.myshopify.com", async () => "GB");
+    expect((await shopMarket("uk.myshopify.com")).code).toBe("DE");
+  });
+
+  it("falls back to the default for unknown countries or a failed lookup", async () => {
+    await detectShopMarket("jp.myshopify.com", async () => "JP");
+    expect((await shopMarket("jp.myshopify.com")).code).toBe("US");
+    await detectShopMarket("down.myshopify.com", async () => {
+      throw new Error("offline");
+    });
+    expect((await shopMarket("down.myshopify.com")).code).toBe("US");
   });
 });
