@@ -29,6 +29,8 @@ jobs:
           # Alert and weekly emails, sent through Resend; off until the key is set.
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           EMAIL_FROM: ${{ vars.EMAIL_FROM }}
+          # Competitor ads from the Meta, TikTok and Google ad libraries; off until set.
+          SCRAPECREATORS_API_KEY: ${{ secrets.SCRAPECREATORS_API_KEY }}
         run: |
           scopes=$(sed -n 's/^scopes = "\(.*\)"/\1/p' shopify.app.toml)
           {
@@ -41,6 +43,7 @@ jobs:
             echo "DATAFORSEO_PASSWORD=$DATAFORSEO_PASSWORD"
             echo "RESEND_API_KEY=$RESEND_API_KEY"
             echo "EMAIL_FROM=$EMAIL_FROM"
+            echo "SCRAPECREATORS_API_KEY=$SCRAPECREATORS_API_KEY"
           } > deploy/.env
 
       # Build here rather than on the small EC2 instance, reusing CI's layer cache.
