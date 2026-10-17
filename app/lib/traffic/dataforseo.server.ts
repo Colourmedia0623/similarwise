@@ -32,7 +32,7 @@ const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : n
 const whole = (v: unknown) => Math.max(0, Math.round(num(v) ?? 0));
 
 // One task's result list, or an error naming what DataForSEO said.
-function taskResult(json: unknown): Record<string, unknown>[] {
+export function taskResult(json: unknown): Record<string, unknown>[] {
   const body = json as { status_code?: number; status_message?: string; tasks?: unknown[] } | null;
   if (!body || body.status_code !== 20000) throw new Error(`DataForSEO: ${body?.status_message ?? "no response"}`);
   const task = body.tasks?.[0] as { status_code?: number; status_message?: string; result?: unknown[] } | undefined;
@@ -76,7 +76,7 @@ export function parseKeywords(json: unknown): RankedKeyword[] {
 }
 
 // Posts one task to DataForSEO, or null when it isn't set up.
-function poster() {
+export function poster() {
   const login = process.env.DATAFORSEO_LOGIN;
   const password = process.env.DATAFORSEO_PASSWORD;
   if (!login || !password) return null;
