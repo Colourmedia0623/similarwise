@@ -433,3 +433,25 @@ model PlannedPost {
   @@index([shop, day])
   @@index([status, day])
 }
+
+// An outreach email to a site in the link gap (lib/links/outreach), sent by the
+// merchant from their own mailbox, and where it got to.
+model Outreach {
+  id             String    @id @default(cuid())
+  shop           String
+  domain         String
+  siteTitle      String?
+  emails         String    @default("[]") // JSON list of addresses found on the site
+  to             String?
+  subject        String
+  body           String
+  status         String    @default("draft") // draft | sent | replied | linked | declined
+  sentAt         DateTime?
+  followUps      Int       @default(0)
+  lastSentAt     DateTime? // The first email or the latest follow-up
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([shop, domain])
+  @@index([shop])
+}
