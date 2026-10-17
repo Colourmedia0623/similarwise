@@ -2,12 +2,12 @@ import db from "../../db.server";
 import type { Shares, Source } from "./sources";
 
 // Where websites' visits come from, and from which countries: Similarweb's
-// public estimates, read through an Apify scraper, one run for all the
+// public estimates, read through Apify's Similarweb scraper, one run for all the
 // domains that are due. Off unless APIFY_TOKEN is set. Sites too small for
 // Similarweb come back with no figures.
 
 const WEEK = 7 * 24 * 3600_000;
-const ACTOR = "bovi~similarweb-scraper";
+const ACTOR = "tri_angle~similarweb-scraper";
 
 export type SiteFigures = { domain: string; visits: number | null; sources: Shares; countries: { code: string; share: number }[]; error: string | null };
 export type SourcesClient = { sites(domains: string[]): Promise<SiteFigures[]> };
@@ -15,9 +15,11 @@ export type SourcesClient = { sites(domains: string[]): Promise<SiteFigures[]> }
 type Json = Record<string, unknown>;
 const obj = (v: unknown): Json => (v && typeof v === "object" && !Array.isArray(v) ? (v as Json) : {});
 const share = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? (v > 1 ? v / 100 : v) : 0);
+const num = (v: unknown) => (typeof v === "number" ? v : typeof v === "string" && v.trim() && Number.isFinite(Number(v)) ? Number(v) : null);
 const bare = (d: string) => d.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, "");
 
-// Similarweb's ten channels, folded into the eight the page shows.
+// Similarweb's channels, folded into the eight the page shows. Scrapers name
+// them differently; both spellings below are read.
 const FOLD: Record<string, Source> = {
   direct: "direct",
   search_organic: "search",
@@ -29,32 +31,47 @@ const FOLD: Record<string, Source> = {
   display_ads: "display",
   gen_ai: "other",
   affiliate: "other",
+  directVisitsShare: "direct",
+  referralVisitsShare: "referrals",
+  socialNetworksVisitsShare: "social",
+  mailVisitsShare: "email",
+  adsVisitsShare: "display",
 };
 const camel = (k: string) => k.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
 
 export function parseSites(json: unknown): SiteFigures[] {
   return (Array.isArray(json) ? json : []).flatMap((r) => {
     const a = obj(r);
-    const domain = typeof a.domain === "string" ? bare(a.domain) : null;
+    const name = a.domain ?? a.name;
+    const domain = typeof name === "string" ? bare(name) : null;
     if (!domain) return [];
     const raw = obj(a.traffic_sources ?? a.trafficSources);
     const sources: Shares = {};
     for (const [from, to] of Object.entries(FOLD)) {
-      const v = share(raw[from] ?? raw[camel(from)]);
+      const v = share(raw[from] ?? (from.includes("_") ? raw[camel(from)] : undefined));
       if (v > 0) sources[to] = (sources[to] ?? 0) + v;
+    }
+    // One search share, with organic and paid given as parts of it.
+    const search = share(raw.searchVisitsShare);
+    if (search > 0) {
+      const organic = typeof a.organicTraffic === "number" ? a.organicTraffic : null;
+      const paid = typeof a.paidTraffic === "number" ? a.paidTraffic : null;
+      const split = organic != null && paid != null && organic + paid > 0 ? paid / (organic + paid) : 0;
+      sources.search = (sources.search ?? 0) + search * (1 - split);
+      if (split > 0) sources.paidSearch = (sources.paidSearch ?? 0) + search * split;
     }
     const countries = (Array.isArray(a.top_countries ?? a.topCountries) ? ((a.top_countries ?? a.topCountries) as unknown[]) : []).flatMap((c) => {
       const o = obj(c);
-      const code = o.cc ?? o.countryCode ?? o.country_code;
+      const code = o.cc ?? o.countryCode ?? o.country_code ?? o.countryAlpha2Code;
       const s = share(o.share ?? o.visitsShare ?? o.visits_share);
       return typeof code === "string" && s > 0 ? [{ code: code.toUpperCase().slice(0, 2), share: s }] : [];
     });
-    const visits = a.monthly_visits_avg ?? a.monthlyVisitsAvg ?? a.visits;
+    const visits = num(a.monthly_visits_avg ?? a.monthlyVisitsAvg ?? a.totalVisits ?? a.visits);
     const empty = Object.keys(sources).length === 0;
     return [
       {
         domain,
-        visits: typeof visits === "number" && visits > 0 ? Math.round(visits) : null,
+        visits: visits != null && visits > 0 ? Math.round(visits) : null,
         sources,
         countries: countries.slice(0, 5),
         error: typeof a.error === "string" && a.error ? a.error.slice(0, 200) : empty ? "Too few visitors for Similarweb to estimate" : null,
@@ -71,7 +88,7 @@ export function sourcesClient(): SourcesClient | null {
       const res = await fetch(`https://api.apify.com/v2/acts/${ACTOR}/run-sync-get-dataset-items?timeout=280`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ domains }),
+        body: JSON.stringify({ websites: domains }),
         signal: AbortSignal.timeout(300_000),
       });
       if (!res.ok) throw new Error(`Apify answered ${res.status}`);

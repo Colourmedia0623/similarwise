@@ -26,6 +26,24 @@ describe("traffic sources", () => {
     expect(small.error).toMatch(/Too few visitors/);
   });
 
+  it("reads the other scraper's shape too", () => {
+    const [site] = parseSites([
+      {
+        url: "https://similarweb.com/website/tinyboxcompany.co.uk/",
+        name: "tinyboxcompany.co.uk",
+        totalVisits: 61234,
+        organicTraffic: 0.8,
+        paidTraffic: 0.2,
+        trafficSources: { directVisitsShare: 0.4, referralVisitsShare: 0.05, searchVisitsShare: 0.5, socialNetworksVisitsShare: 0.03, mailVisitsShare: 0.01, adsVisitsShare: 0.01 },
+        topCountries: [{ countryAlpha2Code: "GB", visitsShare: 0.92 }],
+      },
+    ]);
+    expect(site).toMatchObject({ domain: "tinyboxcompany.co.uk", visits: 61234, countries: [{ code: "GB", share: 0.92 }], error: null });
+    expect(site.sources.search).toBeCloseTo(0.4);
+    expect(site.sources.paidSearch).toBeCloseTo(0.1);
+    expect(site.sources).toMatchObject({ direct: 0.4, referrals: 0.05, social: 0.03, email: 0.01, display: 0.01 });
+  });
+
   it("reads due domains in one run, weekly", async () => {
     const runs: string[][] = [];
     const client: SourcesClient = {
