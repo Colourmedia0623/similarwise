@@ -172,9 +172,14 @@ function PostRow({ p, today }: { p: Post; today: string }) {
           {!editing && (
             <s-stack direction="inline" gap="small" alignItems="center">
               <Status p={p} writing={writing} />
-              {p.url && (
+              {p.url && p.sentAs === "published" && (
                 <s-link href={p.url} target="_blank">
                   View on your store
+                </s-link>
+              )}
+              {p.shopifyId && (
+                <s-link href={`shopify://admin/articles/${p.shopifyId.split("/").pop()}`} target="_blank">
+                  Open in Shopify
                 </s-link>
               )}
               {p.status === "done" && !p.url && <Link to="/app/articles">Read it</Link>}

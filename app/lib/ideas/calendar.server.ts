@@ -218,7 +218,7 @@ export async function contentCalendar(shop: string, now = new Date()) {
   ]);
   const articles = await db.blogArticle.findMany({
     where: { shop, id: { in: posts.flatMap((p) => (p.articleId ? [p.articleId] : [])) } },
-    select: { id: true, url: true, status: true },
+    select: { id: true, url: true, status: true, shopifyId: true },
   });
   const byId = new Map(articles.map((a) => [a.id, a]));
   // Posts that went out more than a fortnight ago drop off the list.
@@ -239,6 +239,7 @@ export async function contentCalendar(shop: string, now = new Date()) {
         error: p.error,
         url: (p.articleId && byId.get(p.articleId)?.url) || null,
         sentAs: (p.articleId && byId.get(p.articleId)?.status) || null,
+        shopifyId: (p.articleId && byId.get(p.articleId)?.shopifyId) || null,
       })),
   };
 }

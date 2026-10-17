@@ -72,9 +72,14 @@ function ArticleCard({ a }: { a: Article }) {
           <s-text color="subdued">
             For “{a.keyword}”{a.searchVolume != null ? `, ${compact(a.searchVolume)} searches a month` : ""}
           </s-text>
-          {a.url && (
+          {a.url && a.status === "published" && (
             <s-link href={a.url} target="_blank">
               View on your store
+            </s-link>
+          )}
+          {a.shopifyId && (
+            <s-link href={`shopify://admin/articles/${a.shopifyId.split("/").pop()}`} target="_blank">
+              Open in Shopify
             </s-link>
           )}
         </s-stack>
