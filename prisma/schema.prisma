@@ -175,6 +175,9 @@ model ShopSettings {
   digestOn     Boolean   @default(true)  // The Monday summary
   alertsSentAt DateTime? // Changes up to here have been emailed
   digestSentAt DateTime?
+
+  // Content calendar (lib/ideas/calendar): planned posts go on the blog published, or as hidden drafts.
+  calendarPublish Boolean @default(true)
 }
 
 // A competitor's search numbers on each traffic refresh, for trends.
@@ -371,4 +374,47 @@ model SimilarSite {
   similarTo      String @default("[]") // JSON list of the sites it competes with ("you" for the shop)
 
   @@unique([shop, domain])
+}
+
+// A blog article Claude wrote for a keyword idea, kept here until the
+// merchant sends it to their Shopify blog (lib/ideas/articles).
+model BlogArticle {
+  id              String    @id @default(cuid())
+  shop            String
+  keyword         String
+  searchVolume    Int?
+  title           String
+  summary         String
+  bodyHtml        String
+  metaTitle       String
+  metaDescription String
+  tags            String    @default("[]") // JSON list
+  status          String    @default("written") // written | draft | published
+  shopifyId       String?   // Admin API id once it's on the blog
+  url             String?   // Where it lives on the storefront
+  error           String?
+  createdAt       DateTime  @default(now())
+  sentAt          DateTime?
+
+  @@index([shop])
+}
+
+// One day's post on the content calendar: written and sent to the shop's blog
+// on its day by the hourly schedule.
+model PlannedPost {
+  id           String    @id @default(cuid())
+  shop         String
+  day          String    // YYYY-MM-DD, UTC
+  keyword      String
+  searchVolume Int?
+  title        String
+  angle        String    @default("")
+  status       String    @default("planned") // planned | writing | done | failed
+  claimedAt    DateTime? // When writing started, so a crashed run can be picked up again
+  articleId    String?
+  error        String?
+  createdAt    DateTime  @default(now())
+
+  @@index([shop, day])
+  @@index([status, day])
 }
