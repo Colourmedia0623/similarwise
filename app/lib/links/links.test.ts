@@ -27,16 +27,16 @@ describe("link gap", () => {
     expect(() => parseLinkingSites({ status_code: 20000, tasks: [{ status_code: 40204, status_message: "Access denied." }] })).toThrow(/Access denied/);
   });
 
-  it("puts sites linking to several competitors first, and says when Backlinks is off", async () => {
+  it("ranks sites by authority and competitor count, and says when Backlinks is off", async () => {
     await db.shopSettings.create({ data: { shop: SHOP, domain: "mine.com" } });
     const rival = await db.competitor.create({ data: { shop: SHOP, name: "Rival", url: "https://rival.com" } });
     const other = await db.competitor.create({ data: { shop: SHOP, name: "Other", url: "https://other.com" } });
-    const sites: Record<string, string[]> = { "rival.com": ["blog.com", "big.com", "other.com"], "other.com": ["blog.com", "mine.com"] };
+    const sites: Record<string, string[]> = { "rival.com": ["blog.com", "big.com", "other.com", "zero.com", "uk.pinterest.com"], "other.com": ["blog.com", "mine.com", "zero.com"] };
     const calls: string[] = [];
     const client: LinksClient = {
       async linkingSites(theirs, yours) {
         calls.push(`${theirs}-${yours}`);
-        return sites[theirs].map((domain) => ({ domain, rank: domain === "big.com" ? 80 : 20, backlinks: 2, firstSeen: null }));
+        return sites[theirs].map((domain) => ({ domain, rank: domain === "big.com" ? 80 : domain === "zero.com" ? 0 : 20, backlinks: 2, firstSeen: null }));
       },
     };
     const now = new Date("2026-10-17T00:00:00Z");
@@ -46,11 +46,13 @@ describe("link gap", () => {
     expect(calls).toEqual(["rival.com-mine.com", "other.com-mine.com"]);
 
     const gap = await linkGap(SHOP);
-    expect(gap.sites.map((s) => [s.domain, s.competitors.map((c) => c.name)])).toEqual([
-      ["blog.com", ["Rival", "Other"]],
-      ["big.com", ["Rival"]],
+    expect(gap.sites.map((s) => [s.domain, s.competitors.map((c) => c.name), s.platform])).toEqual([
+      ["big.com", ["Rival"], false],
+      ["blog.com", ["Rival", "Other"], false],
+      ["uk.pinterest.com", ["Rival"], true],
+      ["zero.com", ["Rival", "Other"], false],
     ]);
-    expect(gap.shared).toBe(1);
+    expect(gap.shared).toBe(2);
 
     await refreshLinks(rival.id, {
       force: true,
@@ -62,7 +64,7 @@ describe("link gap", () => {
     });
     expect((await linkGap(SHOP)).competitors[0].error).toMatch(/Backlinks aren't switched on/);
     // The old rows stay.
-    expect((await linkGap(SHOP)).sites).toHaveLength(2);
+    expect((await linkGap(SHOP)).sites).toHaveLength(4);
   });
 
   it("writes a pitch for a site in the gap", async () => {

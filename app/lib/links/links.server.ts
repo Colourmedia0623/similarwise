@@ -6,7 +6,7 @@ import { claudeJson } from "../ideas/claude.server";
 
 // The link gap: websites that link to a competitor but not to the shop, from
 // DataForSEO Backlinks. Sites linking to several competitors come first, as
-// they're the likeliest to link to the shop too. Refreshed weekly; uses the
+// they're the likeliest to link to the shop too, weighted by authority. Refreshed weekly; uses the
 // same DataForSEO login as the search data, with Backlinks switched on.
 
 const WEEK = 7 * 24 * 3600_000;
@@ -81,10 +81,29 @@ export async function refreshLinks(
   }
 }
 
-export type LinkRow = { domain: string; rank: number | null; competitors: { id: string; name: string; backlinks: number | null }[] };
+// Sites where the shop posts its own profile or work rather than asking anyone
+// for a link, so they get "Post here" instead of an outreach email.
+const PLATFORMS = [
+  "pinterest.com", "behance.net", "dribbble.com", "instagram.com", "facebook.com", "youtube.com", "linkedin.com",
+  "x.com", "twitter.com", "tiktok.com", "reddit.com", "medium.com", "tumblr.com", "flickr.com", "issuu.com",
+  "quora.com", "etsy.com", "wordpress.com", "blogspot.com", "substack.com", "vimeo.com", "trustpilot.com",
+];
+
+export const isPlatform = (domain: string) => PLATFORMS.some((p) => domain === p || domain.endsWith(`.${p}`));
+
+export type LinkRow = {
+  domain: string;
+  rank: number | null;
+  platform: boolean;
+  competitors: { id: string; name: string; backlinks: number | null }[];
+};
+
+// Authority times the number of competitors it links to, so a strong site
+// linking to one competitor beats a worthless one linking to several.
+const score = (r: LinkRow) => (r.rank ?? 0) * r.competitors.length;
 
 // One row per linking site across the shop's competitors, worked out against
-// its current website: most competitors first, then highest rank.
+// its current website, best first.
 export async function linkGap(shop: string) {
   const [domain, competitors] = await Promise.all([
     shopDomain(shop),
@@ -96,13 +115,15 @@ export async function linkGap(shop: string) {
     if (c.linksDomain !== domain) continue;
     for (const l of c.links) {
       if (own.has(l.domain)) continue;
-      const row = rows.get(l.domain) ?? { domain: l.domain, rank: l.rank, competitors: [] };
+      const row = rows.get(l.domain) ?? { domain: l.domain, rank: l.rank, platform: isPlatform(l.domain), competitors: [] };
       if (l.rank != null) row.rank = Math.max(row.rank ?? 0, l.rank);
       row.competitors.push({ id: c.id, name: c.name, backlinks: l.backlinks });
       rows.set(l.domain, row);
     }
   }
-  const sites = [...rows.values()].sort((a, b) => b.competitors.length - a.competitors.length || (b.rank ?? 0) - (a.rank ?? 0) || a.domain.localeCompare(b.domain));
+  const sites = [...rows.values()].sort(
+    (a, b) => score(b) - score(a) || b.competitors.length - a.competitors.length || (b.rank ?? 0) - (a.rank ?? 0) || a.domain.localeCompare(b.domain),
+  );
   return {
     domain,
     competitors: competitors.map((c) => ({ id: c.id, name: c.name, ready: c.linksAt != null && c.linksDomain === domain, error: c.linksError })),
