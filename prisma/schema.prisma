@@ -148,3 +148,18 @@ model CompetitorKeyword {
 
   @@index([competitorId, type])
 }
+
+// A merchant's answers to the early-access survey on the public landing page.
+// One row per email: answering again replaces the earlier answers.
+model WaitlistEntry {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  store     String?
+  revenue   String
+  tracking  String   // JSON list of how they watch competitors today
+  features  String   // JSON list of up to three features they want most
+  price     String
+  question  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

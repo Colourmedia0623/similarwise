@@ -7,6 +7,7 @@ import type {} from "@shopify/app-bridge-react";
 
 import { authenticate } from "../shopify.server";
 import { detectShopMarket } from "../lib/traffic/refresh.server";
+import { isOwnerShop } from "../lib/survey.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
@@ -16,17 +17,18 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     return data?.shop?.billingAddress?.countryCodeV2 ?? null;
   });
   // eslint-disable-next-line no-undef
-  return { apiKey: process.env.SHOPIFY_API_KEY || "" };
+  return { apiKey: process.env.SHOPIFY_API_KEY || "", owner: isOwnerShop(session.shop) };
 };
 
 export default function App() {
-  const { apiKey } = useLoaderData<typeof loader>();
+  const { apiKey, owner } = useLoaderData<typeof loader>();
 
   return (
     <AppProvider apiKey={apiKey}>
       <s-app-nav>
         <s-link href="/app">Overview</s-link>
         <s-link href="/app/competitors">Competitors</s-link>
+        {owner && <s-link href="/app/survey">Survey results</s-link>}
       </s-app-nav>
       <Outlet />
     </AppProvider>

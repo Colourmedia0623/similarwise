@@ -4,7 +4,7 @@ import type { MetaFunction } from "react-router";
 // landing page. Keep it in step with what the app stores (prisma/schema.prisma).
 
 const CONTACT = "info@colourmedia.net";
-const UPDATED = "16 October 2026";
+const UPDATED = "17 October 2026";
 
 export const meta: MetaFunction = () => [{ title: "Similarwise privacy policy" }];
 
@@ -43,6 +43,13 @@ export default function Privacy() {
         and tracking pixels it loads) and, for Shopify stores, the public product catalogue (product names, prices and
         publish dates). It keeps a history of those details so it can show what changed. It holds no personal
         information from those stores.
+      </p>
+
+      <h2>Early-access waitlist</h2>
+      <p>
+        If you join the waitlist on our website, we keep your email address, your store&apos;s website if you give it,
+        and your survey answers. We use them only to tell you when Similarwise opens to more stores and to decide what
+        to build. We don&apos;t share them. Email us to have them deleted.
       </p>
 
       <h2>How long it is kept</h2>
