@@ -2,6 +2,7 @@ import db from "../../db.server";
 import { claudeJson, type AskJson } from "./claude.server";
 import { shopDomain } from "../traffic/gap.server";
 import type { Graphql } from "../prices/prices.server";
+import { imageClient, imageUrl, makeArticleImage, type MakeImage } from "./images.server";
 
 // Blog articles: Claude writes a full post for one of the shop's keyword
 // ideas, linking to the shop's own products, and the merchant sends it to
@@ -85,7 +86,14 @@ export async function writeArticle(shop: string, ideaId: string, ask: AskJson | 
 }
 
 // Writes an article for one search, from an idea or the content calendar.
-export async function writeTopic(shop: string, topic: Topic, ask: AskJson | null = claudeJson()): Promise<{ id?: string; error?: string }> {
+// The article's picture is made straight after; the article is kept without
+// one if that fails.
+export async function writeTopic(
+  shop: string,
+  topic: Topic,
+  ask: AskJson | null = claudeJson(),
+  make: MakeImage | null = imageClient(),
+): Promise<{ id?: string; error?: string }> {
   if (!ask) return { error: "Blog articles aren't switched on for this app yet." };
   const [website, settings, products] = await Promise.all([
     shopDomain(shop),
@@ -110,6 +118,7 @@ export async function writeTopic(shop: string, topic: Topic, ask: AskJson | null
   const row = await db.blogArticle.create({
     data: { shop, keyword: topic.keyword, searchVolume: topic.searchVolume, ...article, tags: JSON.stringify(article.tags) },
   });
+  if (make) await makeArticleImage(shop, row.id, make);
   return { id: row.id };
 }
 
@@ -159,6 +168,7 @@ export async function sendArticle(shop: string, id: string, publish: boolean, gr
         tags: JSON.parse(a.tags) as string[],
         author: { name: "SimilarWise" },
         isPublished: publish,
+        ...(a.imageAlt ? { image: { url: imageUrl(a.id), altText: a.imageAlt } } : {}),
         ...(publish ? { publishDate: now.toISOString() } : {}),
         metafields: [
           { namespace: "global", key: "title_tag", type: "single_line_text_field", value: a.metaTitle },
@@ -208,7 +218,8 @@ export async function storeOrigin(graphql: Graphql) {
 export const atOrigin = (url: string | null, origin: string | null) => (url && origin ? url.replace(/^https?:\/\/[^/]+/, origin) : url);
 
 export async function deleteArticle(shop: string, id: string) {
-  await db.blogArticle.deleteMany({ where: { id, shop, shopifyId: null } });
+  const { count } = await db.blogArticle.deleteMany({ where: { id, shop, shopifyId: null } });
+  if (count) await db.articleImage.deleteMany({ where: { articleId: id, shop } });
 }
 
 export async function blogArticles(shop: string) {

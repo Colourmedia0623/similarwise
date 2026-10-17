@@ -5,6 +5,7 @@ import { authenticate } from "../shopify.server";
 import { compact } from "../lib/format";
 import { atOrigin, blogArticles, deleteArticle, sendArticle, storeOrigin } from "../lib/ideas/articles.server";
 import type { Graphql } from "../lib/prices/prices.server";
+import { makeArticleImage } from "../lib/ideas/images.server";
 
 // Blog articles written from keyword ideas, to read through and send to the
 // shop's Shopify blog.
@@ -21,6 +22,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const form = await request.formData();
   const id = String(form.get("id") ?? "");
   const intent = form.get("intent");
+  if (intent === "image") return { id, ...(await makeArticleImage(session.shop, id)), at: Date.now() };
   if (intent === "delete") {
     await deleteArticle(session.shop, id);
     return { id, ok: true as const };
@@ -86,6 +88,7 @@ function ArticleCard({ a }: { a: Article }) {
           )}
         </s-stack>
         {error && <s-banner tone="warning">{error}</s-banner>}
+        <ArticlePicture a={a} />
         <s-text color="subdued">
           Google shows: <strong>{a.metaTitle}</strong> · {a.metaDescription}
         </s-text>
@@ -106,8 +109,33 @@ function ArticleCard({ a }: { a: Article }) {
           </s-stack>
         )}
       </s-stack>
-      <style>{`.sw-article { max-height: 420px; overflow: auto; font-size: 14px; line-height: 1.55; } .sw-article h2 { font-size: 17px; margin: 16px 0 6px; } .sw-article h3 { font-size: 15px; margin: 12px 0 4px; } .sw-article p, .sw-article ul, .sw-article ol { margin: 0 0 10px; }`}</style>
+      <style>{`.sw-picture { display: block; width: 100%; max-width: 640px; aspect-ratio: 3 / 2; object-fit: cover; border-radius: 8px; } .sw-article { max-height: 420px; overflow: auto; font-size: 14px; line-height: 1.55; } .sw-article h2 { font-size: 17px; margin: 16px 0 6px; } .sw-article h3 { font-size: 15px; margin: 12px 0 4px; } .sw-article p, .sw-article ul, .sw-article ol { margin: 0 0 10px; }`}</style>
     </s-section>
+  );
+}
+
+// The article's picture, which goes on the blog as the post's main image,
+// with a button to make one (or another) before it's sent.
+function ArticlePicture({ a }: { a: Article }) {
+  const make = useFetcher<typeof action>();
+  const made = make.data && "ok" in make.data && make.data.id === a.id;
+  // A new address after each remake, so the browser shows the new picture.
+  const version = make.data && "at" in make.data ? make.data.at : 0;
+  const error = make.state === "idle" && make.data && "error" in make.data ? make.data.error : a.imageError;
+  const busy = make.state !== "idle";
+  return (
+    <s-stack gap="small">
+      {(a.imageAlt || made) && <img className="sw-picture" src={`/images/${a.id}.jpg?v=${version}`} alt={a.imageAlt ?? a.title} />}
+      {!a.shopifyId && (
+        <s-stack direction="inline" gap="small" alignItems="center">
+          <s-button loading={busy} onClick={() => make.submit({ intent: "image", id: a.id }, { method: "post" })}>
+            {a.imageAlt || made ? "Make a different picture" : "Make a picture"}
+          </s-button>
+          {busy && <s-text color="subdued">Making a picture takes up to a minute.</s-text>}
+          {error && !busy && <s-text tone="critical">{error}</s-text>}
+        </s-stack>
+      )}
+    </s-stack>
   );
 }
 
