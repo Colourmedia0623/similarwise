@@ -1,6 +1,7 @@
 import db from "../db.server";
-import { parseStoredList } from "./tracker/check.server";
 import { trafficClient } from "./traffic/dataforseo.server";
+import { MAX_COMPETITORS, parseStoredList } from "./tracker/check.server";
+import { hostOf } from "./tracker/url";
 
 // The numbers for the overview page: what changed at the shop's competitors
 // this week, and which ad channels each one is set up for.
@@ -41,6 +42,7 @@ export async function overview(shop: string, now = new Date()) {
       paidCostCents: c.paidCostCents,
     })),
     searchOn: trafficClient() != null,
+    tiles: await tileNumbers(shop, competitors),
     week: {
       launches: count("launch"),
       priceChanges: count("price_up", "price_down"),
@@ -54,5 +56,50 @@ export async function overview(shop: string, now = new Date()) {
       createdAt: e.createdAt.toISOString(),
       competitor: e.competitor,
     })),
+  };
+}
+
+const parseCount = (json: string | undefined) => {
+  try {
+    const v = JSON.parse(json ?? "[]");
+    return Array.isArray(v) ? v.length : 0;
+  } catch {
+    return 0;
+  }
+};
+
+// One headline number for each page, for the home page tiles. Null where
+// there's nothing yet.
+async function tileNumbers(shop: string, competitors: { id: string; url: string; apps: string; organicTraffic: number | null; productCount: number }[]) {
+  const ids = competitors.map((c) => c.id);
+  const [settings, matched, missing, ideas, links, ads, adIdeas, similar] = await Promise.all([
+    db.shopSettings.findUnique({ where: { shop } }),
+    db.productMatch.count({ where: { competitorId: { in: ids }, competitorProductId: { not: null } } }),
+    db.keywordGap.findMany({ where: { competitorId: { in: ids }, yourPosition: null }, select: { keyword: true }, distinct: ["keyword"] }),
+    db.keywordIdea.count({ where: { shop } }),
+    db.competitorLink.findMany({ where: { competitorId: { in: ids } }, select: { domain: true }, distinct: ["domain"] }),
+    db.competitorAd.count({ where: { competitorId: { in: ids }, active: true } }),
+    db.adIdeas.findUnique({ where: { shop } }),
+    db.similarSite.findMany({ where: { shop }, select: { domain: true } }),
+  ]);
+  const tracked = new Set([settings?.domain, ...competitors.map((c) => hostOf(c.url))]);
+  const apps = new Set(competitors.flatMap((c) => parseStoredList(c.apps)));
+  const visits = competitors.reduce((sum, c) => sum + (c.organicTraffic ?? 0), 0);
+  const products = competitors.reduce((sum, c) => sum + c.productCount, 0);
+  const or = (n: number) => (n > 0 ? n : null);
+  return {
+    competitors: competitors.length,
+    maxCompetitors: MAX_COMPETITORS,
+    products: or(products),
+    similar: or(similar.filter((s) => !tracked.has(s.domain)).length),
+    matched: or(matched),
+    apps: or(apps.size),
+    missingKeywords: or(missing.length),
+    keywordIdeas: or(ideas),
+    linkSites: or(links.length),
+    searchVisits: or(visits),
+    liveAds: or(ads),
+    adIdeas: or(parseCount(adIdeas?.ideas)),
+    alertsOn: settings ? settings.alertsOn || settings.digestOn : true,
   };
 }
