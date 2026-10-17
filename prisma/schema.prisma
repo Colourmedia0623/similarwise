@@ -152,6 +152,14 @@ model ShopSettings {
   ownTrafficMarket  String?
   ownTrafficAt      DateTime?
 
+  // What the shop's own storefront runs, to set beside competitors' (lib/tracker/tech).
+  ownTheme      String?
+  ownApps       String    @default("[]")
+  ownAdChannels String    @default("[]")
+  ownTechDomain String?
+  ownTechAt     DateTime?
+  ownTechError  String?
+
   // Emails (lib/email). alertEmail starts as the shop's email address.
   alertEmail   String?
   alertsOn     Boolean   @default(true)  // An email when competitors change
