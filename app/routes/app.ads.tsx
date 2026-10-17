@@ -154,7 +154,7 @@ function AdCard({ ad }: { ad: Loaded["ads"][number] }) {
       <s-stack gap="small">
         {ad.imageUrl && (
           <s-link href={ad.adUrl ?? ad.imageUrl} target="_blank">
-            <s-image src={ad.imageUrl} alt={words ?? `${ad.competitor} ad`} aspectRatio="1" objectFit="cover" borderRadius="base" />
+            <s-image src={ad.imageUrl} alt={words ?? `${ad.competitor} ad`} aspectRatio="1" objectFit="contain" borderRadius="base" />
           </s-link>
         )}
         <s-stack direction="inline" gap="small-200">
