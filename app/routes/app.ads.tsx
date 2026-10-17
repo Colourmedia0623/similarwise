@@ -5,7 +5,7 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { timeAgo } from "../lib/format";
-import { adsOverview, refreshAds, setMetaPage, setTiktokAdvertiser } from "../lib/ads/ads.server";
+import { adsOverview, findMetaPage, refreshAds, setMetaPage, setTiktokAdvertiser } from "../lib/ads/ads.server";
 import { PLATFORM_LABEL } from "../lib/ads/platforms";
 import { adsClient, type Platform } from "../lib/ads/scrapecreators.server";
 
@@ -28,7 +28,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const id = String(form.get("competitorId") ?? "");
   const intent = form.get("intent");
   if (intent === "meta") await setMetaPage(session.shop, id, String(form.get("pageId") ?? "") || null);
-  else if (intent === "tiktok") await setTiktokAdvertiser(session.shop, id, String(form.get("name") ?? ""));
+  else if (intent === "metaLink") {
+    const page = await findMetaPage(session.shop, id, String(form.get("link") ?? ""));
+    return page ? { ok: true } : { ok: false, error: "Couldn't find that page in Meta's ad library. Check the link or try their page name." };
+  } else if (intent === "tiktok") await setTiktokAdvertiser(session.shop, id, String(form.get("name") ?? ""));
   else {
     const competitors = await db.competitor.findMany({ where: { shop: session.shop }, select: { id: true } });
     for (const c of competitors) await refreshAds(c.id, { force: true });
@@ -181,6 +184,8 @@ function Accounts({ competitor: c }: { competitor: Loaded["competitors"][number]
   const meta = useFetcher();
   const tiktok = useFetcher();
   const [name, setName] = useState(c.tiktok.name ?? "");
+  const metaLink = useFetcher<{ ok: boolean; error?: string }>();
+  const [link, setLink] = useState("");
   return (
     <s-box border="base" borderRadius="base" padding="base">
       <s-stack gap="base">
@@ -200,6 +205,22 @@ function Accounts({ competitor: c }: { competitor: Loaded["competitors"][number]
               </s-option>
             ))}
           </s-select>
+          <s-stack direction="inline" gap="small" alignItems="end">
+            <s-text-field
+              label="Or paste their Facebook page link"
+              value={link}
+              placeholder="facebook.com/theirpage"
+              error={metaLink.state === "idle" ? metaLink.data?.error : undefined}
+              onInput={(e) => setLink(e.currentTarget.value)}
+            />
+            <s-button
+              loading={metaLink.state !== "idle"}
+              disabled={!link.trim()}
+              onClick={() => metaLink.submit({ intent: "metaLink", competitorId: c.id, link }, { method: "post" })}
+            >
+              Find
+            </s-button>
+          </s-stack>
           <s-stack direction="inline" gap="small" alignItems="end">
             <s-text-field
               label="TikTok advertiser name"

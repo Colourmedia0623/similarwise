@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import db from "../../db.server";
-import { adsOverview, pickMetaPage, refreshAds, setMetaPage, setTiktokAdvertiser } from "./ads.server";
+import { adsOverview, findMetaPage, metaQuery, pickMetaPage, refreshAds, setMetaPage, setTiktokAdvertiser } from "./ads.server";
 import { parseGoogleAds, parseMetaAds, parseMetaPages, parseTiktokAds, toDate, type AdsClient, type LibraryAd, type MetaPage } from "./scrapecreators.server";
 
 const SHOP = "mine.myshopify.com";
@@ -191,6 +191,36 @@ describe("refreshing ads", () => {
     expect((await adsOverview(SHOP, { platform: "google" })).ads.map((a) => a.platform)).toEqual(["google"]);
     row = await db.competitor.findUniqueOrThrow({ where: { id: c.id } });
     expect(row.adsMarket).toBe("GB");
+  });
+
+  it("tries the brand in the domain when the shop name finds no page", async () => {
+    const c = await db.competitor.create({ data: { shop: SHOP, name: "Wholesale Gift Boxes", url: "https://www.tinyboxcompany.co.uk" } });
+    const { state, client } = fakeClient();
+    client.metaPages = async (q) => {
+      state.calls.push(`pages:${q}`);
+      return q === "tinyboxcompany" ? [{ id: "tb", name: "Tiny Box Company", likes: 11000, alias: "tinyboxcompany", instagram: null }] : [];
+    };
+    await refreshAds(c.id, { client, now: NOW });
+    expect(state.calls.slice(0, 4)).toEqual(["pages:Wholesale Gift Boxes", "pages:tinyboxcompany", "meta:tb@US", "tiktok:Tiny Box Company"]);
+    expect(await db.competitor.findUniqueOrThrow({ where: { id: c.id } })).toMatchObject({ metaPageId: "tb", metaPageName: "Tiny Box Company" });
+  });
+
+  it("finds a page from the link the merchant pastes", async () => {
+    expect(metaQuery("https://www.facebook.com/tinyboxcompany/")).toEqual({ query: "tinyboxcompany", slug: "tinyboxcompany" });
+    expect(metaQuery("Tiny Box Company")).toEqual({ query: "Tiny Box Company", slug: null });
+    const c = await competitor();
+    const { state, client } = fakeClient();
+    await refreshAds(c.id, { client, now: NOW });
+    state.pages = [
+      { id: "z", name: "Tiny Boxes Ltd", likes: 99999, alias: "tinyboxes", instagram: null },
+      { id: "tb", name: "Tiny Box Company", likes: 11000, alias: "tinyboxcompany", instagram: null },
+    ];
+    expect((await findMetaPage(SHOP, c.id, "facebook.com/tinyboxcompany", client))?.id).toBe("tb");
+    expect(state.calls).toContain("meta:tb@US");
+    expect((await db.competitor.findUniqueOrThrow({ where: { id: c.id } })).metaPageId).toBe("tb");
+    state.pages = [];
+    expect(await findMetaPage(SHOP, c.id, "facebook.com/nobody", client)).toBeNull();
+    expect(await findMetaPage("thief.myshopify.com", c.id, "facebook.com/tinyboxcompany", client)).toBeNull();
   });
 
   it("lets the merchant correct the accounts", async () => {
