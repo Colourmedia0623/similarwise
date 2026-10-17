@@ -28,6 +28,7 @@ export default function App() {
       <s-app-nav>
         <s-link href="/app">Overview</s-link>
         <s-link href="/app/competitors">Competitors</s-link>
+        <s-link href="/app/prices">Price comparison</s-link>
         {owner && <s-link href="/app/survey">Survey results</s-link>}
       </s-app-nav>
       <Outlet />

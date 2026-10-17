@@ -62,6 +62,7 @@ model Competitor {
   snapshots CompetitorSnapshot[]
   traffic   TrafficSnapshot[]
   keywords  CompetitorKeyword[]
+  matches   ProductMatch[]
 
   @@unique([shop, url])
   @@index([shop])
@@ -82,6 +83,7 @@ model CompetitorProduct {
   firstSeenAt  DateTime   @default(now())
   lastSeenAt   DateTime   @default(now())
   removedAt    DateTime?
+  matches      ProductMatch[]
 
   @@unique([competitorId, productId])
 }
@@ -162,4 +164,40 @@ model WaitlistEntry {
   question  String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// One of the shop's own products, copied from the Admin API so it can be
+// matched against competitors' products (lib/prices).
+model ShopProduct {
+  id          String         @id @default(cuid())
+  shop        String
+  productId   String         // Admin API id, e.g. gid://shopify/Product/1
+  handle      String
+  title       String
+  productType String?
+  priceCents  Int            // Lowest variant price
+  currency    String
+  syncedAt    DateTime       @default(now())
+  matches     ProductMatch[]
+
+  @@unique([shop, productId])
+  @@index([shop])
+}
+
+// Which product at a competitor is the same as one of the shop's own. A row
+// with no competitor product means the merchant said there's no match, so
+// suggestions don't bring one back.
+model ProductMatch {
+  id                  String             @id @default(cuid())
+  shopProductId       String
+  shopProduct         ShopProduct        @relation(fields: [shopProductId], references: [id], onDelete: Cascade)
+  competitorId        String
+  competitor          Competitor         @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+  competitorProductId String?
+  competitorProduct   CompetitorProduct? @relation(fields: [competitorProductId], references: [id], onDelete: Cascade)
+  score               Float?             // Title similarity, for suggested matches
+  confirmed           Boolean            @default(false) // Chosen or accepted by the merchant
+
+  @@unique([shopProductId, competitorId])
+  @@index([competitorId])
 }
