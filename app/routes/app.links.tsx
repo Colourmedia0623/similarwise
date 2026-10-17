@@ -97,7 +97,15 @@ export default function Links() {
                   </s-table-cell>
                   <s-table-cell>{s.competitors.map((c) => c.name).join(", ")}</s-table-cell>
                   <s-table-cell>{s.rank ?? "–"}</s-table-cell>
-                  <s-table-cell>{pitchOn && <PitchButton site={s.domain} />}</s-table-cell>
+                  <s-table-cell>
+                    {s.platform ? (
+                      <s-link href={`https://${s.domain}`} target="_blank">
+                        Post here
+                      </s-link>
+                    ) : (
+                      pitchOn && <PitchButton site={s.domain} />
+                    )}
+                  </s-table-cell>
                 </s-table-row>
               ))}
             </s-table-body>
