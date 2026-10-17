@@ -46,6 +46,7 @@ export default function App() {
         <s-link href="/app/articles">Blog articles</s-link>
         <s-link href="/app/calendar">Content calendar</s-link>
         <s-link href="/app/links">Link gap</s-link>
+        <s-link href="/app/outreach">Outreach emails</s-link>
         <s-link href="/app/tech">Website technologies</s-link>
         <s-link href="/app/traffic">Traffic and engagement</s-link>
         <s-link href="/app/channels">Marketing channels</s-link>

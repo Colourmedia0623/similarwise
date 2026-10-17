@@ -1,10 +1,10 @@
 import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "react-router";
-import { useFetcher, useLoaderData } from "react-router";
+import { Link, useFetcher, useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
-import { Copyable } from "../components/Copyable";
-import { linkGap, linksClient, refreshLinks, writePitch } from "../lib/links/links.server";
+import { linkGap, linksClient, refreshLinks } from "../lib/links/links.server";
+import { outreachByDomain, startOutreach } from "../lib/links/outreach.server";
 import { claudeJson } from "../lib/ideas/claude.server";
 
 // The link gap: websites that link to competitors but not to the shop, with
@@ -14,7 +14,8 @@ const SHOWN = 100;
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
-  return { on: linksClient() != null, pitchOn: claudeJson() != null, ...(await linkGap(session.shop)) };
+  const [gap, outreach] = await Promise.all([linkGap(session.shop), outreachByDomain(session.shop)]);
+  return { on: linksClient() != null, pitchOn: claudeJson() != null, outreach, ...gap };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -23,7 +24,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   if (form.get("intent") === "pitch") {
     const site = String(form.get("site") ?? "");
     try {
-      return { site, ...(await writePitch(session.shop, site)) };
+      return { site, ...(await startOutreach(session.shop, site)) };
     } catch (err) {
       console.error("Couldn't write a pitch", session.shop, err);
       return { site, error: "Couldn't write that email just now. Try again in a minute." };
@@ -35,7 +36,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function Links() {
-  const { on, pitchOn, domain, competitors, sites, shared } = useLoaderData<typeof loader>();
+  const { on, pitchOn, domain, competitors, sites, shared, outreach } = useLoaderData<typeof loader>();
   const refresh = useFetcher<typeof action>();
   const errors = [...new Set(competitors.flatMap((c) => (c.error ? [c.error] : [])))];
   const waiting = competitors.some((c) => !c.ready && !c.error);
@@ -103,7 +104,7 @@ export default function Links() {
                         Post here
                       </s-link>
                     ) : (
-                      pitchOn && <PitchButton site={s.domain} />
+                      pitchOn && <PitchButton site={s.domain} status={outreach[s.domain]} />
                     )}
                   </s-table-cell>
                 </s-table-row>
@@ -120,21 +121,22 @@ export default function Links() {
   );
 }
 
-function PitchButton({ site }: { site: string }) {
+const OUTREACH = { draft: "Email ready", sent: "Emailed", replied: "Replied", linked: "Linked to you", declined: "Not interested" } as const;
+
+// Writes an outreach email for the site, which then waits on the Outreach
+// emails page; shows where it got to once there is one.
+function PitchButton({ site, status }: { site: string; status?: string }) {
   const pitch = useFetcher<typeof action>();
   const data = pitch.data && "site" in pitch.data && pitch.data.site === site ? pitch.data : null;
+  if (status || (data && "id" in data)) {
+    return <Link to="/app/outreach">{OUTREACH[(status ?? "draft") as keyof typeof OUTREACH] ?? "Email ready"}</Link>;
+  }
   return (
     <s-stack gap="small">
       <s-button variant="tertiary" loading={pitch.state !== "idle"} onClick={() => pitch.submit({ intent: "pitch", site }, { method: "post" })}>
-        {data && "subject" in data ? "Write another email" : "Write email"}
+        Write email
       </s-button>
       {data && "error" in data && data.error && <s-text tone="critical">{data.error}</s-text>}
-      {data && "subject" in data && (
-        <s-stack gap="small">
-          <Copyable label="Subject" text={data.subject} />
-          <Copyable label="Email" text={data.body} />
-        </s-stack>
-      )}
     </s-stack>
   );
 }

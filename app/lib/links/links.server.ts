@@ -142,11 +142,16 @@ const PITCH_SCHEMA = {
   properties: { subject: { type: "string" }, body: { type: "string" } },
 };
 
-const PITCH_SYSTEM = `You write short, friendly outreach emails for small online shops asking another website to link to them. You get the shop's website, a few of its products, the site being emailed, and which of the shop's competitors that site already links to.
+const PITCH_SYSTEM = `You write short, friendly outreach emails for small online shops asking another website to link to them. You get the shop's website, a few of its products, the site being emailed, which of the shop's competitors that site already links to, and the site's home page title and description when they could be read.
 
-Guess from the site's name what kind of site it is (a blog, a directory, a supplier, a news site) and pitch to suit: a product to feature, a listing to add, a guide to mention. Mention that it links to similar shops without naming the competitors. Keep the body under 120 words, plain text, with [Your name] as the signature. The subject is under 60 characters. No hype words, no flattery beyond one line.`;
+Work out from the site's title and description (or, without them, its name) what kind of site it is (a blog, a directory, a supplier, a news site) and pitch to suit: a product to feature, a listing to add, a guide to mention. Mention that it links to similar shops without naming the competitors. Keep the body under 120 words, plain text, with [Your name] as the signature. The subject is under 60 characters. No hype words, no flattery beyond one line.`;
 
-export async function writePitch(shop: string, site: string, ask = claudeJson()): Promise<Pitch | { error: string }> {
+export async function writePitch(
+  shop: string,
+  site: string,
+  ask = claudeJson(),
+  about: { title: string | null; description: string | null } = { title: null, description: null },
+): Promise<Pitch | { error: string }> {
   if (!ask) return { error: "Outreach emails aren't switched on for this app yet." };
   const gap = await linkGap(shop);
   const row = gap.sites.find((s) => s.domain === site);
@@ -154,7 +159,14 @@ export async function writePitch(shop: string, site: string, ask = claudeJson())
   const products = await db.shopProduct.findMany({ where: { shop }, select: { title: true }, take: 15 });
   const out = (await ask(
     PITCH_SYSTEM,
-    { shopWebsite: gap.domain, products: products.map((p) => p.title), site: row.domain, linksTo: row.competitors.map((c) => c.name) },
+    {
+      shopWebsite: gap.domain,
+      products: products.map((p) => p.title),
+      site: row.domain,
+      siteTitle: about.title,
+      siteDescription: about.description,
+      linksTo: row.competitors.map((c) => c.name),
+    },
     PITCH_SCHEMA,
   )) as Partial<Pitch> | null;
   const subject = typeof out?.subject === "string" ? out.subject.trim() : "";
