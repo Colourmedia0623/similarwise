@@ -26,6 +26,9 @@ jobs:
           # Search traffic and Google Ads estimates; off until both are set.
           DATAFORSEO_LOGIN: ${{ secrets.DATAFORSEO_LOGIN }}
           DATAFORSEO_PASSWORD: ${{ secrets.DATAFORSEO_PASSWORD }}
+          # Alert and weekly emails, sent through Resend; off until the key is set.
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          EMAIL_FROM: ${{ vars.EMAIL_FROM }}
         run: |
           scopes=$(sed -n 's/^scopes = "\(.*\)"/\1/p' shopify.app.toml)
           {
@@ -36,6 +39,8 @@ jobs:
             echo "APP_HOST=$APP_HOST"
             echo "DATAFORSEO_LOGIN=$DATAFORSEO_LOGIN"
             echo "DATAFORSEO_PASSWORD=$DATAFORSEO_PASSWORD"
+            echo "RESEND_API_KEY=$RESEND_API_KEY"
+            echo "EMAIL_FROM=$EMAIL_FROM"
           } > deploy/.env
 
       # Build here rather than on the small EC2 instance, reusing CI's layer cache.

@@ -126,6 +126,14 @@ model ShopSettings {
   shop   String  @id
   market String  @default("US")
   domain String? // The shop's own website, for the keyword gap, e.g. giftbags.co.uk
+
+  // Emails (lib/email). alertEmail starts as the shop's email address.
+  alertEmail   String?
+  alertsOn     Boolean   @default(true)  // An email when competitors change
+  alertTopics  String    @default("[\"prices\",\"products\",\"ads\",\"traffic\"]")
+  digestOn     Boolean   @default(true)  // The Monday summary
+  alertsSentAt DateTime? // Changes up to here have been emailed
+  digestSentAt DateTime?
 }
 
 // A competitor's search numbers on each traffic refresh, for trends.
