@@ -57,11 +57,18 @@ model Competitor {
   trafficAt       DateTime?
   trafficError    String?
 
+  // Keyword gap against the shop's own website, refreshed weekly (lib/traffic/gap).
+  gapAt     DateTime?
+  gapDomain String?   // The shop's website the gap was worked out against
+  gapMarket String?
+  gapError  String?
+
   products  CompetitorProduct[]
   events    CompetitorEvent[]
   snapshots CompetitorSnapshot[]
   traffic   TrafficSnapshot[]
   keywords  CompetitorKeyword[]
+  gaps      KeywordGap[]
   matches   ProductMatch[]
 
   @@unique([shop, url])
@@ -116,8 +123,9 @@ model CompetitorSnapshot {
 
 // A shop's settings: the country its traffic and keyword numbers are for.
 model ShopSettings {
-  shop   String @id
-  market String @default("US")
+  shop   String  @id
+  market String  @default("US")
+  domain String? // The shop's own website, for the keyword gap, e.g. giftbags.co.uk
 }
 
 // A competitor's search numbers on each traffic refresh, for trends.
@@ -199,5 +207,22 @@ model ProductMatch {
   confirmed           Boolean            @default(false) // Chosen or accepted by the merchant
 
   @@unique([shopProductId, competitorId])
+  @@index([competitorId])
+}
+
+// A Google search a competitor ranks for: either one the shop's website
+// doesn't rank for at all (yourPosition null), or one they both rank for.
+model KeywordGap {
+  id            String     @id @default(cuid())
+  competitorId  String
+  competitor    Competitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+  keyword       String
+  searchVolume  Int?
+  cpcCents      Int?       // What advertisers pay per click, in US cents
+  theirPosition Int?
+  theirTraffic  Int?       // Their estimated monthly visits from this search
+  theirUrl      String?
+  yourPosition  Int?
+
   @@index([competitorId])
 }

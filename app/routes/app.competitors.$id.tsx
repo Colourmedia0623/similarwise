@@ -5,6 +5,7 @@ import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { checkCompetitor, parseStoredList } from "../lib/tracker/check.server";
 import { refreshTraffic } from "../lib/traffic/refresh.server";
+import { refreshGap } from "../lib/traffic/gap.server";
 import { trafficClient } from "../lib/traffic/dataforseo.server";
 import { marketFor } from "../lib/traffic/markets";
 import { EVENT_LABEL, EVENT_TONE, compact, formatPrice, timeAgo } from "../lib/format";
@@ -96,6 +97,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   if (!c) throw new Response("Not found", { status: 404 });
   await checkCompetitor(c.id);
   await refreshTraffic(c.id);
+  await refreshGap(c.id);
   return { ok: true };
 };
 

@@ -75,12 +75,13 @@ export function parseKeywords(json: unknown): RankedKeyword[] {
   return out;
 }
 
-export function trafficClient(): TrafficClient | null {
+// Posts one task to DataForSEO, or null when it isn't set up.
+function poster() {
   const login = process.env.DATAFORSEO_LOGIN;
   const password = process.env.DATAFORSEO_PASSWORD;
   if (!login || !password) return null;
   const auth = `Basic ${Buffer.from(`${login}:${password}`).toString("base64")}`;
-  const post = async (path: string, task: object) => {
+  return async (path: string, task: object) => {
     const res = await fetch(`${API}${path}`, {
       method: "POST",
       headers: { authorization: auth, "content-type": "application/json" },
@@ -90,6 +91,11 @@ export function trafficClient(): TrafficClient | null {
     if (!res.ok) throw new Error(`DataForSEO answered ${res.status}`);
     return res.json();
   };
+}
+
+export function trafficClient(): TrafficClient | null {
+  const post = poster();
+  if (!post) return null;
   return {
     async overview(domain, market) {
       return parseOverview(
@@ -112,6 +118,78 @@ export function trafficClient(): TrafficClient | null {
         }).then(parseKeywords);
       const [organic, paid] = await Promise.all([top("organic"), top("paid")]);
       return [...organic, ...paid];
+    },
+  };
+}
+
+// A search a competitor ranks for, and where the shop ranks for it (null
+// when it doesn't).
+export type GapKeyword = {
+  keyword: string;
+  searchVolume: number | null;
+  cpcCents: number | null;
+  theirPosition: number | null;
+  theirTraffic: number | null;
+  theirUrl: string | null;
+  yourPosition: number | null;
+};
+
+export type GapClient = {
+  gap(theirDomain: string, yourDomain: string, market: Market): Promise<GapKeyword[]>;
+};
+
+export const GAP_LIMIT = 50;
+
+type SerpFields = { rank_group?: number; etv?: number; url?: string };
+type SerpElement = SerpFields & { serp_item?: SerpFields };
+
+// The ranking itself, whether DataForSEO sends it flat or wrapped.
+const serpItem = (e: SerpElement | null | undefined): SerpFields | null => (e ? (e.serp_item ?? e) : null);
+
+export function parseIntersection(json: unknown): GapKeyword[] {
+  const items = (taskResult(json)[0]?.items ?? []) as {
+    keyword_data?: { keyword?: string; keyword_info?: { search_volume?: number; cpc?: number } };
+    first_domain_serp_element?: SerpElement | null;
+    second_domain_serp_element?: SerpElement | null;
+  }[];
+  const out: GapKeyword[] = [];
+  for (const it of items) {
+    const keyword = it.keyword_data?.keyword;
+    const theirs = serpItem(it.first_domain_serp_element);
+    if (!keyword || !theirs) continue;
+    const cpc = num(it.keyword_data?.keyword_info?.cpc);
+    out.push({
+      keyword: keyword.slice(0, 200),
+      searchVolume: num(it.keyword_data?.keyword_info?.search_volume),
+      cpcCents: cpc == null ? null : Math.round(cpc * 100),
+      theirPosition: num(theirs.rank_group),
+      theirTraffic: num(theirs.etv) == null ? null : Math.round(theirs.etv!),
+      theirUrl: typeof theirs.url === "string" ? theirs.url.slice(0, 500) : null,
+      yourPosition: num(serpItem(it.second_domain_serp_element)?.rank_group),
+    });
+  }
+  return out;
+}
+
+export function gapClient(): GapClient | null {
+  const post = poster();
+  if (!post) return null;
+  return {
+    async gap(theirDomain, yourDomain, market) {
+      // Searches they rank for that the shop doesn't, and ones they both do.
+      const ask = (intersections: boolean) =>
+        post("/dataforseo_labs/google/domain_intersection/live", {
+          target1: theirDomain,
+          target2: yourDomain,
+          location_code: market.location,
+          language_code: market.language,
+          intersections,
+          item_types: ["organic"],
+          limit: GAP_LIMIT,
+          order_by: ["first_domain_serp_element.etv,desc"],
+        }).then(parseIntersection);
+      const [missing, shared] = await Promise.all([ask(false), ask(true)]);
+      return [...missing.map((k) => ({ ...k, yourPosition: null })), ...shared];
     },
   };
 }
