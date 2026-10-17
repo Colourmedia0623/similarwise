@@ -45,6 +45,12 @@ export function compact(n: number | null | undefined): string {
   return new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(n);
 }
 
+// Branded search visits with their share of all search visits: "1.2K (34%)".
+export function branded(visits: number | null | undefined, total: number | null | undefined): string {
+  if (visits == null) return "–";
+  return total ? `${compact(visits)} (${Math.round((visits / total) * 100)}%)` : compact(visits);
+}
+
 export const EVENT_TONE: Record<string, "info" | "success" | "warning" | "critical" | "neutral"> = {
   launch: "success",
   price_down: "warning",

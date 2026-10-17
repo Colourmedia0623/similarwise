@@ -12,6 +12,7 @@ export type DomainTraffic = {
   paidTraffic: number;
   paidKeywords: number;
   paidCostCents: number; // Estimated monthly Google search ads spend (USD)
+  top3Keywords?: number; // Keywords ranking in Google's top three
 };
 
 export type RankedKeyword = {
@@ -26,6 +27,8 @@ export type RankedKeyword = {
 export type TrafficClient = {
   overview(domain: string, market: Market): Promise<DomainTraffic>;
   keywords(domain: string, market: Market): Promise<RankedKeyword[]>;
+  // Estimated monthly visits from searches containing the brand term.
+  brandedTraffic?(domain: string, term: string, market: Market): Promise<number>;
 };
 
 const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
@@ -50,7 +53,24 @@ export function parseOverview(json: unknown): DomainTraffic {
     paidTraffic: whole(paid.etv),
     paidKeywords: whole(paid.count),
     paidCostCents: whole((num(paid.estimated_paid_traffic_cost) ?? 0) * 100),
+    top3Keywords: whole(organic.pos_1) + whole(organic.pos_2_3),
   };
+}
+
+// The traffic from a list of ranked keywords, added up.
+export function parseTrafficSum(json: unknown): number {
+  return Math.round(parseKeywords(json).reduce((sum, k) => sum + (k.traffic ?? 0), 0));
+}
+
+// The name people would search for a site by: its domain without the
+// ending, with hyphens as spaces ("foldabox.co.uk" is "foldabox"). Null when
+// it's too short to search for on its own.
+export function brandTerm(domain: string): string | null {
+  const labels = domain.toLowerCase().replace(/^www\./, "").split(".");
+  const secondLevel = labels.length >= 3 && /^(co|com|org|net|ac|gov|ltd|plc)$/.test(labels[labels.length - 2]);
+  const name = labels[labels.length - (secondLevel ? 3 : 2)] ?? "";
+  const term = name.replace(/-+/g, " ").trim();
+  return term.length >= 4 ? term : null;
 }
 
 export function parseKeywords(json: unknown): RankedKeyword[] {
@@ -118,6 +138,20 @@ export function trafficClient(): TrafficClient | null {
         }).then(parseKeywords);
       const [organic, paid] = await Promise.all([top("organic"), top("paid")]);
       return [...organic, ...paid];
+    },
+    async brandedTraffic(domain, term, market) {
+      // The top searches containing the brand term carry nearly all of its traffic.
+      return parseTrafficSum(
+        await post("/dataforseo_labs/google/ranked_keywords/live", {
+          target: domain,
+          location_code: market.location,
+          language_code: market.language,
+          item_types: ["organic"],
+          filters: ["keyword_data.keyword", "like", `%${term}%`],
+          limit: 200,
+          order_by: ["ranked_serp_element.serp_item.etv,desc"],
+        }),
+      );
     },
   };
 }

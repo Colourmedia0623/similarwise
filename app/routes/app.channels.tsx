@@ -3,7 +3,7 @@ import { useFetcher, useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
-import { compact, formatPrice } from "../lib/format";
+import { branded, compact, formatPrice } from "../lib/format";
 import { trafficClient } from "../lib/traffic/dataforseo.server";
 import { refreshTraffic } from "../lib/traffic/refresh.server";
 import { channelsOverview, refreshOwnTraffic, refreshShopSources } from "../lib/traffic/channels.server";
@@ -259,6 +259,8 @@ export default function Channels() {
               <s-table-header-row>
                 <s-table-header listSlot="primary">Site</s-table-header>
                 <s-table-header format="numeric">Google search</s-table-header>
+                <s-table-header format="numeric">Top 3 keywords</s-table-header>
+                <s-table-header format="numeric">Searches for their name</s-table-header>
                 <s-table-header format="numeric">Google ads</s-table-header>
                 <s-table-header format="numeric">Ad spend a month</s-table-header>
                 {CHANNELS.map((ch) => (
@@ -270,6 +272,8 @@ export default function Channels() {
                   <s-table-row key={s.id}>
                     <s-table-cell>{s.you ? `You (${s.domain})` : s.name}</s-table-cell>
                     <s-table-cell>{s.organic == null ? "–" : compact(s.organic)}</s-table-cell>
+                    <s-table-cell>{compact(s.top3)}</s-table-cell>
+                    <s-table-cell>{branded(s.branded, s.organic)}</s-table-cell>
                     <s-table-cell>
                       {s.paid == null ? "–" : compact(s.paid)}
                       {s.liveAds?.google ? ` · ${s.liveAds.google} ads` : ""}

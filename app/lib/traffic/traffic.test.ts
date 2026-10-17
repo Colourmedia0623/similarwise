@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import db from "../../db.server";
-import { parseKeywords, parseOverview, type DomainTraffic, type TrafficClient } from "./dataforseo.server";
+import { brandTerm, parseKeywords, parseOverview, parseTrafficSum, type DomainTraffic, type TrafficClient } from "./dataforseo.server";
 import { marketFor } from "./markets";
 import { detectShopMarket, refreshTraffic, setShopMarket, shopMarket, trafficChanges } from "./refresh.server";
 
@@ -14,7 +14,7 @@ describe("DataForSEO responses", () => {
         items: [
           {
             metrics: {
-              organic: { etv: 41234.6, count: 3120, estimated_paid_traffic_cost: 52000 },
+              organic: { etv: 41234.6, count: 3120, estimated_paid_traffic_cost: 52000, pos_1: 40, pos_2_3: 75, pos_4_10: 300 },
               paid: { etv: 8800.2, count: 140, estimated_paid_traffic_cost: 12345.67 },
             },
           },
@@ -27,7 +27,20 @@ describe("DataForSEO responses", () => {
       paidTraffic: 8800,
       paidKeywords: 140,
       paidCostCents: 1234567,
+      top3Keywords: 115,
     });
+  });
+
+  it("adds up branded traffic and picks the brand term from the domain", () => {
+    const kw = (keyword: string, etv: number) => ({
+      keyword_data: { keyword },
+      ranked_serp_element: { serp_item: { type: "organic", rank_group: 1, etv } },
+    });
+    expect(parseTrafficSum(ok([{ items: [kw("foldabox", 900.4), kw("foldabox boxes", 99.8)] }]))).toBe(1000);
+    expect(brandTerm("www.foldabox.co.uk")).toBe("foldabox");
+    expect(brandTerm("shop.rival.com")).toBe("rival");
+    expect(brandTerm("wholesale-gift-boxes.com")).toBe("wholesale gift boxes");
+    expect(brandTerm("abc.com")).toBeNull();
   });
 
   it("reads zeros for a domain with no data", () => {
@@ -37,6 +50,7 @@ describe("DataForSEO responses", () => {
       paidTraffic: 0,
       paidKeywords: 0,
       paidCostCents: 0,
+      top3Keywords: 0,
     });
   });
 
@@ -145,6 +159,37 @@ describe("refreshTraffic", () => {
     // A new market starts fresh: no "spend went up" against another country's numbers.
     expect(await db.competitorEvent.count({ where: { competitorId: c.id } })).toBe(1);
     expect(await db.trafficSnapshot.count({ where: { competitorId: c.id } })).toBe(3);
+  });
+
+  it("stores top 3 keywords and branded searches, and keeps the rest if branded fails", async () => {
+    const c = await db.competitor.create({ data: { shop: SHOP, url: "https://rival-store.com", name: "Rival" } });
+    const terms: string[] = [];
+    const withBrand: TrafficClient = {
+      ...client,
+      async overview() {
+        return { ...t({}), top3Keywords: 42 };
+      },
+      async brandedTraffic(_domain, term) {
+        terms.push(term);
+        return 2500;
+      },
+    };
+    await refreshTraffic(c.id, { client: withBrand });
+    let row = await db.competitor.findUniqueOrThrow({ where: { id: c.id } });
+    expect(terms).toEqual(["rival store"]);
+    expect(row).toMatchObject({ top3Keywords: 42, brandTerm: "rival store", brandedTraffic: 2500, trafficError: null });
+
+    await refreshTraffic(c.id, {
+      force: true,
+      client: {
+        ...withBrand,
+        async brandedTraffic() {
+          throw new Error("DataForSEO: timeout");
+        },
+      },
+    });
+    row = await db.competitor.findUniqueOrThrow({ where: { id: c.id } });
+    expect(row).toMatchObject({ top3Keywords: 42, brandedTraffic: null, trafficError: null });
   });
 
   it("keeps the error and tries again next time", async () => {
