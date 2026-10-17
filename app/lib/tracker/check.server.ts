@@ -5,6 +5,7 @@ import { fetchPublic, type Fetcher } from "./fetch.server";
 import { MAX_PAGES, PAGE_LIMIT, parseProducts, type SeenProduct } from "./products";
 import { hostOf, normalizeStoreUrl } from "./url";
 import { refreshTraffic } from "../traffic/refresh.server";
+import { refreshGap } from "../traffic/gap.server";
 import type { TrafficClient } from "../traffic/dataforseo.server";
 
 // Adding competitors and checking their stores: the home page for the theme,
@@ -38,6 +39,7 @@ export async function addCompetitor(
   const c = await db.competitor.create({ data: { shop, url, name: hostOf(url) } });
   await checkCompetitor(c.id, fetcher);
   await refreshTraffic(c.id, client === undefined ? {} : { client });
+  await refreshGap(c.id);
   return { id: c.id };
 }
 

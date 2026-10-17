@@ -9,6 +9,7 @@ import { timeAgo } from "../lib/format";
 import { MARKETS } from "../lib/traffic/markets";
 import { setShopMarket, shopMarket } from "../lib/traffic/refresh.server";
 import { trafficClient } from "../lib/traffic/dataforseo.server";
+import { refreshGap } from "../lib/traffic/gap.server";
 
 // The competitors a shop tracks: add one by its website, or stop tracking one.
 
@@ -34,6 +35,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const intent = form.get("intent");
   if (intent === "market") {
     await setShopMarket(session.shop, String(form.get("market") ?? ""));
+    for (const c of await db.competitor.findMany({ where: { shop: session.shop }, select: { id: true } }))
+      await refreshGap(c.id);
     return { ok: true as const };
   }
   if (intent === "remove") {

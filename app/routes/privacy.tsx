@@ -33,7 +33,9 @@ export default function Privacy() {
       <p>When a merchant installs Similarwise, the app keeps:</p>
       <ul>
         <li>the shop&apos;s domain and the access Shopify grants the app, so it can show its pages in the admin;</li>
-        <li>the list of competitor websites the merchant adds.</li>
+        <li>the list of competitor websites the merchant adds;</li>
+        <li>the names, prices and types of the shop&apos;s active products, to compare them with competitors&apos;;</li>
+        <li>the shop&apos;s country and website address, to compare its Google search rankings with competitors&apos;.</li>
       </ul>
       <p>Similarwise does not store any information about the shop&apos;s customers or orders.</p>
 
@@ -43,6 +45,10 @@ export default function Privacy() {
         and tracking pixels it loads) and, for Shopify stores, the public product catalogue (product names, prices and
         publish dates). It keeps a history of those details so it can show what changed. It holds no personal
         information from those stores.
+      </p>
+      <p>
+        Estimates of Google search traffic, keywords and ad spend come from DataForSEO. Similarwise sends it only
+        website addresses (the competitors&apos; and the shop&apos;s own) and the country to look at.
       </p>
 
       <h2>Early-access waitlist</h2>
