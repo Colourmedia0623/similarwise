@@ -44,6 +44,7 @@ export default function App() {
         <s-link href="/app/ideas">Keyword ideas</s-link>
         <s-link href="/app/channels">Marketing channels</s-link>
         <s-link href="/app/ads">Ads</s-link>
+        <s-link href="/app/ad-ideas">Ad ideas</s-link>
         <s-link href="/app/settings">Email alerts</s-link>
         {owner && <s-link href="/app/survey">Survey results</s-link>}
       </s-app-nav>

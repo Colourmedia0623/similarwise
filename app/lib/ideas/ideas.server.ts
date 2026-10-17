@@ -1,6 +1,6 @@
-import Anthropic from "@anthropic-ai/sdk";
 import db from "../../db.server";
 import { keywordGap } from "../traffic/gap.server";
+import { claudeJson } from "./claude.server";
 
 // Keyword ideas: for the searches competitors win and the shop misses (or
 // trails on), which of the shop's pages should target each one, with a page
@@ -8,7 +8,6 @@ import { keywordGap } from "../traffic/gap.server";
 // from the keyword gap and the shop's product titles. Off unless
 // ANTHROPIC_API_KEY is set.
 
-const MODEL = "claude-opus-5-5";
 const KEYWORDS = 40;
 const PRODUCTS = 400;
 
@@ -57,7 +56,7 @@ const SCHEMA = {
       },
     },
   },
-} as const;
+};
 
 const SYSTEM = `You are an SEO specialist for Shopify stores. You get a store's website, the searches its competitors win on Google that the store doesn't rank for (or ranks below them on), and the store's product titles.
 
@@ -75,25 +74,8 @@ Then write, in the store's market's spelling:
 - why: one sentence on why this search is worth it, naming the competitor that ranks and the monthly searches.`;
 
 export function ideasClient(): IdeasClient | null {
-  if (!process.env.ANTHROPIC_API_KEY) return null;
-  const client = new Anthropic();
-  return {
-    async ideas(input) {
-      const res = await client.beta.messages.create({
-        model: MODEL,
-        max_tokens: 16000,
-        betas: ["server-side-fallback-2026-07-01"],
-        fallbacks: "default",
-        system: SYSTEM,
-        output_config: { effort: "medium", format: { type: "json_schema", schema: SCHEMA } },
-        messages: [{ role: "user", content: JSON.stringify(input) }],
-      });
-      if (res.stop_reason === "refusal") throw new Error("Claude declined to write ideas for this store");
-      if (res.stop_reason === "max_tokens") throw new Error("Claude's answer was cut short");
-      const text = res.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
-      return parseIdeas(JSON.parse(text));
-    },
-  };
+  const ask = claudeJson();
+  return ask && { ideas: async (input) => parseIdeas(await ask(SYSTEM, input, SCHEMA)) };
 }
 
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");

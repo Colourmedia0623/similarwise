@@ -1,0 +1,8 @@
+-- CreateTable
+CREATE TABLE "AdIdeas" (
+    "shop" TEXT NOT NULL PRIMARY KEY,
+    "patterns" TEXT NOT NULL DEFAULT '[]',
+    "ideas" TEXT NOT NULL DEFAULT '[]',
+    "adsRead" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
