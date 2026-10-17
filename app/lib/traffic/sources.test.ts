@@ -64,9 +64,9 @@ describe("traffic sources", () => {
     client.sites = async () => {
       throw new Error("Apify answered 502");
     };
-    await refreshSources(["rival.com", "new.com"], { client, force: true, now: NOW });
-    const after = await siteSources(["rival.com", "new.com"]);
+    await refreshSources(["rival.com", "brandnew.example"], { client, force: true, now: NOW });
+    const after = await siteSources(["rival.com", "brandnew.example"]);
     expect(after.get("rival.com")?.visits).toBe(5000);
-    expect(after.get("new.com")).toMatchObject({ fetchedAt: null, error: expect.stringMatching(/502/) });
+    expect(after.get("brandnew.example")).toMatchObject({ fetchedAt: null, error: expect.stringMatching(/502/) });
   });
 });
