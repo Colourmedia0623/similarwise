@@ -24,6 +24,7 @@ const ICONS: Record<string, string> = {
   bulb: "M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.5 1 2.5h6c0-1 .3-1.8 1-2.5A6 6 0 0 0 12 3z",
   link: "M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1",
   chart: "M4 20V10M10 20V4M16 20v-7M22 20H2",
+  trend: "M3 17l6-6 4 4 8-8M15 7h6v6",
   megaphone: "M3 11v2a1 1 0 0 0 1 1h3l6 4V6L7 10H4a1 1 0 0 0-1 1zM17 8a5 5 0 0 1 0 8",
   sparkle: "M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z",
   mail: "M3 5h18v14H3zM3 7l9 6 9-6",
@@ -59,6 +60,7 @@ function groups(t: Tiles): { title: string; color: string; tiles: Tile[] }[] {
       title: "Marketing and alerts",
       color: "#ea580c",
       tiles: [
+        { href: "/app/traffic", icon: "trend", title: "Traffic and engagement", text: "Visits over time, time on site and bounce rate.", stat: stat(t.measured, "sites measured") },
         { href: "/app/channels", icon: "chart", title: "Marketing channels", text: "Where their visitors come from, beside your own.", stat: stat(t.searchVisits, "search visits a month", compact) },
         { href: "/app/ads", icon: "megaphone", title: "Ads", text: "The ads they're running on Meta, TikTok and Google.", stat: stat(t.liveAds, "live ads") },
         { href: "/app/ad-ideas", icon: "sparkle", title: "Ad ideas", text: "What works in their ads, turned into ideas for yours.", stat: stat(t.adIdeas, "ideas") },

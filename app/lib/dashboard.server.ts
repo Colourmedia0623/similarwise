@@ -72,7 +72,8 @@ const parseCount = (json: string | undefined) => {
 // there's nothing yet.
 async function tileNumbers(shop: string, competitors: { id: string; url: string; apps: string; organicTraffic: number | null; productCount: number }[]) {
   const ids = competitors.map((c) => c.id);
-  const [settings, matched, missing, ideas, links, ads, adIdeas, similar] = await Promise.all([
+  const domains = competitors.map((c) => hostOf(c.url));
+  const [settings, matched, missing, ideas, links, ads, adIdeas, similar, measured] = await Promise.all([
     db.shopSettings.findUnique({ where: { shop } }),
     db.productMatch.count({ where: { competitorId: { in: ids }, competitorProductId: { not: null } } }),
     db.keywordGap.findMany({ where: { competitorId: { in: ids }, yourPosition: null }, select: { keyword: true }, distinct: ["keyword"] }),
@@ -81,8 +82,9 @@ async function tileNumbers(shop: string, competitors: { id: string; url: string;
     db.competitorAd.count({ where: { competitorId: { in: ids }, active: true } }),
     db.adIdeas.findUnique({ where: { shop } }),
     db.similarSite.findMany({ where: { shop }, select: { domain: true } }),
+    db.siteSources.count({ where: { domain: { in: domains }, visits: { not: null } } }),
   ]);
-  const tracked = new Set([settings?.domain, ...competitors.map((c) => hostOf(c.url))]);
+  const tracked = new Set([settings?.domain, ...domains]);
   const apps = new Set(competitors.flatMap((c) => parseStoredList(c.apps)));
   const visits = competitors.reduce((sum, c) => sum + (c.organicTraffic ?? 0), 0);
   const products = competitors.reduce((sum, c) => sum + c.productCount, 0);
@@ -98,6 +100,7 @@ async function tileNumbers(shop: string, competitors: { id: string; url: string;
     keywordIdeas: or(ideas),
     linkSites: or(links.length),
     searchVisits: or(visits),
+    measured: or(measured),
     liveAds: or(ads),
     adIdeas: or(parseCount(adIdeas?.ideas)),
     alertsOn: settings ? settings.alertsOn || settings.digestOn : true,

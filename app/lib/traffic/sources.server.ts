@@ -9,7 +9,28 @@ import type { Shares, Source } from "./sources";
 const WEEK = 7 * 24 * 3600_000;
 const ACTOR = "locaihost~website-traffic";
 
-export type SiteFigures = { domain: string; visits: number | null; sources: Shares; countries: { code: string; share: number }[]; error: string | null };
+// How visitors behave once they arrive, and how the site ranks, as Similarweb
+// estimates them. Any field can be missing.
+export type Engagement = {
+  bounceRate: number | null; // 0-1
+  pagesPerVisit: number | null;
+  durationSeconds: number | null;
+  visitsChange: number | null; // Month on month, e.g. 0.12 for up 12%
+  globalRank: number | null;
+  countryRank: number | null;
+  rankCountry: string | null;
+  category: string | null;
+  history: { month: string; visits: number }[]; // Oldest first, "2026-09"
+};
+
+export type SiteFigures = {
+  domain: string;
+  visits: number | null;
+  sources: Shares;
+  countries: { code: string; share: number }[];
+  engagement?: Engagement;
+  error: string | null;
+};
 export type SourcesClient = { sites(domains: string[]): Promise<SiteFigures[]> };
 
 type Json = Record<string, unknown>;
@@ -48,6 +69,52 @@ const FOLD: Record<string, Source> = {
   mailVisitsShare: "email",
   adsVisitsShare: "display",
 };
+// "45.2%", 45.2 and 0.452 all mean 45.2%.
+const ratio = (v: unknown) => {
+  const n = typeof v === "string" ? num(v.replace("%", "")) : num(v);
+  return n == null || n < 0 ? null : n > 1 ? n / 100 : n;
+};
+// Seconds, from 325 or "00:05:25".
+const seconds = (v: unknown) => {
+  if (typeof v === "string" && /^\d{1,2}(:\d{2}){1,2}$/.test(v.trim())) return v.trim().split(":").reduce((t, p) => t * 60 + Number(p), 0);
+  const n = num(v);
+  return n == null || n < 0 ? null : Math.round(n);
+};
+const rank = (v: unknown) => {
+  const n = num(typeof v === "string" ? v.replace(/[#,]/g, "") : v);
+  return n != null && n >= 1 ? Math.round(n) : null;
+};
+// "2026-09", from "2026-09", "2026-09-01" or "September 2026".
+const month = (v: unknown) => {
+  if (typeof v !== "string") return null;
+  const iso = v.match(/^(\d{4})-(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}`;
+  const d = new Date(`1 ${v}`);
+  return Number.isNaN(d.getTime()) ? null : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+};
+
+export function parseEngagement(a: Json): Engagement {
+  const history = (Array.isArray(a.monthlyVisitsHistory) ? a.monthlyVisitsHistory : []).flatMap((h) => {
+    const o = obj(h);
+    const m = month(o.month ?? o.date);
+    const v = num(o.visits);
+    return m && v != null && v >= 0 ? [{ month: m, visits: Math.round(v) }] : [];
+  });
+  const change = num(typeof a.monthlyVisitsChange === "string" ? a.monthlyVisitsChange.replace("%", "") : a.monthlyVisitsChange);
+  return {
+    bounceRate: ratio(a.bounceRate),
+    pagesPerVisit: num(a.pagesPerVisit),
+    durationSeconds: seconds(a.avgVisitDurationSeconds ?? a.avgVisitDuration),
+    // A change of 12 means 12%; one already as a fraction stays as it is.
+    visitsChange: change == null ? null : Math.abs(change) > 1.5 || typeof a.monthlyVisitsChange === "string" ? change / 100 : change,
+    globalRank: rank(a.globalRank),
+    countryRank: rank(a.countryRank),
+    rankCountry: typeof a.countryRankCountry === "string" ? a.countryRankCountry.slice(0, 40) : null,
+    category: typeof a.category === "string" && a.category ? a.category.slice(0, 80) : null,
+    history: history.sort((x, y) => x.month.localeCompare(y.month)).slice(-12),
+  };
+}
+
 const camel = (k: string) => k.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
 
 export function parseSites(json: unknown): SiteFigures[] {
@@ -95,6 +162,7 @@ export function parseSites(json: unknown): SiteFigures[] {
         visits: visits != null && visits > 0 ? Math.round(visits) : null,
         sources,
         countries: countries.slice(0, 5),
+        engagement: parseEngagement(a),
         error: typeof (a.error ?? a.trafficError) === "string" && (a.error ?? a.trafficError) ? String(a.error ?? a.trafficError).slice(0, 200) : empty ? "Too few visitors for Similarweb to estimate" : null,
       },
     ];
@@ -144,6 +212,7 @@ export async function refreshSources(domains: string[], { client = sourcesClient
       visits: f?.visits ?? null,
       sources: JSON.stringify(f?.sources ?? {}),
       countries: JSON.stringify(f?.countries ?? []),
+      engagement: f?.engagement ? JSON.stringify(f.engagement) : null,
       fetchedAt: now,
       error: f ? f.error : "Similarweb has no figures for this site",
     };
@@ -160,6 +229,7 @@ export async function siteSources(domains: string[]) {
         visits: r.visits,
         sources: JSON.parse(r.sources) as Shares,
         countries: JSON.parse(r.countries) as { code: string; share: number }[],
+        engagement: r.engagement ? (JSON.parse(r.engagement) as Engagement) : null,
         error: r.error,
         fetchedAt: r.fetchedAt.getTime() > 0 ? r.fetchedAt : null,
       },
