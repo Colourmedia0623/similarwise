@@ -291,3 +291,23 @@ model SiteSources {
   fetchedAt DateTime
   error     String?
 }
+
+// Suggestions for winning searches from the keyword gap: which of the shop's
+// pages should target each one, with a page title, meta description and
+// opening paragraph Claude wrote for it (lib/ideas). Replaced as a set.
+model KeywordIdea {
+  id              String   @id @default(cuid())
+  shop            String
+  keyword         String
+  searchVolume    Int?
+  productId       String?  // Admin API id of the product to change; null for a new page
+  pageKind        String   // product, collection, blog
+  pageName        String
+  seoTitle        String
+  metaDescription String
+  intro           String
+  why             String
+  createdAt       DateTime @default(now())
+
+  @@index([shop])
+}
