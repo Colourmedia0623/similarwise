@@ -33,6 +33,8 @@ jobs:
           SCRAPECREATORS_API_KEY: ${{ secrets.SCRAPECREATORS_API_KEY }}
           # Where competitors' visits come from (Similarweb figures via Apify); off until set.
           APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+          # Keyword ideas, written by Claude; off until set.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           scopes=$(sed -n 's/^scopes = "\(.*\)"/\1/p' shopify.app.toml)
           {
@@ -47,6 +49,7 @@ jobs:
             echo "EMAIL_FROM=$EMAIL_FROM"
             echo "SCRAPECREATORS_API_KEY=$SCRAPECREATORS_API_KEY"
             echo "APIFY_TOKEN=$APIFY_TOKEN"
+            echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY"
           } > deploy/.env
 
       # Build here rather than on the small EC2 instance, reusing CI's layer cache.
