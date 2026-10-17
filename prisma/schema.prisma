@@ -163,6 +163,11 @@ model ShopSettings {
   ownTechAt     DateTime?
   ownTechError  String?
 
+  // Sites competing for the same Google searches (lib/traffic/similar), weekly.
+  similarAt    DateTime?
+  similarKey   String?   // The market and sites they were worked out from
+  similarError String?
+
   // Emails (lib/email). alertEmail starts as the shop's email address.
   alertEmail   String?
   alertsOn     Boolean   @default(true)  // An email when competitors change
@@ -352,4 +357,17 @@ model CompetitorLink {
   firstSeen    DateTime?
 
   @@index([competitorId])
+}
+
+// A site that ranks for many of the same Google searches as the shop or its
+// competitors, from DataForSEO, refreshed weekly (lib/traffic/similar).
+model SimilarSite {
+  id             String @id @default(cuid())
+  shop           String
+  domain         String
+  sharedKeywords Int    // Searches it ranks for that the sites it's similar to also rank for
+  traffic        Int?   // Its estimated monthly visits from Google search
+  similarTo      String @default("[]") // JSON list of the sites it competes with ("you" for the shop)
+
+  @@unique([shop, domain])
 }
