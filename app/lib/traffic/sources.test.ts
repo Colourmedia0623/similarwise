@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import db from "../../db.server";
-import { parseSites, refreshSources, siteSources, type SourcesClient } from "./sources.server";
+import { parseEngagement, parseSites, refreshSources, siteSources, type SourcesClient } from "./sources.server";
 
 const NOW = new Date("2026-10-17T12:00:00Z");
 
@@ -49,6 +49,47 @@ describe("traffic sources", () => {
     expect(site.sources.social).toBeCloseTo(0.03);
     expect(site.sources).toMatchObject({ search: 0.4 });
     expect(Object.keys(site.sources).sort()).toEqual(["direct", "search", "social"]);
+  });
+
+  it("reads engagement and visit history in the shapes scrapers send", () => {
+    expect(
+      parseEngagement({
+        bounceRate: 0.4512,
+        pagesPerVisit: 3.21,
+        avgVisitDurationSeconds: 185.6,
+        monthlyVisitsChange: 12.5,
+        globalRank: 1234567,
+        countryRank: "#17,399",
+        countryRankCountry: "United Kingdom",
+        category: "E-commerce_and_Shopping",
+        monthlyVisitsHistory: [
+          { month: "2026-09", visits: 90000 },
+          { month: "2026-07-01", visits: 70000.4 },
+          { month: "August 2026", visits: 80000 },
+          { month: "nonsense", visits: 1 },
+        ],
+      }),
+    ).toEqual({
+      bounceRate: 0.4512,
+      pagesPerVisit: 3.21,
+      durationSeconds: 186,
+      visitsChange: 0.125,
+      globalRank: 1234567,
+      countryRank: 17399,
+      rankCountry: "United Kingdom",
+      category: "E-commerce_and_Shopping",
+      history: [
+        { month: "2026-07", visits: 70000 },
+        { month: "2026-08", visits: 80000 },
+        { month: "2026-09", visits: 90000 },
+      ],
+    });
+    expect(parseEngagement({ bounceRate: "35.72%", avgVisitDuration: "00:05:25", monthlyVisitsChange: -0.08 })).toMatchObject({
+      bounceRate: expect.closeTo(0.3572, 6),
+      durationSeconds: 325,
+      visitsChange: -0.08,
+      history: [],
+    });
   });
 
   it("reads locaihost's full channel split and countries", () => {

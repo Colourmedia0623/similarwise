@@ -310,6 +310,7 @@ model SiteSources {
   visits    Int?     // Average monthly visits, worldwide
   sources   String   @default("{}") // JSON channel -> share (0-1)
   countries String   @default("[]") // JSON [{ code, share }]
+  engagement String?  // JSON Engagement: bounce rate, pages per visit, time on site, ranks, monthly visits
   fetchedAt DateTime
   error     String?
 }
