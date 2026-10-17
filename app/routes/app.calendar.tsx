@@ -61,7 +61,11 @@ export default function Calendar() {
   const planError = plan.data && "error" in plan.data ? plan.data.error : null;
   const publishing = setting.formData ? setting.formData.get("publish") === "true" : publish;
   const upcoming = posts.filter((p) => p.status !== "done");
-  const done = posts.filter((p) => p.status === "done").reverse();
+  // Posts that went out more than a fortnight ago stay on the month view only.
+  const since = new Date(Date.parse(`${today}T00:00:00Z`) - 14 * 86400_000).toISOString().slice(0, 10);
+  const done = posts.filter((p) => p.status === "done" && p.day >= since).reverse();
+  const [selected, setSelected] = useState<string | null>(null);
+  const picked = posts.find((p) => p.id === selected);
 
   return (
     <s-page heading="Content calendar">
@@ -90,6 +94,15 @@ export default function Calendar() {
         </s-stack>
       </s-section>
 
+      <s-section heading="Month view">
+        <MonthGrid posts={posts} today={today} selected={selected} onSelect={setSelected} />
+        {picked && (
+          <div className="sw-picked">
+            <PostRow key={picked.id} p={picked} today={today} />
+          </div>
+        )}
+      </s-section>
+
       <s-section heading="Coming up">
         {upcoming.length === 0 ? (
           <s-paragraph>Nothing planned yet. Press Plan the next 30 days to fill the calendar.</s-paragraph>
@@ -113,6 +126,68 @@ export default function Calendar() {
       )}
       <style>{CSS}</style>
     </s-page>
+  );
+}
+
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const STATE = { planned: "Planned", writing: "Writing", failed: "Didn't go out", done: "On your blog" } as const;
+
+// A month at a time, Monday first, each day showing its post. Pressing a post
+// opens it below the grid to change, write now or delete.
+function MonthGrid({ posts, today, selected, onSelect }: { posts: Post[]; today: string; selected: string | null; onSelect: (id: string) => void }) {
+  const [month, setMonth] = useState(today.slice(0, 7));
+  const first = new Date(`${month}-01T00:00:00Z`);
+  const lead = (first.getUTCDay() + 6) % 7;
+  const daysIn = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
+  const cells = Array.from({ length: Math.ceil((lead + daysIn) / 7) * 7 }, (_, i) => {
+    const n = i - lead + 1;
+    return n >= 1 && n <= daysIn ? `${month}-${String(n).padStart(2, "0")}` : null;
+  });
+  const byDay = new Map<string, Post[]>();
+  for (const p of posts) byDay.set(p.day, [...(byDay.get(p.day) ?? []), p]);
+  const shift = (n: number) => setMonth(new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + n, 1)).toISOString().slice(0, 7));
+  const count = posts.filter((p) => p.day.startsWith(month)).length;
+
+  return (
+    <div className="sw-month">
+      <div className="sw-month-head">
+        <button type="button" onClick={() => shift(-1)} aria-label="Previous month">‹</button>
+        <strong>{first.toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" })}</strong>
+        <button type="button" onClick={() => shift(1)} aria-label="Next month">›</button>
+        <span className="sw-month-count">{count === 1 ? "1 post" : `${count} posts`}</span>
+      </div>
+      <div className="sw-grid">
+        {WEEKDAYS.map((d) => (
+          <div key={d} className="sw-weekday">{d}</div>
+        ))}
+        {cells.map((day, i) => (
+          <div key={day ?? `blank-${i}`} className={`sw-cell${day ? "" : " sw-blank"}${day === today ? " sw-cell-today" : ""}${day && day < today ? " sw-past" : ""}`}>
+            {day && <span className="sw-date">{Number(day.slice(8))}</span>}
+            {day &&
+              (byDay.get(day) ?? []).map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  className={`sw-chip sw-chip-${p.status}${p.id === selected ? " sw-chip-on" : ""}`}
+                  title={`${p.title} (${STATE[p.status as keyof typeof STATE] ?? p.status})`}
+                  onClick={() => onSelect(p.id)}
+                >
+                  {p.picture && <img src={p.picture} alt="" />}
+                  <span>{p.title}</span>
+                </button>
+              ))}
+          </div>
+        ))}
+      </div>
+      <div className="sw-legend">
+        {(["planned", "writing", "done", "failed"] as const).map((s) => (
+          <span key={s}>
+            <i className={`sw-dot sw-chip-${s}`} />
+            {STATE[s]}
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -185,7 +260,7 @@ function PostRow({ p, today }: { p: Post; today: string }) {
                   Open in Shopify
                 </s-link>
               )}
-              {p.status === "done" && !p.url && <Link to="/app/articles">Read it</Link>}
+              {p.articleId && <Link to={`/app/articles/${p.articleId}`}>Open the article</Link>}
               {editable && !writing && (
                 <>
                   <s-button onClick={() => act.submit({ intent: "write", id: p.id }, { method: "post" })}>{p.status === "failed" ? "Try again" : "Write now"}</s-button>
@@ -214,6 +289,31 @@ function Status({ p, writing }: { p: Post; writing: boolean }) {
 }
 
 const CSS = `
+.sw-month-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: 15px; }
+.sw-month-head button { width: 30px; height: 30px; border: 1px solid #d4d4d4; border-radius: 8px; background: #fff; font-size: 18px; line-height: 1; cursor: pointer; }
+.sw-month-head button:hover { background: #f3f3f3; }
+.sw-month-count { margin-left: auto; color: #616161; font-size: 13px; }
+.sw-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border-top: 1px solid #e3e3e3; border-left: 1px solid #e3e3e3; border-radius: 10px; overflow: hidden; }
+.sw-weekday { padding: 6px 8px; font-size: 12px; font-weight: 600; color: #616161; background: #f7f7f7; border-right: 1px solid #e3e3e3; border-bottom: 1px solid #e3e3e3; }
+.sw-cell { min-height: 108px; padding: 6px; display: flex; flex-direction: column; gap: 4px; border-right: 1px solid #e3e3e3; border-bottom: 1px solid #e3e3e3; background: #fff; min-width: 0; }
+.sw-blank { background: #fafafa; }
+.sw-past { background: #fcfcfc; }
+.sw-date { font-size: 12px; color: #616161; }
+.sw-cell-today .sw-date { align-self: flex-start; padding: 0 6px; border-radius: 8px; background: #2a78d6; color: #fff; font-weight: 600; }
+.sw-chip { display: flex; flex-direction: column; gap: 4px; width: 100%; padding: 4px; border: 0; border-left: 3px solid #8a8a8a; border-radius: 6px; background: #f3f3f3; text-align: left; font: inherit; font-size: 12px; line-height: 1.3; color: #303030; cursor: pointer; }
+.sw-chip span { display: -webkit-box; -webkit-line-clamp: 2; padding-bottom: 1px; -webkit-box-orient: vertical; overflow: hidden; }
+.sw-chip img { width: 100%; aspect-ratio: 3 / 2; object-fit: cover; border-radius: 4px; }
+.sw-chip:hover { filter: brightness(.97); }
+.sw-chip-on { outline: 2px solid #2a78d6; }
+.sw-chip-planned { border-left-color: #2a78d6; background: #eef5fd; }
+.sw-chip-writing { border-left-color: #eda100; background: #fff6e0; }
+.sw-chip-done { border-left-color: #1baf7a; background: #e8f8f1; }
+.sw-chip-failed { border-left-color: #e5484d; background: #fdecec; }
+.sw-legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px; font-size: 12px; color: #616161; }
+.sw-dot { display: inline-block; width: 10px; height: 10px; margin-right: 5px; border-radius: 3px; border: 0; vertical-align: -1px; }
+.sw-dot.sw-chip-planned { background: #2a78d6; } .sw-dot.sw-chip-writing { background: #eda100; } .sw-dot.sw-chip-done { background: #1baf7a; } .sw-dot.sw-chip-failed { background: #e5484d; }
+.sw-picked { margin-top: 12px; }
+@media (max-width: 700px) { .sw-cell { min-height: 72px; } .sw-chip img, .sw-chip span { display: none; } .sw-chip { min-height: 10px; padding: 3px; } }
 .sw-post { display: grid; grid-template-columns: 56px 1fr; gap: 16px; align-items: start; }
 .sw-day { display: flex; flex-direction: column; align-items: center; padding: 6px 0; border-radius: 8px; background: #f1f1f1; color: #616161; font-size: 12px; line-height: 1.3; }
 .sw-day strong { font-size: 20px; color: #303030; }

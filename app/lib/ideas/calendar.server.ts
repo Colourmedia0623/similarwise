@@ -1,7 +1,7 @@
 import db from "../../db.server";
 import { claudeJson, type AskJson } from "./claude.server";
 import { keywordGap } from "../traffic/gap.server";
-import { sendArticle, writeTopic } from "./articles.server";
+import { articlePicture, sendArticle, writeTopic } from "./articles.server";
 import { syncIfStale, type Graphql } from "../prices/prices.server";
 
 // Content calendar: Claude plans a blog post a day from the searches in the
@@ -220,17 +220,14 @@ export async function contentCalendar(shop: string, now = new Date()) {
   ]);
   const articles = await db.blogArticle.findMany({
     where: { shop, id: { in: posts.flatMap((p) => (p.articleId ? [p.articleId] : [])) } },
-    select: { id: true, url: true, status: true, shopifyId: true },
+    select: { id: true, url: true, status: true, shopifyId: true, bodyHtml: true, imageAlt: true },
   });
-  const byId = new Map(articles.map((a) => [a.id, a]));
-  // Posts that went out more than a fortnight ago drop off the list.
-  const from = addDays(today(now), -14);
+  const pictures = await Promise.all(articles.map((a) => articlePicture(shop, a)));
+  const byId = new Map(articles.map((a, i) => [a.id, { ...a, picture: pictures[i]?.url ?? null }]));
   return {
     today: today(now),
     publish: settings?.calendarPublish ?? true,
-    posts: posts
-      .filter((p) => p.status !== "done" || p.day >= from)
-      .map((p) => ({
+    posts: posts.map((p) => ({
         id: p.id,
         day: p.day,
         keyword: p.keyword,
@@ -242,6 +239,8 @@ export async function contentCalendar(shop: string, now = new Date()) {
         url: (p.articleId && byId.get(p.articleId)?.url) || null,
         sentAs: (p.articleId && byId.get(p.articleId)?.status) || null,
         shopifyId: (p.articleId && byId.get(p.articleId)?.shopifyId) || null,
+        articleId: (p.articleId && byId.has(p.articleId) && p.articleId) || null,
+        picture: (p.articleId && byId.get(p.articleId)?.picture) || null,
       })),
   };
 }
