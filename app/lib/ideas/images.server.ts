@@ -46,7 +46,7 @@ export async function makeArticleImage(shop: string, articleId: string, make: Ma
   if (!a) return { error: "That article isn't there any more." };
   try {
     const data = new Uint8Array(await make(imagePrompt(a)));
-    await db.articleImage.upsert({ where: { articleId }, update: { data, createdAt: new Date() }, create: { articleId, shop, data } });
+    await db.articleImage.upsert({ where: { articleId }, update: { data, mime: "image/jpeg", createdAt: new Date() }, create: { articleId, shop, data } });
     await db.blogArticle.update({ where: { id: articleId }, data: { imageAlt: a.title.slice(0, 200), imageError: null } });
     return { ok: true as const };
   } catch (err) {
@@ -55,6 +55,20 @@ export async function makeArticleImage(shop: string, articleId: string, make: Ma
     await db.blogArticle.update({ where: { id: articleId }, data: { imageError } });
     return { error: imageError };
   }
+}
+
+const UPLOAD_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
+// The merchant's own picture for an article, in place of a made one.
+export async function uploadArticleImage(shop: string, articleId: string, file: { type: string; size: number; arrayBuffer(): Promise<ArrayBuffer> }) {
+  if (!UPLOAD_TYPES.includes(file.type)) return { error: "Choose a JPG, PNG or WebP picture." };
+  if (file.size > 8_000_000) return { error: "Choose a picture under 8 MB." };
+  const a = await db.blogArticle.findFirst({ where: { id: articleId, shop } });
+  if (!a) return { error: "That article isn't there any more." };
+  const data = new Uint8Array(await file.arrayBuffer());
+  await db.articleImage.upsert({ where: { articleId }, update: { data, mime: file.type, createdAt: new Date() }, create: { articleId, shop, data, mime: file.type } });
+  await db.blogArticle.update({ where: { id: articleId }, data: { imageAlt: a.imageAlt ?? a.title.slice(0, 200), imageError: null } });
+  return { ok: true as const };
 }
 
 export async function articleImage(articleId: string) {

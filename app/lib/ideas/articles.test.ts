@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import db from "../../db.server";
-import { atOrigin, cleanHtml, parseArticle, sendArticle, writeArticle } from "./articles.server";
+import { atOrigin, cleanHtml, editArticle, parseArticle, sendArticle, writeArticle } from "./articles.server";
 import type { Graphql } from "../prices/prices.server";
 
 const SHOP = "articles.myshopify.com";
@@ -58,5 +58,21 @@ describe("blog articles", () => {
     const a = await db.blogArticle.create({ data: { shop: SHOP, keyword: "k", title: "T", summary: "", bodyHtml: "<p>x</p>", metaTitle: "T", metaDescription: "" } });
     const res = await sendArticle(SHOP, a.id, true, async () => ({ errors: [{ message: "Access denied for blogs field. Required access: `read_content` access scope." }] }));
     expect(res).toEqual({ error: expect.stringMatching(/needs permission to add blog posts/) });
+  });
+
+  it("saves edits, and copies them to a post already on the blog", async () => {
+    const a = await db.blogArticle.create({
+      data: { shop: SHOP, keyword: "k", title: "Old", summary: "", bodyHtml: "<p>x</p>", metaTitle: "Old", metaDescription: "", shopifyId: "gid://shopify/Article/5", status: "draft" },
+    });
+    const calls: { query: string; variables?: Record<string, unknown> }[] = [];
+    const graphql: Graphql = async (query, variables) => {
+      calls.push({ query, variables });
+      return { data: { articleUpdate: { article: { id: "gid://shopify/Article/5" }, userErrors: [] } } };
+    };
+    const edit = { title: " New title ", summary: "S", bodyHtml: `<p onclick="x()">${"New words. ".repeat(10)}</p><script>bad()</script>`, metaTitle: "", metaDescription: "D", tags: ["a", " b ", ""] };
+    expect(await editArticle(SHOP, a.id, edit, graphql)).toEqual({ ok: true });
+    expect(await db.blogArticle.findUniqueOrThrow({ where: { id: a.id } })).toMatchObject({ title: "New title", metaTitle: "New title", tags: '["a","b"]', bodyHtml: `<p>${"New words. ".repeat(10)}</p>` });
+    expect(calls[0].variables).toMatchObject({ id: "gid://shopify/Article/5", article: { title: "New title", tags: ["a", "b"] } });
+    expect(await editArticle(SHOP, a.id, { ...edit, bodyHtml: "<p>hi</p>" }, graphql)).toEqual({ error: "The article needs some writing in it." });
   });
 });

@@ -106,7 +106,7 @@ function ArticleButton({ idea }: { idea: string }) {
         {data && "id" in data ? "Write another article" : "Write blog article"}
       </s-button>
       {write.state !== "idle" && <s-text color="subdued">Writing takes about a minute.</s-text>}
-      {data && "id" in data && <Link to="/app/articles">Article written. Read it and add it to your blog</Link>}
+      {data && "id" in data && <Link to={`/app/articles/${data.id}`}>Article written. Read it and add it to your blog</Link>}
       {data && "error" in data && <s-text tone="critical">{data.error}</s-text>}
     </s-stack>
   );

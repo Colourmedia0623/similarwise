@@ -26,7 +26,8 @@ describe("article images", () => {
     const bodyHtml = '<p><a href="/products/plain-box">a</a> <a href="https://x.com/products/red-box">b</a></p>';
     expect(await articlePicture(SHOP, { id: "x", bodyHtml, imageAlt: null })).toEqual({ url: "https://cdn.shopify.com/red.jpg", altText: "Red box", made: false });
     expect(await articlePicture(SHOP, { id: "x", bodyHtml: "<p>none</p>", imageAlt: null })).toBeNull();
-    expect(await articlePicture(SHOP, { id: "x", bodyHtml, imageAlt: "Made" })).toMatchObject({ altText: "Made", made: true });
+    // A picture whose file has gone falls back to the product photo.
+    expect(await articlePicture(SHOP, { id: "x", bodyHtml, imageAlt: "Made" })).toMatchObject({ altText: "Red box", made: false });
   });
 
   it("makes a picture with each article and sends it as the post's image", async () => {
@@ -47,7 +48,7 @@ describe("article images", () => {
       return { data: { articleCreate: { article: { id: "gid://shopify/Article/1", handle: "a", blog: { handle: "news" } }, userErrors: [] } } };
     };
     await sendArticle(SHOP, id, true, graphql);
-    expect(sent.image).toEqual({ url: expect.stringMatching(new RegExp(`/images/${id}\\.jpg$`)), altText: "Gift box ideas" });
+    expect(sent.image).toEqual({ url: expect.stringMatching(new RegExp(`/images/${id}\\.jpg\\?v=\\d+$`)), altText: "Gift box ideas" });
   });
 
   it("keeps the article when the picture fails, and sends it without one", async () => {

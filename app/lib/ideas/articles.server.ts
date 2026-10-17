@@ -149,7 +149,11 @@ const denied = (message: string) =>
 // The picture sent with an article: the one made for it, or else the photo
 // of the first of the shop's products it links to.
 export async function articlePicture(shop: string, a: { id: string; bodyHtml: string; imageAlt: string | null }) {
-  if (a.imageAlt) return { url: imageUrl(a.id), altText: a.imageAlt, made: true };
+  if (a.imageAlt) {
+    // A new address for each new picture, so browsers and Shopify fetch it again.
+    const image = await db.articleImage.findUnique({ where: { articleId: a.id }, select: { createdAt: true } });
+    if (image) return { url: `${imageUrl(a.id)}?v=${image.createdAt.getTime()}`, altText: a.imageAlt, made: true };
+  }
   const handles = [...a.bodyHtml.matchAll(/href="[^"]*\/products\/([a-z0-9-]+)/gi)].map((m) => m[1].toLowerCase());
   if (!handles.length) return null;
   const products = await db.shopProduct.findMany({ where: { shop, handle: { in: handles }, imageUrl: { not: null } } });
@@ -211,6 +215,76 @@ export async function sendArticle(shop: string, id: string, publish: boolean, gr
     await db.blogArticle.update({ where: { id }, data: { error: message } });
     return { error: message };
   }
+}
+
+const UPDATE = `#graphql
+  mutation UpdateArticle($id: ID!, $article: ArticleUpdateInput!) {
+    articleUpdate(id: $id, article: $article) {
+      article { id }
+      userErrors { code field message }
+    }
+  }`;
+
+export type ArticleEdit = { title: string; summary: string; bodyHtml: string; metaTitle: string; metaDescription: string; tags: string[] };
+
+// Saves the merchant's changes, and copies them to the blog post when the
+// article is already on Shopify.
+export async function editArticle(shop: string, id: string, edit: ArticleEdit, graphql: Graphql) {
+  const a = await db.blogArticle.findFirst({ where: { id, shop } });
+  if (!a) return { error: "That article isn't there any more." };
+  const title = edit.title.trim().slice(0, 200);
+  const bodyHtml = cleanHtml(edit.bodyHtml.slice(0, 60_000));
+  if (!title) return { error: "Give the article a title." };
+  if (bodyHtml.replace(/<[^>]+>/g, "").trim().length < 50) return { error: "The article needs some writing in it." };
+  await db.blogArticle.update({
+    where: { id },
+    data: {
+      title,
+      bodyHtml,
+      summary: edit.summary.trim().slice(0, 500),
+      metaTitle: edit.metaTitle.trim().slice(0, 120) || title.slice(0, 70),
+      metaDescription: edit.metaDescription.trim().slice(0, 320),
+      tags: JSON.stringify(edit.tags.map((t) => t.trim().slice(0, 40)).filter(Boolean).slice(0, 6)),
+    },
+  });
+  return a.shopifyId ? updateOnShopify(shop, id, graphql) : { ok: true as const };
+}
+
+// Copies an article that's already on the blog, picture included, to Shopify.
+export async function updateOnShopify(shop: string, id: string, graphql: Graphql) {
+  const a = await db.blogArticle.findFirst({ where: { id, shop } });
+  if (!a?.shopifyId) return { ok: true as const };
+  try {
+    const picture = await articlePicture(shop, a);
+    const res = (await graphql(UPDATE, {
+      id: a.shopifyId,
+      article: {
+        title: a.title,
+        body: a.bodyHtml,
+        summary: a.summary,
+        tags: JSON.parse(a.tags) as string[],
+        ...(picture ? { image: { url: picture.url, altText: picture.altText } } : {}),
+        metafields: [
+          { namespace: "global", key: "title_tag", type: "single_line_text_field", value: a.metaTitle },
+          { namespace: "global", key: "description_tag", type: "single_line_text_field", value: a.metaDescription },
+        ],
+      },
+    })) as { data?: { articleUpdate?: { userErrors: { message: string }[] } }; errors?: { message: string }[] };
+    const problem = res.errors?.[0]?.message ?? res.data?.articleUpdate?.userErrors[0]?.message;
+    if (problem) throw new Error(problem);
+    await db.blogArticle.update({ where: { id }, data: { error: null } });
+    return { ok: true as const };
+  } catch (err) {
+    const message = `Saved here, but not on your blog. ${denied(err instanceof Error ? err.message : String(err))}`.slice(0, 300);
+    await db.blogArticle.update({ where: { id }, data: { error: message } });
+    return { error: message };
+  }
+}
+
+export async function blogArticle(shop: string, id: string) {
+  const a = await db.blogArticle.findFirst({ where: { id, shop } });
+  if (!a) return null;
+  return { ...a, picture: await articlePicture(shop, a), tags: JSON.parse(a.tags) as string[], createdAt: a.createdAt.toISOString(), sentAt: a.sentAt?.toISOString() ?? null };
 }
 
 // The store's address now, e.g. https://gift-boxes-3000.myshopify.com until a
