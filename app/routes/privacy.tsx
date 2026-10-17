@@ -48,7 +48,8 @@ export default function Privacy() {
         For each competitor, Similarwise reads only public pages anyone can visit: the home page (for the theme, apps
         and tracking pixels it loads) and, for Shopify stores, the public product catalogue (product names, prices and
         publish dates). It keeps a history of those details so it can show what changed. It holds no personal
-        information from those stores.
+        information from those stores. It reads the shop&apos;s own home page the same way, to set its theme and apps
+        beside its competitors&apos;.
       </p>
       <p>
         Estimates of Google search traffic, keywords and ad spend come from DataForSEO. Similarwise sends it only
