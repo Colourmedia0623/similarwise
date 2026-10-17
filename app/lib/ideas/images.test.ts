@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import db from "../../db.server";
-import { writeTopic, sendArticle } from "./articles.server";
+import { articlePicture, writeTopic, sendArticle } from "./articles.server";
 import { imagePrompt, makeArticleImage } from "./images.server";
 import type { Graphql } from "../prices/prices.server";
 
@@ -13,6 +13,20 @@ describe("article images", () => {
   beforeEach(async () => {
     await db.articleImage.deleteMany({ where: { shop: SHOP } });
     await db.blogArticle.deleteMany({ where: { shop: SHOP } });
+    await db.shopProduct.deleteMany({ where: { shop: SHOP } });
+  });
+
+  it("uses the photo of a product the article links to when no picture was made", async () => {
+    await db.shopProduct.createMany({
+      data: [
+        { shop: SHOP, productId: "gid://shopify/Product/1", handle: "plain-box", title: "Plain box", priceCents: 100, currency: "GBP" },
+        { shop: SHOP, productId: "gid://shopify/Product/2", handle: "red-box", title: "Red box", priceCents: 100, currency: "GBP", imageUrl: "https://cdn.shopify.com/red.jpg" },
+      ],
+    });
+    const bodyHtml = '<p><a href="/products/plain-box">a</a> <a href="https://x.com/products/red-box">b</a></p>';
+    expect(await articlePicture(SHOP, { id: "x", bodyHtml, imageAlt: null })).toEqual({ url: "https://cdn.shopify.com/red.jpg", altText: "Red box", made: false });
+    expect(await articlePicture(SHOP, { id: "x", bodyHtml: "<p>none</p>", imageAlt: null })).toBeNull();
+    expect(await articlePicture(SHOP, { id: "x", bodyHtml, imageAlt: "Made" })).toMatchObject({ altText: "Made", made: true });
   });
 
   it("makes a picture with each article and sends it as the post's image", async () => {

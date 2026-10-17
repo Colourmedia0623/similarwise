@@ -4,7 +4,7 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { compact } from "../lib/format";
 import { atOrigin, blogArticles, deleteArticle, sendArticle, storeOrigin } from "../lib/ideas/articles.server";
-import type { Graphql } from "../lib/prices/prices.server";
+import { syncIfStale, type Graphql } from "../lib/prices/prices.server";
 import { makeArticleImage } from "../lib/ideas/images.server";
 
 // Blog articles written from keyword ideas, to read through and send to the
@@ -13,8 +13,9 @@ import { makeArticleImage } from "../lib/ideas/images.server";
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
   const graphql: Graphql = async (query, variables) => (await admin.graphql(query, { variables })).json();
+  await syncIfStale(session.shop, graphql).catch((err) => console.error("Product sync failed", session.shop, err));
   const [articles, origin] = await Promise.all([blogArticles(session.shop), storeOrigin(graphql)]);
-  return { articles: articles.map((a) => ({ ...a, url: atOrigin(a.url, origin) })) };
+  return { articles: articles.map((a) => ({ ...a, url: atOrigin(a.url, origin) })), imagesOn: Boolean(process.env.OPENAI_API_KEY) };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -42,7 +43,7 @@ const TONE = { written: "neutral", draft: "info", published: "success" } as cons
 type Article = ReturnType<typeof useLoaderData<typeof loader>>["articles"][number];
 
 export default function Articles() {
-  const { articles } = useLoaderData<typeof loader>();
+  const { articles, imagesOn } = useLoaderData<typeof loader>();
   return (
     <s-page heading="Blog articles">
       <s-section>
@@ -57,13 +58,13 @@ export default function Articles() {
         )}
       </s-section>
       {articles.map((a) => (
-        <ArticleCard key={a.id} a={a} />
+        <ArticleCard key={a.id} a={a} imagesOn={imagesOn} />
       ))}
     </s-page>
   );
 }
 
-function ArticleCard({ a }: { a: Article }) {
+function ArticleCard({ a, imagesOn }: { a: Article; imagesOn: boolean }) {
   const send = useFetcher<typeof action>();
   const busy = (intent: string) => send.state !== "idle" && send.formData?.get("intent") === intent;
   const error = send.data && "error" in send.data ? send.data.error : a.error;
@@ -88,7 +89,7 @@ function ArticleCard({ a }: { a: Article }) {
           )}
         </s-stack>
         {error && <s-banner tone="warning">{error}</s-banner>}
-        <ArticlePicture a={a} />
+        <ArticlePicture a={a} imagesOn={imagesOn} />
         <s-text color="subdued">
           Google shows: <strong>{a.metaTitle}</strong> · {a.metaDescription}
         </s-text>
@@ -116,7 +117,7 @@ function ArticleCard({ a }: { a: Article }) {
 
 // The article's picture, which goes on the blog as the post's main image,
 // with a button to make one (or another) before it's sent.
-function ArticlePicture({ a }: { a: Article }) {
+function ArticlePicture({ a, imagesOn }: { a: Article; imagesOn: boolean }) {
   const make = useFetcher<typeof action>();
   const made = make.data && "ok" in make.data && make.data.id === a.id;
   // A new address after each remake, so the browser shows the new picture.
@@ -125,8 +126,17 @@ function ArticlePicture({ a }: { a: Article }) {
   const busy = make.state !== "idle";
   return (
     <s-stack gap="small">
-      {(a.imageAlt || made) && <img className="sw-picture" src={`/images/${a.id}.jpg?v=${version}`} alt={a.imageAlt ?? a.title} />}
-      {!a.shopifyId && (
+      {a.imageAlt || made ? (
+        <img className="sw-picture" src={`/images/${a.id}.jpg?v=${version}`} alt={a.imageAlt ?? a.title} />
+      ) : (
+        a.picture && (
+          <>
+            <img className="sw-picture" src={a.picture.url} alt={a.picture.altText} />
+            {!a.shopifyId && <s-text color="subdued">The photo of {a.picture.altText}, which the article links to, goes on the post.</s-text>}
+          </>
+        )
+      )}
+      {!a.shopifyId && imagesOn && (
         <s-stack direction="inline" gap="small" alignItems="center">
           <s-button loading={busy} onClick={() => make.submit({ intent: "image", id: a.id }, { method: "post" })}>
             {a.imageAlt || made ? "Make a different picture" : "Make a picture"}

@@ -2,7 +2,7 @@ import db from "../../db.server";
 import { claudeJson, type AskJson } from "./claude.server";
 import { keywordGap } from "../traffic/gap.server";
 import { sendArticle, writeTopic } from "./articles.server";
-import type { Graphql } from "../prices/prices.server";
+import { syncIfStale, type Graphql } from "../prices/prices.server";
 
 // Content calendar: Claude plans a blog post a day from the searches in the
 // shop's keyword gap, the merchant edits or deletes any of them, and the
@@ -158,6 +158,8 @@ export async function writePost(shop: string, id: string, graphql: Graphql, ask:
     // A post written before that failed to send is sent again, not rewritten.
     let articleId = post.articleId;
     if (!articleId) {
+      // Fresh product links and photos for the article.
+      await syncIfStale(shop, graphql, now).catch((err) => console.error("Product sync failed", shop, err));
       const written = await writeTopic(
         shop,
         { keyword: post.keyword, searchVolume: post.searchVolume, plannedPage: { kind: "blog", name: post.title, intro: post.angle } },
