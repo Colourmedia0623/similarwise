@@ -9,7 +9,7 @@ import { refreshGap } from "../lib/traffic/gap.server";
 import { refreshAds } from "../lib/ads/ads.server";
 import { trafficClient } from "../lib/traffic/dataforseo.server";
 import { marketFor } from "../lib/traffic/markets";
-import { EVENT_LABEL, EVENT_TONE, compact, formatPrice, timeAgo } from "../lib/format";
+import { EVENT_LABEL, EVENT_TONE, branded, compact, formatPrice, timeAgo } from "../lib/format";
 
 // One competitor: what their store runs, the ad channels they're set up for,
 // their catalogue over time, their latest changes and newest products.
@@ -54,6 +54,9 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       paidTraffic: c.paidTraffic,
       paidKeywords: c.paidKeywords,
       paidCostCents: c.paidCostCents,
+      top3Keywords: c.top3Keywords,
+      brandTerm: c.brandTerm,
+      brandedTraffic: c.brandedTraffic,
       at: c.trafficAt?.toISOString() ?? null,
       error: c.trafficError,
     },
@@ -250,13 +253,19 @@ function SearchSection({ search, keywords, traffic }: Pick<LoaderData, "search" 
             <s-grid gridTemplateColumns="repeat(auto-fit, minmax(160px, 1fr))" gap="base">
               <Stat label="Search visits a month" value={compact(search.organicTraffic)} />
               <Stat label="Keywords they rank for" value={compact(search.organicKeywords)} />
+              <Stat label="Keywords in the top 3" value={compact(search.top3Keywords)} />
+              <Stat
+                label={search.brandTerm ? `Searches for “${search.brandTerm}”` : "Searches for their name"}
+                value={branded(search.brandedTraffic, search.organicTraffic)}
+              />
               <Stat label="Visits from Google Ads" value={compact(search.paidTraffic)} />
               <Stat label="Keywords they bid on" value={compact(search.paidKeywords)} />
               <Stat label="Google Ads spend a month" value={usd(search.paidCostCents)} />
             </s-grid>
             <s-text color="subdued">
               Estimates from Google search data, updated {timeAgo(search.at)} and refreshed weekly. Spend is what
-              their ad clicks would cost at typical prices, not their actual budget.
+              their ad clicks would cost at typical prices, not their actual budget. Searches for their name are
+              visits a month from searches containing it, and the share of all their search visits.
             </s-text>
             <KeywordTable heading="Top keywords they rank for" rows={organic} />
             <KeywordTable heading="Keywords they advertise on" rows={paid} />

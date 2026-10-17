@@ -1,7 +1,7 @@
 import db from "../../db.server";
 import { hostOf } from "../tracker/url";
 import { formatPrice, type Change } from "../tracker/diff";
-import { trafficClient, type DomainTraffic, type TrafficClient } from "./dataforseo.server";
+import { brandTerm, trafficClient, type DomainTraffic, type TrafficClient } from "./dataforseo.server";
 import { marketFor } from "./markets";
 
 // Refreshes a competitor's search traffic, keywords and estimated Google
@@ -68,7 +68,18 @@ export async function refreshTraffic(
   if (fresh && !force) return;
   const domain = hostOf(c.url);
   try {
-    const [traffic, keywords] = await Promise.all([client.overview(domain, market), client.keywords(domain, market)]);
+    const term = brandTerm(domain);
+    const [{ top3Keywords, ...traffic }, keywords, branded] = await Promise.all([
+      client.overview(domain, market),
+      client.keywords(domain, market),
+      // Branded searches are a nice-to-have: their failure doesn't lose the rest.
+      term && client.brandedTraffic
+        ? client.brandedTraffic(domain, term, market).catch((err) => {
+            console.error(`Couldn't get branded traffic for ${domain}`, err);
+            return null;
+          })
+        : null,
+    ]);
     const before: DomainTraffic | null =
       c.organicTraffic != null && c.trafficMarket === market.code
         ? {
@@ -89,7 +100,16 @@ export async function refreshTraffic(
       }),
       db.competitor.update({
         where: { id },
-        data: { ...traffic, trafficMarket: market.code, trafficAt: now, trafficError: null },
+        data: {
+          ...traffic,
+          top3Keywords: top3Keywords ?? null,
+          brandTerm: term,
+          // Can't be more than all their search visits.
+          brandedTraffic: branded == null ? null : Math.min(branded, traffic.organicTraffic),
+          trafficMarket: market.code,
+          trafficAt: now,
+          trafficError: null,
+        },
       }),
     ]);
   } catch (err) {

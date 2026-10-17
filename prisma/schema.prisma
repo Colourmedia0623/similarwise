@@ -53,6 +53,9 @@ model Competitor {
   paidTraffic     Int?      // Estimated monthly visits from Google search ads
   paidKeywords    Int?
   paidCostCents   Int?      // Estimated monthly Google search ads spend, in US cents
+  top3Keywords    Int?      // Keywords ranking in Google's top three
+  brandTerm       String?   // The name searched for, from their domain, e.g. foldabox
+  brandedTraffic  Int?      // Monthly search visits from searches containing brandTerm
   trafficMarket   String?   // Country the numbers are for, e.g. GB
   trafficAt       DateTime?
   trafficError    String?
