@@ -55,7 +55,7 @@ export default function Privacy() {
         website addresses (the competitors&apos; and the shop&apos;s own) and the country to look at.
       </p>
       <p>
-        Competitors&apos; ads come from the public Meta, TikTok and Google ad libraries, through Scrape Creators.
+        Competitors&apos; ads come from the public Meta, TikTok and Google ad libraries, through Scrape Creators. Figures on where competitors&apos; visits come from are Similarweb&apos;s public estimates, read through Apify.
         Similarwise sends it only the competitor&apos;s name, website and the country to look at.
       </p>
 
