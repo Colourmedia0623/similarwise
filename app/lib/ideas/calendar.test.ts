@@ -77,6 +77,7 @@ describe("content calendar", () => {
     });
     const sent: Record<string, unknown>[] = [];
     const graphql: Graphql = async (query, variables) => {
+      if (query.includes("products(")) return { data: { products: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } };
       if (query.includes("blogs(")) return { data: { blogs: { nodes: [{ id: "gid://shopify/Blog/1" }] } } };
       sent.push((variables as { article: Record<string, unknown> }).article);
       return { data: { articleCreate: { article: { id: `gid://shopify/Article/${sent.length}`, handle: `post-${sent.length}`, blog: { handle: "news" } }, userErrors: [] } } };

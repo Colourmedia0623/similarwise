@@ -8,6 +8,7 @@ export type Graphql = (query: string, variables?: Record<string, unknown>) => Pr
 
 const SYNC_EVERY = 6 * 3600_000;
 const MAX_PAGES = 10; // Up to 2,500 products.
+const PHOTOS_SINCE = new Date("2026-10-17T20:00:00Z");
 
 const PRODUCTS = `#graphql
   query Products($after: String) {
@@ -18,6 +19,7 @@ const PRODUCTS = `#graphql
         handle
         title
         productType
+        featuredMedia { preview { image { url } } }
         priceRangeV2 { minVariantPrice { amount currencyCode } }
       }
     }
@@ -32,6 +34,7 @@ type ProductsPage = {
         handle: string;
         title: string;
         productType: string | null;
+        featuredMedia?: { preview?: { image?: { url: string } | null } | null } | null;
         priceRangeV2: { minVariantPrice: { amount: string; currencyCode: string } };
       }[];
     };
@@ -53,6 +56,7 @@ export async function syncShopProducts(shop: string, graphql: Graphql, now = new
         handle: p.handle,
         title: p.title.slice(0, 300),
         productType: p.productType?.slice(0, 120) || null,
+        imageUrl: p.featuredMedia?.preview?.image?.url ?? null,
         priceCents: price,
         currency: p.priceRangeV2.minVariantPrice.currencyCode,
         syncedAt: now,
@@ -73,7 +77,9 @@ export async function syncShopProducts(shop: string, graphql: Graphql, now = new
 
 export async function syncIfStale(shop: string, graphql: Graphql, now = new Date()) {
   const last = await db.shopProduct.findFirst({ where: { shop }, orderBy: { syncedAt: "desc" }, select: { syncedAt: true } });
-  if (last && now.getTime() - last.syncedAt.getTime() < SYNC_EVERY) return false;
+  // Copies made before product photos were kept are fetched again.
+  const fresh = last && now.getTime() - last.syncedAt.getTime() < SYNC_EVERY && last.syncedAt >= PHOTOS_SINCE;
+  if (fresh) return false;
   await syncShopProducts(shop, graphql, now);
   return true;
 }

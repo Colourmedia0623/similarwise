@@ -110,7 +110,7 @@ describe("syncing the shop's products", () => {
   });
 
   it("only syncs again once the copy is stale", async () => {
-    const now = new Date("2026-10-17T10:00:00Z");
+    const now = new Date("2026-11-01T10:00:00Z");
     const one = admin([{ id: "gid://shopify/Product/1", title: "Box", price: "1.00" }]);
     expect(await syncIfStale(SHOP, one, now)).toBe(true);
     expect(await syncIfStale(SHOP, one, new Date(now.getTime() + 3600_000))).toBe(false);

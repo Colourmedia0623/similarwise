@@ -146,6 +146,17 @@ const denied = (message: string) =>
     ? "SimilarWise needs permission to add blog posts. Close and reopen the app to approve it, then try again."
     : `Shopify didn't accept the article: ${message}`;
 
+// The picture sent with an article: the one made for it, or else the photo
+// of the first of the shop's products it links to.
+export async function articlePicture(shop: string, a: { id: string; bodyHtml: string; imageAlt: string | null }) {
+  if (a.imageAlt) return { url: imageUrl(a.id), altText: a.imageAlt, made: true };
+  const handles = [...a.bodyHtml.matchAll(/href="[^"]*\/products\/([a-z0-9-]+)/gi)].map((m) => m[1].toLowerCase());
+  if (!handles.length) return null;
+  const products = await db.shopProduct.findMany({ where: { shop, handle: { in: handles }, imageUrl: { not: null } } });
+  const p = handles.map((h) => products.find((x) => x.handle === h)).find(Boolean);
+  return p?.imageUrl ? { url: p.imageUrl, altText: p.title.slice(0, 200), made: false } : null;
+}
+
 // Sends an article to the shop's first blog (or a new "News" blog when it
 // has none), as a hidden draft or published.
 export async function sendArticle(shop: string, id: string, publish: boolean, graphql: Graphql, now = new Date()) {
@@ -159,6 +170,7 @@ export async function sendArticle(shop: string, id: string, publish: boolean, gr
     };
     if (blogs.errors?.length) throw new Error(blogs.errors[0].message);
     const blogId = blogs.data?.blogs?.nodes[0]?.id;
+    const picture = await articlePicture(shop, a);
     const res = (await graphql(CREATE, {
       article: {
         ...(blogId ? { blogId } : {}),
@@ -168,7 +180,7 @@ export async function sendArticle(shop: string, id: string, publish: boolean, gr
         tags: JSON.parse(a.tags) as string[],
         author: { name: "SimilarWise" },
         isPublished: publish,
-        ...(a.imageAlt ? { image: { url: imageUrl(a.id), altText: a.imageAlt } } : {}),
+        ...(picture ? { image: { url: picture.url, altText: picture.altText } } : {}),
         ...(publish ? { publishDate: now.toISOString() } : {}),
         metafields: [
           { namespace: "global", key: "title_tag", type: "single_line_text_field", value: a.metaTitle },
@@ -224,5 +236,7 @@ export async function deleteArticle(shop: string, id: string) {
 
 export async function blogArticles(shop: string) {
   const rows = await db.blogArticle.findMany({ where: { shop }, orderBy: { createdAt: "desc" } });
-  return rows.map((a) => ({ ...a, tags: JSON.parse(a.tags) as string[], createdAt: a.createdAt.toISOString(), sentAt: a.sentAt?.toISOString() ?? null }));
+  const pictures = await Promise.all(rows.map((a) => articlePicture(shop, a)));
+  return rows.map((a, i) => ({
+    picture: pictures[i], ...a, tags: JSON.parse(a.tags) as string[], createdAt: a.createdAt.toISOString(), sentAt: a.sentAt?.toISOString() ?? null }));
 }

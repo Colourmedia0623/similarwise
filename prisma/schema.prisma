@@ -235,6 +235,7 @@ model ShopProduct {
   handle      String
   title       String
   productType String?
+  imageUrl    String?        // Its main photo on Shopify's CDN
   priceCents  Int            // Lowest variant price
   currency    String
   syncedAt    DateTime       @default(now())
