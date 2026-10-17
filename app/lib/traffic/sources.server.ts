@@ -31,6 +31,9 @@ const FOLD: Record<string, Source> = {
   display_ads: "display",
   gen_ai: "other",
   affiliate: "other",
+  organic: "search",
+  paid: "paidSearch",
+  ads: "display",
   directVisitsShare: "direct",
   referralVisitsShare: "referrals",
   socialNetworksVisitsShare: "social",
@@ -45,7 +48,12 @@ export function parseSites(json: unknown): SiteFigures[] {
     const name = a.domain ?? a.name;
     const domain = typeof name === "string" ? bare(name) : null;
     if (!domain) return [];
-    const raw = obj(a.traffic_sources ?? a.trafficSources);
+    const listed = a.traffic_sources ?? a.trafficSources;
+    // Either { channel: share } or [{ source, percentage }], where the free page
+    // hides most channels (percentage null).
+    const raw = Array.isArray(listed)
+      ? Object.fromEntries(listed.map(obj).flatMap((o) => (typeof o.source === "string" ? [[o.source, o.percentage ?? o.share]] : [])))
+      : obj(listed);
     const sources: Shares = {};
     for (const [from, to] of Object.entries(FOLD)) {
       const v = share(raw[from] ?? (from.includes("_") ? raw[camel(from)] : undefined));

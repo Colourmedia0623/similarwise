@@ -26,22 +26,29 @@ describe("traffic sources", () => {
     expect(small.error).toMatch(/Too few visitors/);
   });
 
-  it("reads the other scraper's shape too", () => {
+  it("reads tri_angle's list, where the free page hides most channels", () => {
     const [site] = parseSites([
       {
-        url: "https://similarweb.com/website/tinyboxcompany.co.uk/",
         name: "tinyboxcompany.co.uk",
-        totalVisits: 61234,
-        organicTraffic: 0.8,
-        paidTraffic: 0.2,
-        trafficSources: { directVisitsShare: 0.4, referralVisitsShare: 0.05, searchVisitsShare: 0.5, socialNetworksVisitsShare: 0.03, mailVisitsShare: 0.01, adsVisitsShare: 0.01 },
-        topCountries: [{ countryAlpha2Code: "GB", visitsShare: 0.92 }],
+        url: "https://www.similarweb.com/website/tinyboxcompany.co.uk",
+        totalVisits: 87268,
+        countryRank: 17399,
+        trafficSources: [
+          { source: "direct", rank: 1, percentage: 0.37276575948307916, isHigher: null },
+          { source: "paid", rank: 2, percentage: null },
+          { source: "organic", rank: 3, percentage: 0.4 },
+          { source: "mail", rank: null, percentage: null },
+          { source: "social_paid", rank: null, percentage: 0.01 },
+          { source: "social_organic", rank: null, percentage: 0.02 },
+          { source: "affiliate", rank: -1, percentage: null },
+        ],
       },
     ]);
-    expect(site).toMatchObject({ domain: "tinyboxcompany.co.uk", visits: 61234, countries: [{ code: "GB", share: 0.92 }], error: null });
-    expect(site.sources.search).toBeCloseTo(0.4);
-    expect(site.sources.paidSearch).toBeCloseTo(0.1);
-    expect(site.sources).toMatchObject({ direct: 0.4, referrals: 0.05, social: 0.03, email: 0.01, display: 0.01 });
+    expect(site).toMatchObject({ domain: "tinyboxcompany.co.uk", visits: 87268, countries: [], error: null });
+    expect(site.sources.direct).toBeCloseTo(0.3728);
+    expect(site.sources.social).toBeCloseTo(0.03);
+    expect(site.sources).toMatchObject({ search: 0.4 });
+    expect(Object.keys(site.sources).sort()).toEqual(["direct", "search", "social"]);
   });
 
   it("reads due domains in one run, weekly", async () => {

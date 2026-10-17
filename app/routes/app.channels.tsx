@@ -84,6 +84,8 @@ const SOURCE_COLOR: Record<Source, string> = {
 
 const pct = (n: number) => `${n >= 0.095 ? Math.round(n * 100) : (n * 100).toFixed(1).replace(/\.0$/, "")}%`;
 
+const HIDDEN = "#e3e3e3";
+
 function SourcesChart({ sites }: { sites: Site[] }) {
   const rows = sites.filter((s) => s.traffic && Object.keys(s.traffic.sources).length);
   const labelW = 200;
@@ -94,7 +96,10 @@ function SourcesChart({ sites }: { sites: Site[] }) {
     <svg viewBox={`0 0 ${width} ${rows.length * rowH}`} width="100%" role="img" aria-label="Share of visits by channel, by site" style={{ maxWidth: width }}>
       {rows.map((s, i) => {
         const shares = s.traffic!.sources;
-        const total = SOURCES.reduce((t, k) => t + (shares[k] ?? 0), 0) || 1;
+        // Shares add up to under 1 when Similarweb hides some channels; the
+        // rest is drawn grey rather than stretched.
+        const total = Math.max(SOURCES.reduce((t, k) => t + (shares[k] ?? 0), 0), 1);
+        const hidden = 1 - SOURCES.reduce((t, k) => t + (shares[k] ?? 0), 0) / total;
         let x = labelW;
         const y = i * rowH + 6;
         return (
@@ -120,6 +125,12 @@ function SourcesChart({ sites }: { sites: Site[] }) {
               x += w;
               return seg;
             })}
+            {hidden > 0.005 && (
+              <g>
+                <title>{`${s.name}: hidden by Similarweb ${pct(hidden)}`}</title>
+                <rect x={x} y={y} width={Math.max(hidden * barW - 2, 1)} height={20} rx={2} fill={HIDDEN} />
+              </g>
+            )}
           </g>
         );
       })}
@@ -185,6 +196,10 @@ export default function Channels() {
                         <s-text>{SOURCE_LABEL[k]}</s-text>
                       </s-stack>
                     ))}
+                    <s-stack direction="inline" gap="small-200" alignItems="center">
+                      <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: HIDDEN }} />
+                      <s-text>Not shown by Similarweb</s-text>
+                    </s-stack>
                   </s-stack>
                   <SourcesChart sites={sites} />
                 </>
@@ -209,7 +224,7 @@ export default function Channels() {
                                 .slice(0, 3)
                                 .map((c) => `${countryName(c.code)} ${pct(c.share)}`)
                                 .join(", ")
-                            : (s.traffic?.error ?? "Not checked yet")}
+                            : (s.traffic?.error ?? (s.traffic ? "Not shown by Similarweb" : "Not checked yet"))}
                         </s-table-cell>
                       </s-table-row>
                     ))}
