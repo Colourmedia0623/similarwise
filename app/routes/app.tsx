@@ -42,6 +42,7 @@ export default function App() {
         <s-link href="/app/prices">Price comparison</s-link>
         <s-link href="/app/keywords">Keyword gap</s-link>
         <s-link href="/app/ideas">Keyword ideas</s-link>
+        <s-link href="/app/links">Link gap</s-link>
         <s-link href="/app/channels">Marketing channels</s-link>
         <s-link href="/app/ads">Ads</s-link>
         <s-link href="/app/ad-ideas">Ad ideas</s-link>

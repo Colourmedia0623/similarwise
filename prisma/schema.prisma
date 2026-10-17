@@ -73,6 +73,11 @@ model Competitor {
   adsMarket        String?
   adsError         String?
 
+  // Sites linking to them but not the shop, refreshed weekly (lib/links).
+  linksAt     DateTime?
+  linksDomain String?   // The shop's website the gap was worked out against
+  linksError  String?
+
   products  CompetitorProduct[]
   events    CompetitorEvent[]
   snapshots CompetitorSnapshot[]
@@ -80,6 +85,7 @@ model Competitor {
   keywords  CompetitorKeyword[]
   gaps      KeywordGap[]
   ads       CompetitorAd[]
+  links     CompetitorLink[]
   matches   ProductMatch[]
 
   @@unique([shop, url])
@@ -321,4 +327,18 @@ model AdIdeas {
   ideas     String   @default("[]")
   adsRead   Int      @default(0)
   createdAt DateTime @default(now())
+}
+
+// A website linking to a competitor that doesn't link to the shop, from
+// DataForSEO Backlinks, refreshed weekly (lib/links).
+model CompetitorLink {
+  id           String     @id @default(cuid())
+  competitorId String
+  competitor   Competitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+  domain       String     // The linking website
+  rank         Int?       // DataForSEO domain rank, 0 to 100
+  backlinks    Int?       // Links from that site to the competitor
+  firstSeen    DateTime?
+
+  @@index([competitorId])
 }
