@@ -11,8 +11,8 @@ export const TOPICS = [
   { key: "products", label: "New products and products taken down", kinds: ["launch", "removed"] },
   {
     key: "ads",
-    label: "Ads, apps and ad spend",
-    kinds: ["channel_added", "channel_removed", "app_added", "app_removed", "theme_changed", "spend_up", "spend_down"],
+    label: "New ads, apps and ad spend",
+    kinds: ["ad_launched", "channel_added", "channel_removed", "app_added", "app_removed", "theme_changed", "spend_up", "spend_down"],
   },
   { key: "traffic", label: "Big changes in search traffic", kinds: ["traffic_up", "traffic_down"] },
 ] as const;

@@ -54,6 +54,10 @@ export default function Privacy() {
         Estimates of Google search traffic, keywords and ad spend come from DataForSEO. Similarwise sends it only
         website addresses (the competitors&apos; and the shop&apos;s own) and the country to look at.
       </p>
+      <p>
+        Competitors&apos; ads come from the public Meta, TikTok and Google ad libraries, through Scrape Creators.
+        Similarwise sends it only the competitor&apos;s name, website and the country to look at.
+      </p>
 
       <h2>Early-access waitlist</h2>
       <p>

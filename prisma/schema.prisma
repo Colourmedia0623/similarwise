@@ -63,12 +63,23 @@ model Competitor {
   gapMarket String?
   gapError  String?
 
+  // Ads in the Meta, TikTok and Google ad libraries, refreshed weekly (lib/ads).
+  metaPageId       String?
+  metaPageName     String?
+  metaCandidates   String  @default("[]") // JSON [{id, name, likes}] from the last page search
+  tiktokAdvertiser String?
+  tiktokCandidates String  @default("[]") // JSON [name]
+  adsAt            DateTime?
+  adsMarket        String?
+  adsError         String?
+
   products  CompetitorProduct[]
   events    CompetitorEvent[]
   snapshots CompetitorSnapshot[]
   traffic   TrafficSnapshot[]
   keywords  CompetitorKeyword[]
   gaps      KeywordGap[]
+  ads       CompetitorAd[]
   matches   ProductMatch[]
 
   @@unique([shop, url])
@@ -233,4 +244,30 @@ model KeywordGap {
   yourPosition  Int?
 
   @@index([competitorId])
+}
+
+// An ad a competitor runs, as seen in a platform's public ad library.
+model CompetitorAd {
+  id           String     @id @default(cuid())
+  competitorId String
+  competitor   Competitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+  platform     String     // meta | tiktok | google
+  adId         String
+  title        String?
+  text         String?
+  imageUrl     String?
+  videoUrl     String?
+  linkUrl      String?    // Where the ad sends people
+  adUrl        String?    // The ad in the platform's library
+  cta          String?
+  placements   String     @default("[]") // JSON, e.g. ["FACEBOOK","INSTAGRAM"]
+  format       String?
+  startedAt    DateTime?
+  lastShownAt  DateTime?
+  active       Boolean    @default(true)
+  firstSeenAt  DateTime   @default(now())
+  lastSeenAt   DateTime   @default(now())
+
+  @@unique([competitorId, platform, adId])
+  @@index([competitorId, active])
 }

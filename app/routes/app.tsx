@@ -41,6 +41,7 @@ export default function App() {
         <s-link href="/app/competitors">Competitors</s-link>
         <s-link href="/app/prices">Price comparison</s-link>
         <s-link href="/app/keywords">Keyword gap</s-link>
+        <s-link href="/app/ads">Ads</s-link>
         <s-link href="/app/settings">Email alerts</s-link>
         {owner && <s-link href="/app/survey">Survey results</s-link>}
       </s-app-nav>

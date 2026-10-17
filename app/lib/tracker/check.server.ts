@@ -6,6 +6,7 @@ import { MAX_PAGES, PAGE_LIMIT, parseProducts, type SeenProduct } from "./produc
 import { hostOf, normalizeStoreUrl } from "./url";
 import { refreshTraffic } from "../traffic/refresh.server";
 import { refreshGap } from "../traffic/gap.server";
+import { refreshAds } from "../ads/ads.server";
 import type { TrafficClient } from "../traffic/dataforseo.server";
 
 // Adding competitors and checking their stores: the home page for the theme,
@@ -40,6 +41,7 @@ export async function addCompetitor(
   await checkCompetitor(c.id, fetcher);
   await refreshTraffic(c.id, client === undefined ? {} : { client });
   await refreshGap(c.id);
+  await refreshAds(c.id);
   return { id: c.id };
 }
 

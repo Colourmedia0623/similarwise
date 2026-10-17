@@ -36,6 +36,7 @@ export const EVENT_LABEL: Record<string, string> = {
   spend_down: "Ad spend down",
   traffic_up: "Traffic up",
   traffic_down: "Traffic down",
+  ad_launched: "New ads",
 };
 
 // "12k", "1.4M": big estimates read better rounded.
@@ -50,6 +51,7 @@ export const EVENT_TONE: Record<string, "info" | "success" | "warning" | "critic
   price_up: "info",
   removed: "neutral",
   channel_added: "info",
+  ad_launched: "info",
   channel_removed: "neutral",
   spend_up: "warning",
   traffic_up: "warning",
