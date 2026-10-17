@@ -5,7 +5,8 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { timeAgo } from "../lib/format";
-import { PLATFORM_LABEL, adsOverview, refreshAds, setMetaPage, setTiktokAdvertiser } from "../lib/ads/ads.server";
+import { adsOverview, refreshAds, setMetaPage, setTiktokAdvertiser } from "../lib/ads/ads.server";
+import { PLATFORM_LABEL } from "../lib/ads/platforms";
 import { adsClient, type Platform } from "../lib/ads/scrapecreators.server";
 
 // The ads competitors are running on Meta, TikTok and Google, from the
