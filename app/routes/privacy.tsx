@@ -35,7 +35,11 @@ export default function Privacy() {
         <li>the shop&apos;s domain and the access Shopify grants the app, so it can show its pages in the admin;</li>
         <li>the list of competitor websites the merchant adds;</li>
         <li>the names, prices and types of the shop&apos;s active products, to compare them with competitors&apos;;</li>
-        <li>the shop&apos;s country and website address, to compare its Google search rankings with competitors&apos;.</li>
+        <li>the shop&apos;s country and website address, to compare its Google search rankings with competitors&apos;;</li>
+        <li>
+          the email address alerts and the weekly summary go to (the shop&apos;s own address unless the merchant changes
+          it). These emails are sent through Resend, and every one has a link to turn it off.
+        </li>
       </ul>
       <p>Similarwise does not store any information about the shop&apos;s customers or orders.</p>
 
