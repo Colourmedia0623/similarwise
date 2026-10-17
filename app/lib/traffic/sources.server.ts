@@ -7,7 +7,7 @@ import type { Shares, Source } from "./sources";
 // Similarweb come back with no figures.
 
 const WEEK = 7 * 24 * 3600_000;
-const ACTOR = "bovi~similarweb-scraper";
+const ACTOR = "locaihost~website-traffic";
 
 export type SiteFigures = { domain: string; visits: number | null; sources: Shares; countries: { code: string; share: number }[]; error: string | null };
 export type SourcesClient = { sites(domains: string[]): Promise<SiteFigures[]> };
@@ -15,9 +15,11 @@ export type SourcesClient = { sites(domains: string[]): Promise<SiteFigures[]> }
 type Json = Record<string, unknown>;
 const obj = (v: unknown): Json => (v && typeof v === "object" && !Array.isArray(v) ? (v as Json) : {});
 const share = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? (v > 1 ? v / 100 : v) : 0);
+const num = (v: unknown) => (typeof v === "number" ? v : typeof v === "string" && v.trim() && Number.isFinite(Number(v)) ? Number(v) : null);
 const bare = (d: string) => d.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, "");
 
-// Similarweb's ten channels, folded into the eight the page shows.
+// Similarweb's channels, folded into the eight the page shows. Scrapers name
+// them differently; both spellings below are read.
 const FOLD: Record<string, Source> = {
   direct: "direct",
   search_organic: "search",
@@ -29,35 +31,71 @@ const FOLD: Record<string, Source> = {
   display_ads: "display",
   gen_ai: "other",
   affiliate: "other",
+  organicSearch: "search",
+  paidSearch: "paidSearch",
+  socialOrganic: "social",
+  socialPaid: "social",
+  email: "email",
+  displayAds: "display",
+  affiliates: "other",
+  aiChatbots: "other",
+  organic: "search",
+  paid: "paidSearch",
+  ads: "display",
+  directVisitsShare: "direct",
+  referralVisitsShare: "referrals",
+  socialNetworksVisitsShare: "social",
+  mailVisitsShare: "email",
+  adsVisitsShare: "display",
 };
 const camel = (k: string) => k.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
 
 export function parseSites(json: unknown): SiteFigures[] {
   return (Array.isArray(json) ? json : []).flatMap((r) => {
     const a = obj(r);
-    const domain = typeof a.domain === "string" ? bare(a.domain) : null;
+    const name = a.domain ?? a.name;
+    const domain = typeof name === "string" ? bare(name) : null;
     if (!domain) return [];
-    const raw = obj(a.traffic_sources ?? a.trafficSources);
+    const listed = a.traffic_sources ?? a.trafficSources;
+    // Either { channel: share } or [{ source, percentage }], where the free page
+    // hides most channels (percentage null).
+    const raw = Array.isArray(listed)
+      ? Object.fromEntries(listed.map(obj).flatMap((o) => (typeof o.source === "string" ? [[o.source, o.percentage ?? o.share]] : [])))
+      : obj(listed);
     const sources: Shares = {};
+    // Each field counts once, though snake_case names also match camelCase.
+    const read = new Set<string>();
     for (const [from, to] of Object.entries(FOLD)) {
-      const v = share(raw[from] ?? raw[camel(from)]);
+      const key = from in raw ? from : camel(from);
+      if (read.has(key)) continue;
+      read.add(key);
+      const v = share(raw[key]);
       if (v > 0) sources[to] = (sources[to] ?? 0) + v;
+    }
+    // One search share, with organic and paid given as parts of it.
+    const search = share(raw.searchVisitsShare);
+    if (search > 0) {
+      const organic = typeof a.organicTraffic === "number" ? a.organicTraffic : null;
+      const paid = typeof a.paidTraffic === "number" ? a.paidTraffic : null;
+      const split = organic != null && paid != null && organic + paid > 0 ? paid / (organic + paid) : 0;
+      sources.search = (sources.search ?? 0) + search * (1 - split);
+      if (split > 0) sources.paidSearch = (sources.paidSearch ?? 0) + search * split;
     }
     const countries = (Array.isArray(a.top_countries ?? a.topCountries) ? ((a.top_countries ?? a.topCountries) as unknown[]) : []).flatMap((c) => {
       const o = obj(c);
-      const code = o.cc ?? o.countryCode ?? o.country_code;
+      const code = o.cc ?? o.countryCode ?? o.country_code ?? o.countryAlpha2Code ?? o.country;
       const s = share(o.share ?? o.visitsShare ?? o.visits_share);
       return typeof code === "string" && s > 0 ? [{ code: code.toUpperCase().slice(0, 2), share: s }] : [];
     });
-    const visits = a.monthly_visits_avg ?? a.monthlyVisitsAvg ?? a.visits;
+    const visits = num(a.monthly_visits_avg ?? a.monthlyVisitsAvg ?? a.monthlyVisits ?? a.totalVisits ?? a.visits);
     const empty = Object.keys(sources).length === 0;
     return [
       {
         domain,
-        visits: typeof visits === "number" && visits > 0 ? Math.round(visits) : null,
+        visits: visits != null && visits > 0 ? Math.round(visits) : null,
         sources,
         countries: countries.slice(0, 5),
-        error: typeof a.error === "string" && a.error ? a.error.slice(0, 200) : empty ? "Too few visitors for Similarweb to estimate" : null,
+        error: typeof (a.error ?? a.trafficError) === "string" && (a.error ?? a.trafficError) ? String(a.error ?? a.trafficError).slice(0, 200) : empty ? "Too few visitors for Similarweb to estimate" : null,
       },
     ];
   });
@@ -71,7 +109,7 @@ export function sourcesClient(): SourcesClient | null {
       const res = await fetch(`https://api.apify.com/v2/acts/${ACTOR}/run-sync-get-dataset-items?timeout=280`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ domains }),
+        body: JSON.stringify({ domains, includeWebsiteChecks: false }),
         signal: AbortSignal.timeout(300_000),
       });
       if (!res.ok) throw new Error(`Apify answered ${res.status}`);

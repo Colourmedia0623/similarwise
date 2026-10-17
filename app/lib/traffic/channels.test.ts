@@ -25,6 +25,7 @@ describe("marketing channels", () => {
   beforeEach(async () => {
     await db.competitor.deleteMany();
     await db.shopSettings.deleteMany();
+    await db.siteSources.deleteMany({ where: { domain: { in: ["mine.com", "new.com", "rival.com"] } } });
   });
 
   it("groups pixels and apps into channels", () => {

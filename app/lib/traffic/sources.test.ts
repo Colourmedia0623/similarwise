@@ -26,6 +26,71 @@ describe("traffic sources", () => {
     expect(small.error).toMatch(/Too few visitors/);
   });
 
+  it("reads tri_angle's list, where the free page hides most channels", () => {
+    const [site] = parseSites([
+      {
+        name: "tinyboxcompany.co.uk",
+        url: "https://www.similarweb.com/website/tinyboxcompany.co.uk",
+        totalVisits: 87268,
+        countryRank: 17399,
+        trafficSources: [
+          { source: "direct", rank: 1, percentage: 0.37276575948307916, isHigher: null },
+          { source: "paid", rank: 2, percentage: null },
+          { source: "organic", rank: 3, percentage: 0.4 },
+          { source: "mail", rank: null, percentage: null },
+          { source: "social_paid", rank: null, percentage: 0.01 },
+          { source: "social_organic", rank: null, percentage: 0.02 },
+          { source: "affiliate", rank: -1, percentage: null },
+        ],
+      },
+    ]);
+    expect(site).toMatchObject({ domain: "tinyboxcompany.co.uk", visits: 87268, countries: [], error: null });
+    expect(site.sources.direct).toBeCloseTo(0.3728);
+    expect(site.sources.social).toBeCloseTo(0.03);
+    expect(site.sources).toMatchObject({ search: 0.4 });
+    expect(Object.keys(site.sources).sort()).toEqual(["direct", "search", "social"]);
+  });
+
+  it("reads locaihost's full channel split and countries", () => {
+    const [site] = parseSites([
+      {
+        domain: "tinyboxcompany.co.uk",
+        trafficAvailable: true,
+        monthlyVisits: 87268,
+        topTrafficSource: "Direct",
+        trafficSources: {
+          direct: 0.3728,
+          organicSearch: 0.2351,
+          paidSearch: 0.2624,
+          referrals: 0.0519,
+          socialOrganic: 0.0007,
+          socialPaid: 0.0047,
+          email: 0.011,
+          displayAds: 0.0435,
+          affiliates: 0,
+          aiChatbots: 0.0179,
+        },
+        topCountries: [
+          { country: "GB", share: 0.8711 },
+          { country: "US", share: 0.0275 },
+        ],
+        trafficError: null,
+      },
+    ]);
+    expect(site).toMatchObject({
+      domain: "tinyboxcompany.co.uk",
+      visits: 87268,
+      error: null,
+      countries: [
+        { code: "GB", share: 0.8711 },
+        { code: "US", share: 0.0275 },
+      ],
+    });
+    expect(site.sources).toMatchObject({ direct: 0.3728, search: 0.2351, paidSearch: 0.2624, referrals: 0.0519, email: 0.011, display: 0.0435 });
+    expect(site.sources.social).toBeCloseTo(0.0054);
+    expect(site.sources.other).toBeCloseTo(0.0179);
+  });
+
   it("reads due domains in one run, weekly", async () => {
     const runs: string[][] = [];
     const client: SourcesClient = {
@@ -46,9 +111,9 @@ describe("traffic sources", () => {
     client.sites = async () => {
       throw new Error("Apify answered 502");
     };
-    await refreshSources(["rival.com", "new.com"], { client, force: true, now: NOW });
-    const after = await siteSources(["rival.com", "new.com"]);
+    await refreshSources(["rival.com", "brandnew.example"], { client, force: true, now: NOW });
+    const after = await siteSources(["rival.com", "brandnew.example"]);
     expect(after.get("rival.com")?.visits).toBe(5000);
-    expect(after.get("new.com")).toMatchObject({ fetchedAt: null, error: expect.stringMatching(/502/) });
+    expect(after.get("brandnew.example")).toMatchObject({ fetchedAt: null, error: expect.stringMatching(/502/) });
   });
 });
