@@ -1,11 +1,12 @@
 import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "react-router";
-import { useFetcher, useLoaderData } from "react-router";
+import { Link, useFetcher, useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { compact } from "../lib/format";
 import { ideasClient, keywordIdeas, refreshIdeas } from "../lib/ideas/ideas.server";
 import { Copyable } from "../components/Copyable";
 import { syncIfStale, type Graphql } from "../lib/prices/prices.server";
+import { writeArticle } from "../lib/ideas/articles.server";
 
 // Keyword ideas: which page to point at each search competitors win, with
 // the words to put on it.
@@ -17,6 +18,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
+  const form = await request.formData();
+  if (form.get("intent") === "article") {
+    const idea = String(form.get("idea") ?? "");
+    try {
+      return { idea, ...(await writeArticle(session.shop, idea)) };
+    } catch (err) {
+      console.error("Couldn't write an article", session.shop, err);
+      return { idea, error: "Couldn't write that article just now. Try again in a minute." };
+    }
+  }
   const graphql: Graphql = async (query, variables) => (await admin.graphql(query, { variables })).json();
   await syncIfStale(session.shop, graphql).catch((err) => console.error("Product sync failed", session.shop, err));
   try {
@@ -33,7 +44,7 @@ export default function Ideas() {
   const { on, ideas, createdAt } = useLoaderData<typeof loader>();
   const write = useFetcher<typeof action>();
   const busy = write.state !== "idle";
-  const error = write.data && "error" in write.data ? write.data.error : null;
+  const error = write.data && "error" in write.data && !("idea" in write.data) ? write.data.error : null;
   return (
     <s-page heading="Keyword ideas">
       {on && (
@@ -76,10 +87,28 @@ export default function Ideas() {
             <Copyable label="Page title" text={i.seoTitle} limit={60} />
             <Copyable label="Meta description" text={i.metaDescription} limit={155} />
             <Copyable label="Opening paragraph" text={i.intro} />
+            <ArticleButton idea={i.id} />
           </s-stack>
         </s-section>
       ))}
     </s-page>
+  );
+}
+
+// Writes a full blog article for the idea, which then waits on the Blog
+// articles page to be sent to the shop's blog.
+function ArticleButton({ idea }: { idea: string }) {
+  const write = useFetcher<typeof action>();
+  const data = write.data && "idea" in write.data && write.data.idea === idea ? write.data : null;
+  return (
+    <s-stack direction="inline" gap="small" alignItems="center">
+      <s-button loading={write.state !== "idle"} onClick={() => write.submit({ intent: "article", idea }, { method: "post" })}>
+        {data && "id" in data ? "Write another article" : "Write blog article"}
+      </s-button>
+      {write.state !== "idle" && <s-text color="subdued">Writing takes about a minute.</s-text>}
+      {data && "id" in data && <Link to="/app/articles">Article written. Read it and add it to your blog</Link>}
+      {data && "error" in data && <s-text tone="critical">{data.error}</s-text>}
+    </s-stack>
   );
 }
 

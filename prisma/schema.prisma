@@ -372,3 +372,26 @@ model SimilarSite {
 
   @@unique([shop, domain])
 }
+
+// A blog article Claude wrote for a keyword idea, kept here until the
+// merchant sends it to their Shopify blog (lib/ideas/articles).
+model BlogArticle {
+  id              String    @id @default(cuid())
+  shop            String
+  keyword         String
+  searchVolume    Int?
+  title           String
+  summary         String
+  bodyHtml        String
+  metaTitle       String
+  metaDescription String
+  tags            String    @default("[]") // JSON list
+  status          String    @default("written") // written | draft | published
+  shopifyId       String?   // Admin API id once it's on the blog
+  url             String?   // Where it lives on the storefront
+  error           String?
+  createdAt       DateTime  @default(now())
+  sentAt          DateTime?
+
+  @@index([shop])
+}
