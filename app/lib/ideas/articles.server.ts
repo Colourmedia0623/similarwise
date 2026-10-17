@@ -191,6 +191,22 @@ export async function sendArticle(shop: string, id: string, publish: boolean, gr
   }
 }
 
+// The store's address now, e.g. https://gift-boxes-3000.myshopify.com until a
+// domain is connected. Null when Shopify can't be asked.
+export async function storeOrigin(graphql: Graphql) {
+  try {
+    const res = (await graphql(`#graphql
+      query StoreOrigin { shop { primaryDomain { url } } }`)) as { data?: { shop?: { primaryDomain?: { url: string } } } };
+    return res.data?.shop?.primaryDomain?.url?.replace(/\/$/, "") ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// Points a stored storefront link at the store's current address, so links
+// saved before a domain change (or with the wrong domain) still open.
+export const atOrigin = (url: string | null, origin: string | null) => (url && origin ? url.replace(/^https?:\/\/[^/]+/, origin) : url);
+
 export async function deleteArticle(shop: string, id: string) {
   await db.blogArticle.deleteMany({ where: { id, shop, shopifyId: null } });
 }

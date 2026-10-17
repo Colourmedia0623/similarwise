@@ -3,15 +3,17 @@ import { useFetcher, useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { compact } from "../lib/format";
-import { blogArticles, deleteArticle, sendArticle } from "../lib/ideas/articles.server";
+import { atOrigin, blogArticles, deleteArticle, sendArticle, storeOrigin } from "../lib/ideas/articles.server";
 import type { Graphql } from "../lib/prices/prices.server";
 
 // Blog articles written from keyword ideas, to read through and send to the
 // shop's Shopify blog.
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
-  return { articles: await blogArticles(session.shop) };
+  const { admin, session } = await authenticate.admin(request);
+  const graphql: Graphql = async (query, variables) => (await admin.graphql(query, { variables })).json();
+  const [articles, origin] = await Promise.all([blogArticles(session.shop), storeOrigin(graphql)]);
+  return { articles: articles.map((a) => ({ ...a, url: atOrigin(a.url, origin) })) };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
