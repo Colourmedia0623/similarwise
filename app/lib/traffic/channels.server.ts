@@ -4,6 +4,7 @@ import { parseStoredList } from "../tracker/check.server";
 import { trafficClient, type TrafficClient } from "./dataforseo.server";
 import { shopMarket } from "./refresh.server";
 import { channelTools } from "./channels";
+import { refreshSources, siteSources } from "./sources.server";
 
 // Marketing channels: each competitor's Google search visits, organic and
 // from ads, beside the shop's own, and the other channels each one is set up
@@ -40,10 +41,28 @@ export async function refreshOwnTraffic(
   });
 }
 
+// The shop's website and its competitors', for the traffic sources.
+async function shopDomains(shop: string) {
+  const [s, competitors] = await Promise.all([
+    db.shopSettings.findUnique({ where: { shop } }),
+    db.competitor.findMany({ where: { shop }, select: { url: true } }),
+  ]);
+  return [...(s?.domain ? [s.domain] : []), ...competitors.map((c) => hostOf(c.url))];
+}
+
+export async function refreshShopSources(shop: string, opts: { force?: boolean } = {}) {
+  await refreshSources(await shopDomains(shop), opts);
+}
+
 export async function refreshAllOwnTraffic() {
-  const shops = await db.shopSettings.findMany({ where: { domain: { not: "" } }, select: { shop: true } });
-  for (const { shop } of shops)
+  const shops = new Set([
+    ...(await db.shopSettings.findMany({ select: { shop: true } })).map((s) => s.shop),
+    ...(await db.competitor.findMany({ select: { shop: true }, distinct: ["shop"] })).map((c) => c.shop),
+  ]);
+  for (const shop of shops) {
     await refreshOwnTraffic(shop).catch((err) => console.error(`Couldn't refresh ${shop}'s own traffic`, err));
+    await refreshShopSources(shop).catch((err) => console.error(`Couldn't refresh ${shop}'s traffic sources`, err));
+  }
 }
 
 export async function channelsOverview(shop: string) {
@@ -53,19 +72,21 @@ export async function channelsOverview(shop: string) {
     db.competitor.findMany({ where: { shop }, orderBy: { createdAt: "asc" } }),
     db.competitorAd.groupBy({ by: ["competitorId", "platform"], where: { active: true, competitor: { shop } }, _count: true }),
   ]);
+  const sources = await siteSources([...(s?.domain ? [s.domain] : []), ...competitors.map((c) => hostOf(c.url))]);
   const live = (id: string, platform: string) => ads.find((a) => a.competitorId === id && a.platform === platform)?._count ?? 0;
   const own =
-    s?.domain && s.ownTrafficDomain === s.domain && s.ownTrafficMarket === market.code && s.ownOrganicTraffic != null
+    s?.domain && ((s.ownTrafficDomain === s.domain && s.ownTrafficMarket === market.code && s.ownOrganicTraffic != null) || sources.has(s.domain))
       ? {
           id: "you",
           name: "You",
           domain: s.domain,
           you: true,
-          organic: s.ownOrganicTraffic,
-          paid: s.ownPaidTraffic ?? 0,
-          paidCostCents: s.ownPaidCostCents ?? 0,
+          organic: s.ownTrafficDomain === s.domain && s.ownTrafficMarket === market.code ? s.ownOrganicTraffic : null,
+          paid: s.ownTrafficDomain === s.domain && s.ownTrafficMarket === market.code ? (s.ownPaidTraffic ?? 0) : null,
+          paidCostCents: s.ownTrafficDomain === s.domain && s.ownTrafficMarket === market.code ? (s.ownPaidCostCents ?? 0) : null,
           liveAds: null,
           tools: null,
+          traffic: sources.get(s.domain) ?? null,
         }
       : null;
   const theirs = competitors.map((c) => ({
@@ -78,6 +99,7 @@ export async function channelsOverview(shop: string) {
     paidCostCents: c.trafficMarket === market.code ? (c.paidCostCents ?? 0) : null,
     liveAds: { meta: live(c.id, "meta"), tiktok: live(c.id, "tiktok"), google: live(c.id, "google") },
     tools: channelTools(parseStoredList(c.adChannels), parseStoredList(c.apps)),
+    traffic: sources.get(hostOf(c.url)) ?? null,
   }));
   return { market: market.name, ownDomain: s?.domain || null, sites: own ? [own, ...theirs] : theirs };
 }

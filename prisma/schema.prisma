@@ -279,3 +279,15 @@ model CompetitorAd {
   @@unique([competitorId, platform, adId])
   @@index([competitorId, active])
 }
+
+// Where a website's visits come from and which countries they're from, from
+// Similarweb's public figures through Apify (lib/traffic/sources). Shared by
+// every shop that tracks the domain; refreshed weekly.
+model SiteSources {
+  domain    String   @id
+  visits    Int?     // Average monthly visits, worldwide
+  sources   String   @default("{}") // JSON channel -> share (0-1)
+  countries String   @default("[]") // JSON [{ code, share }]
+  fetchedAt DateTime
+  error     String?
+}
