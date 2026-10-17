@@ -1,10 +1,10 @@
-import { useState } from "react";
 import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "react-router";
 import { useFetcher, useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { compact } from "../lib/format";
 import { ideasClient, keywordIdeas, refreshIdeas } from "../lib/ideas/ideas.server";
+import { Copyable } from "../components/Copyable";
 import { syncIfStale, type Graphql } from "../lib/prices/prices.server";
 
 // Keyword ideas: which page to point at each search competitors win, with
@@ -80,34 +80,6 @@ export default function Ideas() {
         </s-section>
       ))}
     </s-page>
-  );
-}
-
-function Copyable({ label, text, limit }: { label: string; text: string; limit?: number }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <s-box padding="base" border="base" borderRadius="base">
-      <s-stack gap="small-200">
-        <s-stack direction="inline" gap="small" alignItems="center" justifyContent="space-between">
-          <s-text color="subdued">
-            {label}
-            {limit != null && ` · ${text.length} of ${limit} characters`}
-          </s-text>
-          <s-button
-            variant="tertiary"
-            onClick={() => {
-              void navigator.clipboard.writeText(text).then(() => {
-                setCopied(true);
-                setTimeout(() => setCopied(false), 1500);
-              });
-            }}
-          >
-            {copied ? "Copied" : "Copy"}
-          </s-button>
-        </s-stack>
-        <s-text>{text}</s-text>
-      </s-stack>
-    </s-box>
   );
 }
 

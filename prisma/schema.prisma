@@ -311,3 +311,14 @@ model KeywordIdea {
 
   @@index([shop])
 }
+
+// What competitors' running ads keep saying, and ad ideas for the shop's own
+// products that Claude wrote from them (lib/ideas/ad-ideas). One set per
+// shop, replaced each time; patterns and ideas are JSON.
+model AdIdeas {
+  shop      String   @id
+  patterns  String   @default("[]")
+  ideas     String   @default("[]")
+  adsRead   Int      @default(0)
+  createdAt DateTime @default(now())
+}

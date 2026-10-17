@@ -55,7 +55,7 @@ export default function Privacy() {
         website addresses (the competitors&apos; and the shop&apos;s own) and the country to look at.
       </p>
       <p>
-        Competitors&apos; ads come from the public Meta, TikTok and Google ad libraries, through Scrape Creators. Figures on where competitors&apos; visits come from are Similarweb&apos;s public estimates, read through Apify. Keyword ideas are written by Anthropic&apos;s Claude from the keyword gap and your product titles; no customer data is sent.
+        Competitors&apos; ads come from the public Meta, TikTok and Google ad libraries, through Scrape Creators. Figures on where competitors&apos; visits come from are Similarweb&apos;s public estimates, read through Apify. Keyword and ad ideas are written by Anthropic&apos;s Claude from the keyword gap, competitors&apos; public ads and your product titles; no customer data is sent.
         Similarwise sends it only the competitor&apos;s name, website and the country to look at.
       </p>
 
