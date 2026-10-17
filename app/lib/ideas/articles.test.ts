@@ -40,7 +40,7 @@ describe("blog articles", () => {
     const calls: { query: string; variables?: Record<string, unknown> }[] = [];
     const graphql: Graphql = async (query, variables) => {
       calls.push({ query, variables });
-      if (query.includes("blogs(")) return { data: { blogs: { nodes: [] } } };
+      if (query.includes("blogs(")) return { data: { shop: { primaryDomain: { url: "https://www.mine.com/" } }, blogs: { nodes: [] } } };
       return { data: { articleCreate: { article: { id: "gid://shopify/Article/9", handle: "gift-box-ideas", blog: { handle: "news" } }, userErrors: [] } } };
     };
     expect(await sendArticle(SHOP, id, false, graphql)).toEqual({ ok: true });
@@ -48,7 +48,7 @@ describe("blog articles", () => {
     expect(sent.blog).toEqual({ title: "News" });
     expect(sent.article).toMatchObject({ title: "Gift box ideas for every occasion", isPublished: false, tags: ["Gifts"] });
     const row = await db.blogArticle.findUniqueOrThrow({ where: { id } });
-    expect(row).toMatchObject({ status: "draft", url: "https://mine.com/blogs/news/gift-box-ideas", error: null });
+    expect(row).toMatchObject({ status: "draft", url: "https://www.mine.com/blogs/news/gift-box-ideas", error: null });
     expect(await sendArticle(SHOP, id, true, graphql)).toEqual({ error: "That article is already on your blog." });
   });
 

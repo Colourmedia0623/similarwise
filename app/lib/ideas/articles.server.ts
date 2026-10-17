@@ -114,7 +114,10 @@ export async function writeTopic(shop: string, topic: Topic, ask: AskJson | null
 }
 
 const BLOGS = `#graphql
-  query Blogs { blogs(first: 10) { nodes { id handle title } } }`;
+  query Blogs {
+    shop { primaryDomain { url } }
+    blogs(first: 10) { nodes { id handle title } }
+  }`;
 
 const CREATE = `#graphql
   mutation CreateArticle($article: ArticleCreateInput!, $blog: ArticleBlogInput) {
@@ -141,7 +144,10 @@ export async function sendArticle(shop: string, id: string, publish: boolean, gr
   if (!a) return { error: "That article isn't there any more." };
   if (a.shopifyId) return { error: "That article is already on your blog." };
   try {
-    const blogs = (await graphql(BLOGS)) as { data?: { blogs?: { nodes: { id: string }[] } }; errors?: { message: string }[] };
+    const blogs = (await graphql(BLOGS)) as {
+      data?: { shop?: { primaryDomain?: { url: string } }; blogs?: { nodes: { id: string }[] } };
+      errors?: { message: string }[];
+    };
     if (blogs.errors?.length) throw new Error(blogs.errors[0].message);
     const blogId = blogs.data?.blogs?.nodes[0]?.id;
     const res = (await graphql(CREATE, {
@@ -164,13 +170,15 @@ export async function sendArticle(shop: string, id: string, publish: boolean, gr
     const problem = res.errors?.[0]?.message ?? res.data?.articleCreate?.userErrors[0]?.message;
     const created = res.data?.articleCreate?.article;
     if (problem || !created) throw new Error(problem ?? "no article came back");
-    const domain = await shopDomain(shop);
+    // The store's own address in Shopify, not the website typed on the
+    // Keyword gap page, which can be a different store.
+    const origin = blogs.data?.shop?.primaryDomain?.url?.replace(/\/$/, "") ?? `https://${shop}`;
     await db.blogArticle.update({
       where: { id },
       data: {
         status: publish ? "published" : "draft",
         shopifyId: created.id,
-        url: domain ? `https://${domain}/blogs/${created.blog.handle}/${created.handle}` : null,
+        url: `${origin}/blogs/${created.blog.handle}/${created.handle}`,
         error: null,
         sentAt: now,
       },

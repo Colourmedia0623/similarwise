@@ -95,7 +95,7 @@ describe("content calendar", () => {
       ["due today", "done", "draft"],
       ["tomorrow", "planned", null],
     ]);
-    expect(cal.posts[0].url).toBe("https://mine.com/blogs/news/post-1");
+    expect(cal.posts[0].url).toBe("https://calendar.myshopify.com/blogs/news/post-1");
   });
 
   it("marks a post that couldn't go out, and sends the written article on retry", async () => {
