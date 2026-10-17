@@ -1,6 +1,6 @@
 # This file stores configurations for your Shopify app.
 # client_id comes from the app's page in the Shopify Dev Dashboard.
-client_id = "5ca9483d593198ae73dc78794ff4adb4"
+client_id = "4e4e8332cc4e55fc6482298d92c9520b"
 name = "Similarwise"
 application_url = "https://similarwise.colourmedia.net"
 embedded = true
