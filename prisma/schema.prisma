@@ -175,6 +175,9 @@ model ShopSettings {
   digestOn     Boolean   @default(true)  // The Monday summary
   alertsSentAt DateTime? // Changes up to here have been emailed
   digestSentAt DateTime?
+
+  // Content calendar (lib/ideas/calendar): planned posts go on the blog published, or as hidden drafts.
+  calendarPublish Boolean @default(true)
 }
 
 // A competitor's search numbers on each traffic refresh, for trends.
@@ -394,4 +397,24 @@ model BlogArticle {
   sentAt          DateTime?
 
   @@index([shop])
+}
+
+// One day's post on the content calendar: written and sent to the shop's blog
+// on its day by the hourly schedule.
+model PlannedPost {
+  id           String    @id @default(cuid())
+  shop         String
+  day          String    // YYYY-MM-DD, UTC
+  keyword      String
+  searchVolume Int?
+  title        String
+  angle        String    @default("")
+  status       String    @default("planned") // planned | writing | done | failed
+  claimedAt    DateTime? // When writing started, so a crashed run can be picked up again
+  articleId    String?
+  error        String?
+  createdAt    DateTime  @default(now())
+
+  @@index([shop, day])
+  @@index([status, day])
 }

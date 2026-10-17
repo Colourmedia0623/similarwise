@@ -74,11 +74,19 @@ export function parseArticle(json: unknown): Article | null {
   };
 }
 
+export type Topic = { keyword: string; searchVolume: number | null; plannedPage: { kind: string; name: string; intro: string } };
+
 // Writes an article for one of the shop's keyword ideas.
 export async function writeArticle(shop: string, ideaId: string, ask: AskJson | null = claudeJson()) {
   if (!ask) return { error: "Blog articles aren't switched on for this app yet." };
   const idea = await db.keywordIdea.findFirst({ where: { id: ideaId, shop } });
   if (!idea) return { error: "That idea isn't there any more. Write new ideas and try again." };
+  return writeTopic(shop, { keyword: idea.keyword, searchVolume: idea.searchVolume, plannedPage: { kind: idea.pageKind, name: idea.pageName, intro: idea.intro } }, ask);
+}
+
+// Writes an article for one search, from an idea or the content calendar.
+export async function writeTopic(shop: string, topic: Topic, ask: AskJson | null = claudeJson()): Promise<{ id?: string; error?: string }> {
+  if (!ask) return { error: "Blog articles aren't switched on for this app yet." };
   const [website, settings, products] = await Promise.all([
     shopDomain(shop),
     db.shopSettings.findUnique({ where: { shop } }),
@@ -88,11 +96,11 @@ export async function writeArticle(shop: string, ideaId: string, ask: AskJson | 
     await ask(
       SYSTEM,
       {
-        search: idea.keyword,
-        searchesAMonth: idea.searchVolume,
+        search: topic.keyword,
+        searchesAMonth: topic.searchVolume,
         website,
         market: settings?.market ?? "US",
-        plannedPage: { kind: idea.pageKind, name: idea.pageName, intro: idea.intro },
+        plannedPage: topic.plannedPage,
         products: products.map((p) => ({ title: p.title, link: `/products/${p.handle}` })),
       },
       SCHEMA,
@@ -100,7 +108,7 @@ export async function writeArticle(shop: string, ideaId: string, ask: AskJson | 
   );
   if (!article) return { error: "Couldn't write that article. Try again." };
   const row = await db.blogArticle.create({
-    data: { shop, keyword: idea.keyword, searchVolume: idea.searchVolume, ...article, tags: JSON.stringify(article.tags) },
+    data: { shop, keyword: topic.keyword, searchVolume: topic.searchVolume, ...article, tags: JSON.stringify(article.tags) },
   });
   return { id: row.id };
 }
