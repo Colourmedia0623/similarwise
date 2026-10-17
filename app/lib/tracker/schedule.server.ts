@@ -2,6 +2,7 @@ import { checkCompetitor, staleCompetitors } from "./check.server";
 import { refreshTraffic } from "../traffic/refresh.server";
 import { refreshGap } from "../traffic/gap.server";
 import { refreshAds } from "../ads/ads.server";
+import { refreshAllOwnTraffic } from "../traffic/channels.server";
 import { sendAlerts, sendDigests } from "../email/alerts.server";
 
 // Every hour, re-checks the competitors nobody has checked in a day, one at
@@ -22,6 +23,7 @@ export async function checkStale() {
       await refreshGap(c.id).catch((err) => console.error(`Couldn't refresh the keyword gap for ${c.id}`, err));
       await refreshAds(c.id).catch((err) => console.error(`Couldn't refresh ads for ${c.id}`, err));
     }
+    await refreshAllOwnTraffic();
     await sendAlerts().catch((err) => console.error("Couldn't send alerts", err));
     await sendDigests().catch((err) => console.error("Couldn't send weekly summaries", err));
   } finally {

@@ -138,6 +138,14 @@ model ShopSettings {
   market String  @default("US")
   domain String? // The shop's own website, for the keyword gap, e.g. giftbags.co.uk
 
+  // The shop's own search traffic, to set beside competitors' (lib/traffic/channels).
+  ownOrganicTraffic Int?
+  ownPaidTraffic    Int?
+  ownPaidCostCents  Int?
+  ownTrafficDomain  String?
+  ownTrafficMarket  String?
+  ownTrafficAt      DateTime?
+
   // Emails (lib/email). alertEmail starts as the shop's email address.
   alertEmail   String?
   alertsOn     Boolean   @default(true)  // An email when competitors change
