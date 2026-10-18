@@ -2,7 +2,8 @@
 // and TikTok (Login Kit and the Content Posting API): signing in, and
 // posting an article's picture with its caption. Each is off until its app
 // keys are set: META_APP_ID and META_APP_SECRET, TIKTOK_CLIENT_KEY and
-// TIKTOK_CLIENT_SECRET.
+// TIKTOK_CLIENT_SECRET. A Business app signs in with a Facebook Login for
+// Business configuration (META_CONFIG_ID) that holds the permissions.
 
 export const GRAPH = "https://graph.facebook.com/v23.0";
 const TIKTOK = "https://open.tiktokapis.com/v2";
@@ -26,7 +27,9 @@ const TIKTOK_SCOPES = ["user.info.basic", "video.publish"];
 
 export function authorizeUrl(p: Provider, state: string) {
   if (p === "meta") {
-    const q = new URLSearchParams({ client_id: process.env.META_APP_ID ?? "", redirect_uri: callbackUrl(p), state, scope: META_SCOPES.join(","), response_type: "code" });
+    const config = process.env.META_CONFIG_ID;
+    const ask: Record<string, string> = config ? { config_id: config, override_default_response_type: "true" } : { scope: META_SCOPES.join(",") };
+    const q = new URLSearchParams({ client_id: process.env.META_APP_ID ?? "", redirect_uri: callbackUrl(p), state, ...ask, response_type: "code" });
     return `https://www.facebook.com/v23.0/dialog/oauth?${q}`;
   }
   const q = new URLSearchParams({ client_key: process.env.TIKTOK_CLIENT_KEY ?? "", redirect_uri: callbackUrl(p), state, scope: TIKTOK_SCOPES.join(","), response_type: "code" });

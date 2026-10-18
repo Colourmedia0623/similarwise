@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import db from "../../db.server";
-import { connectMeta, type Fetch } from "./networks.server";
+import { authorizeUrl, connectMeta, type Fetch } from "./networks.server";
 import { readState, seal, signState, unseal } from "./seal.server";
 import { autoShare, saveAccounts, shareArticle, socialAccounts } from "./social.server";
 
@@ -42,6 +42,16 @@ describe("social sharing", () => {
     expect(readState(state, NOW.getTime())).toMatchObject({ shop: SHOP, network: "meta" });
     expect(readState(state, NOW.getTime() + 120_000)).toBeNull();
     expect(readState(state.replace(/.$/, (c) => (c === "A" ? "B" : "A")), NOW.getTime())).toBeNull();
+  });
+
+  it("signs in to Meta with the Login for Business configuration when there is one", () => {
+    process.env.META_APP_ID = "app1";
+    delete process.env.META_CONFIG_ID;
+    expect(new URL(authorizeUrl("meta", "s")).searchParams.get("scope")).toContain("pages_manage_posts");
+    process.env.META_CONFIG_ID = "cfg1";
+    const q = new URL(authorizeUrl("meta", "s")).searchParams;
+    expect([q.get("config_id"), q.get("scope"), q.get("response_type")]).toEqual(["cfg1", null, "code"]);
+    delete process.env.META_CONFIG_ID;
   });
 
   it("connects each Facebook Page and the Instagram account linked to it", async () => {
