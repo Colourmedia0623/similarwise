@@ -90,7 +90,7 @@ export default function Social() {
             ))}
             <s-checkbox
               label="Share each content calendar article when it goes out"
-              details="Posts to every account above, with captions written for each. Articles you publish yourself are shared from the article's page."
+              details="Posts to your Facebook and Instagram accounts above, with captions written for each. TikTok posts are always sent by you from the article's page, as TikTok asks."
               checked={autoOn}
               onChange={(e) => act.submit({ intent: "auto", on: String(e.currentTarget.checked) }, { method: "post" })}
             />

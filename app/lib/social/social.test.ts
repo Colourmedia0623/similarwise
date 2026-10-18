@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import db from "../../db.server";
-import { authorizeUrl, connectMeta, postTikTok, type Fetch } from "./networks.server";
+import { authorizeUrl, connectMeta, postTikTok, tiktokCreator, type Fetch, type TikTokChoices } from "./networks.server";
 import { readState, seal, signState, unseal } from "./seal.server";
 import { autoShare, saveAccounts, shareArticle, socialAccounts } from "./social.server";
 
@@ -128,7 +128,7 @@ describe("social sharing", () => {
       [
         { accountId: ids.facebook, caption: "Read this" },
         { accountId: ids.instagram, caption: "Look #gifts" },
-        { accountId: ids.tiktok, caption: "Tok #gifts" },
+        { accountId: ids.tiktok, caption: "Tok #gifts", tiktok: { privacy: "SELF_ONLY", allowComments: false, yourBrand: true, brandedContent: false } },
       ],
       { f, origin: "https://gift-boxes-3000.myshopify.com", now: NOW },
     );
@@ -138,7 +138,7 @@ describe("social sharing", () => {
     expect(photo.get("url")).toMatch(new RegExp(`/images/${a.id}\\.jpg\\?v=${NOW.getTime()}$`));
     expect(new URLSearchParams(calls.find((c) => /ig1\/media$/.test(c.url))!.body).get("image_url")).toMatch(new RegExp(`/images/${a.id}\\.jpg\\?v=${NOW.getTime()}$`));
     const init = JSON.parse(calls.find((c) => c.url.includes("content/init"))!.body);
-    expect(init).toMatchObject({ media_type: "PHOTO", post_info: { privacy_level: "SELF_ONLY" } });
+    expect(init).toMatchObject({ media_type: "PHOTO", post_info: { privacy_level: "SELF_ONLY", disable_comment: true, brand_organic_toggle: true, brand_content_toggle: false } });
     expect(calls.find((c) => c.url.includes("content/init"))!.auth).toBe("Bearer fresh");
     const posts = await db.socialPost.findMany({ where: { shop: SHOP }, orderBy: { network: "asc" } });
     expect(posts.map((p) => [p.network, p.status, p.url])).toEqual([
@@ -148,18 +148,35 @@ describe("social sharing", () => {
     ]);
   });
 
-  it("posts to TikTok as only me until the app is approved, and explains TikTok's refusals", async () => {
+  it("posts to TikTok with what the merchant chose, and explains TikTok's refusals", async () => {
     const calls: Call[] = [];
-    const creator: [RegExp, unknown] = [/creator_info/, { data: { privacy_level_options: ["PUBLIC_TO_EVERYONE", "SELF_ONLY"] }, error: { code: "ok" } }];
+    const creator: [RegExp, unknown] = [
+      /creator_info/,
+      { data: { creator_nickname: "Gift Boxes", creator_username: "giftboxes", privacy_level_options: ["PUBLIC_TO_EVERYONE", "SELF_ONLY"], comment_disabled: false }, error: { code: "ok" } },
+    ];
+    const ok: [RegExp, unknown] = [/content\/init/, { data: { publish_id: "p" }, error: { code: "ok" } }];
     const post = { caption: "c", title: "t", link: "https://x.test/a", imageUrl: "https://x.test/i.jpg" };
-    await postTikTok("tok", post, fakeFetch([creator, [/content\/init/, { data: { publish_id: "p" }, error: { code: "ok" } }]], calls));
-    expect(JSON.parse(calls.at(-1)!.body).post_info.privacy_level).toBe("SELF_ONLY");
-    process.env.TIKTOK_PUBLIC = "true";
-    await postTikTok("tok", post, fakeFetch([creator, [/content\/init/, { data: { publish_id: "p" }, error: { code: "ok" } }]], calls));
-    expect(JSON.parse(calls.at(-1)!.body).post_info.privacy_level).toBe("PUBLIC_TO_EVERYONE");
-    delete process.env.TIKTOK_PUBLIC;
+    const choose = (c: Partial<TikTokChoices>): TikTokChoices => ({ privacy: "PUBLIC_TO_EVERYONE", allowComments: true, yourBrand: false, brandedContent: false, ...c });
+    expect(await tiktokCreator("tok", fakeFetch([creator], calls))).toMatchObject({ nickname: "Gift Boxes", username: "giftboxes", privacyOptions: ["PUBLIC_TO_EVERYONE", "SELF_ONLY"] });
+    await postTikTok("tok", post, choose({ brandedContent: true }), fakeFetch([creator, ok], calls));
+    expect(JSON.parse(calls.at(-1)!.body).post_info).toMatchObject({ privacy_level: "PUBLIC_TO_EVERYONE", disable_comment: false, brand_content_toggle: true });
+    await expect(postTikTok("tok", post, choose({ privacy: "FOLLOWER_OF_CREATOR" }), fakeFetch([creator, ok], calls))).rejects.toThrow(/settings have changed/);
+    await expect(postTikTok("tok", post, choose({ privacy: "SELF_ONLY", brandedContent: true }), fakeFetch([creator, ok], calls))).rejects.toThrow(/Branded content can't/);
     const refused = fakeFetch([creator, [/content\/init/, { error: { code: "unaudited_client_can_only_post_to_private_accounts", message: "Please review our integration guidelines" } }]], calls);
-    await expect(postTikTok("tok", post, refused)).rejects.toThrow(/Set your TikTok account to private/);
+    await expect(postTikTok("tok", post, choose({}), refused)).rejects.toThrow(/Set your TikTok account to private/);
+  });
+
+  it("won't post to TikTok until the merchant chooses who can see it, and never shares to TikTok on its own", async () => {
+    const a = await article();
+    await db.articleImage.create({ data: { articleId: a.id, shop: SHOP, data: new Uint8Array([1]), createdAt: NOW } });
+    await saveAccounts(SHOP, [{ network: "tiktok", accountId: "tt1", name: "Tok", token: "t" }]);
+    const [acc] = await socialAccounts(SHOP);
+    expect(await shareArticle(SHOP, a.id, [{ accountId: acc.id, caption: "x" }], { f: fakeFetch([], []) })).toEqual({ error: "Choose who can see the TikTok post." });
+    await db.socialPost.deleteMany({});
+    await db.shopSettings.create({ data: { shop: SHOP, socialAuto: true } });
+    const calls: Call[] = [];
+    await autoShare(SHOP, a.id, { ask: async () => ({ facebook: "f", instagram: "i", tiktok: "t" }), f: fakeFetch([], calls) });
+    expect(calls).toEqual([]);
   });
 
   it("won't share an article that isn't published, and keeps a failed post's reason", async () => {

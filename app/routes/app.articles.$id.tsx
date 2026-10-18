@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "react-router";
 import { Link, redirect, useFetcher, useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
@@ -8,7 +8,8 @@ import { atOrigin, blogArticle, deleteArticle, editArticle, sendArticle, storeOr
 import { makeArticleImage, uploadArticleImage } from "../lib/ideas/images.server";
 import type { Graphql } from "../lib/prices/prices.server";
 import { STATUS, TONE } from "../lib/ideas/article-status";
-import { articleShares, shareArticle, socialAccounts, writeCaptions } from "../lib/social/social.server";
+import { articleShares, shareArticle, socialAccounts, tiktokAccount, writeCaptions } from "../lib/social/social.server";
+import type { TikTokChoices } from "../lib/social/networks.server";
 import { NETWORK_NAME, type Network } from "../lib/social/networks";
 
 // One blog article: read and change its words, Google listing and picture,
@@ -46,8 +47,9 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
       return { intent, at, error: "Couldn't write the captions just now. Try again in a minute." };
     }
   }
+  if (intent === "tiktok") return { intent, at, ...(await tiktokAccount(shop, String(form.get("accountId") ?? ""))) };
   if (intent === "share") {
-    const picks = JSON.parse(String(form.get("picks") ?? "[]")) as { accountId: string; caption: string }[];
+    const picks = JSON.parse(String(form.get("picks") ?? "[]")) as { accountId: string; caption: string; tiktok?: TikTokChoices }[];
     return { intent, at, ...(await shareArticle(shop, id, picks, { origin: await storeOrigin(graphql) })) };
   }
 
@@ -287,7 +289,7 @@ export default function ArticleEditor() {
           </s-stack>
         </s-section>
 
-        <Share published={a.status === "published"} />
+        <Share published={a.status === "published"} picture={a.picture?.url ?? null} />
       </s-stack>
       <style>{CSS}</style>
     </s-page>
@@ -296,8 +298,9 @@ export default function ArticleEditor() {
 
 // Sharing the article to the shop's connected social accounts, with a
 // caption for each network.
-function Share({ published }: { published: boolean }) {
+function Share({ published, picture }: { published: boolean; picture: string | null }) {
   const { accounts, shares } = useLoaderData<typeof loader>();
+  const [tiktok, setTiktok] = useState<Record<string, TikTokChoices | null>>({});
   const write = useFetcher<typeof action>();
   const post = useFetcher<typeof action>();
   const [captions, setCaptions] = useState<Record<Network, string>>({ facebook: "", instagram: "", tiktok: "" });
@@ -312,6 +315,8 @@ function Share({ published }: { published: boolean }) {
   const writeError = write.state === "idle" && write.data && "error" in write.data ? write.data.error : null;
   const result = post.state === "idle" ? post.data : undefined;
   const networks = [...new Set(accounts.filter((x) => picked.includes(x.id)).map((x) => x.network))];
+  const tiktokPicked = accounts.filter((x) => x.network === "tiktok" && picked.includes(x.id));
+  const tiktokReady = tiktokPicked.every((x) => tiktok[x.id]);
 
   return (
     <s-section heading="Share on social">
@@ -346,18 +351,28 @@ function Share({ published }: { published: boolean }) {
                 label={`${NETWORK_NAME[n]} caption`}
                 rows={n === "facebook" ? 3 : 5}
                 value={captions[n]}
-                details={n === "facebook" ? "The link to the article is added below it." : n === "tiktok" ? "Posted as a photo post with the article's picture. Only you can see it until TikTok approves SimilarWise." : "Posted with the article's picture."}
+                details={n === "facebook" ? "The link to the article is added below it." : n === "tiktok" ? "Posted as a photo post with the article's picture." : "Posted with the article's picture."}
                 onInput={(e) => setCaptions({ ...captions, [n]: e.currentTarget.value })}
               />
+            ))}
+            {tiktokPicked.map((x) => (
+              <TikTokPost key={x.id} accountId={x.id} picture={picture} caption={captions.tiktok} onChange={(c) => setTiktok((t) => ({ ...t, [x.id]: c }))} />
             ))}
             <s-stack direction="inline" gap="small" alignItems="center">
               <s-button
                 variant="primary"
                 loading={post.state !== "idle"}
-                disabled={!picked.length || networks.some((n) => !captions[n].trim())}
+                disabled={!picked.length || networks.some((n) => !captions[n].trim()) || !tiktokReady}
                 onClick={() =>
                   post.submit(
-                    { intent: "share", picks: JSON.stringify(accounts.filter((x) => picked.includes(x.id)).map((x) => ({ accountId: x.id, caption: captions[x.network] }))) },
+                    {
+                      intent: "share",
+                      picks: JSON.stringify(
+                        accounts
+                          .filter((x) => picked.includes(x.id))
+                          .map((x) => ({ accountId: x.id, caption: captions[x.network], ...(x.network === "tiktok" ? { tiktok: tiktok[x.id] } : {}) })),
+                      ),
+                    },
                     { method: "post" },
                   )
                 }
@@ -369,6 +384,7 @@ function Share({ published }: { published: boolean }) {
                 <s-text tone="success">
                   Posted to {result.posted === 1 ? "1 account" : `${result.posted} accounts`}
                   {result.failed ? `; ${result.failed} didn't go, see below.` : "."}
+                  {tiktokPicked.length > 0 && " TikTok can take a few minutes to process the post before it shows on your profile."}
                 </s-text>
               )}
             </s-stack>
@@ -398,7 +414,122 @@ function Share({ published }: { published: boolean }) {
   );
 }
 
+// What TikTok's rules ask for before each post: the account it goes to,
+// who can see it (no default), comments off until turned on, whether it
+// promotes a brand, a preview, and TikTok's own terms. Nothing here is
+// chosen for the merchant.
+const PRIVACY: Record<string, string> = {
+  PUBLIC_TO_EVERYONE: "Everyone",
+  MUTUAL_FOLLOW_FRIENDS: "Friends",
+  FOLLOWER_OF_CREATOR: "Followers",
+  SELF_ONLY: "Only me",
+};
+const MUSIC = "https://www.tiktok.com/legal/page/global/music-usage-confirmation/en";
+const BRANDED = "https://www.tiktok.com/legal/page/global/bc-policy/en";
+
+function TikTokPost({ accountId, picture, caption, onChange }: { accountId: string; picture: string | null; caption: string; onChange: (c: TikTokChoices | null) => void }) {
+  const info = useFetcher<typeof action>();
+  const [privacy, setPrivacy] = useState("");
+  const [allowComments, setAllowComments] = useState(false);
+  const [disclose, setDisclose] = useState(false);
+  const [yourBrand, setYourBrand] = useState(false);
+  const [brandedContent, setBrandedContent] = useState(false);
+  useEffect(() => {
+    info.submit({ intent: "tiktok", accountId }, { method: "post" });
+    // Read once when the account is picked.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountId]);
+  const data = info.state === "idle" ? info.data : undefined;
+  const creator = data && "creator" in data ? data.creator : null;
+  const error = data && "error" in data ? data.error : null;
+  const brandMissing = disclose && !yourBrand && !brandedContent;
+  const privateBranded = brandedContent && privacy === "SELF_ONLY";
+  const ready = !!creator && !!privacy && !brandMissing && !privateBranded;
+  useEffect(() => {
+    onChange(ready ? { privacy, allowComments: allowComments && !creator?.commentDisabled, yourBrand: disclose && yourBrand, brandedContent: disclose && brandedContent } : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, privacy, allowComments, disclose, yourBrand, brandedContent]);
+
+  if (error) return <s-banner tone="critical">{error}</s-banner>;
+  if (!creator) return <s-text color="subdued">Checking your TikTok account…</s-text>;
+  const label = brandedContent ? "Paid partnership" : yourBrand ? "Promotional content" : null;
+  return (
+    <s-box padding="base" border="base" borderRadius="base">
+      <s-stack gap="base">
+        <s-stack direction="inline" gap="small" alignItems="center">
+          {creator.avatar && <img className="sw-avatar" src={creator.avatar} alt="" />}
+          <s-text type="strong">Posting to TikTok as {creator.nickname || creator.username}</s-text>
+          {creator.username && <s-text color="subdued">@{creator.username}</s-text>}
+        </s-stack>
+        {picture && (
+          <s-stack direction="inline" gap="base">
+            <img className="sw-tiktok-preview" src={picture} alt="What the TikTok post will show" />
+            <s-paragraph>{caption || "Write a caption above."}</s-paragraph>
+          </s-stack>
+        )}
+        <s-select label="Who can see this post" value={privacy} onChange={(e) => setPrivacy(e.currentTarget.value)}>
+          <s-option value="">Choose who can see it</s-option>
+          {creator.privacyOptions.map((o) => (
+            <s-option key={o} value={o} disabled={brandedContent && o === "SELF_ONLY"}>
+              {PRIVACY[o] ?? o}
+            </s-option>
+          ))}
+        </s-select>
+        {privateBranded && <s-text tone="critical">Branded content can&apos;t be private. Choose who can see it.</s-text>}
+        <s-checkbox
+          label="Allow comments"
+          checked={allowComments && !creator.commentDisabled}
+          disabled={creator.commentDisabled}
+          details={creator.commentDisabled ? "Comments are turned off in your TikTok settings." : undefined}
+          onChange={(e) => setAllowComments(e.currentTarget.checked)}
+        />
+        <s-switch
+          label="Disclose commercial content"
+          checked={disclose}
+          details="Turn on if this post promotes your shop, a product, or a brand that paid you."
+          onChange={(e) => setDisclose(e.currentTarget.checked)}
+        />
+        {disclose && (
+          <s-stack gap="small">
+            <s-checkbox
+              label="Your brand"
+              details="You're promoting yourself or your own business."
+              checked={yourBrand}
+              onChange={(e) => setYourBrand(e.currentTarget.checked)}
+            />
+            <s-checkbox
+              label="Branded content"
+              details="You're promoting another brand or a third party."
+              checked={brandedContent}
+              onChange={(e) => setBrandedContent(e.currentTarget.checked)}
+            />
+            {brandMissing && <s-text tone="critical">Choose whether you&apos;re promoting your brand, another brand, or both.</s-text>}
+            {label && <s-text color="subdued">Your photo will be labelled &quot;{label}&quot;.</s-text>}
+          </s-stack>
+        )}
+        <s-text color="subdued">
+          By posting, you agree to TikTok&apos;s{" "}
+          {brandedContent && (
+            <>
+              <s-link href={BRANDED} target="_blank">
+                Branded Content Policy
+              </s-link>{" "}
+              and{" "}
+            </>
+          )}
+          <s-link href={MUSIC} target="_blank">
+            Music Usage Confirmation
+          </s-link>
+          .
+        </s-text>
+      </s-stack>
+    </s-box>
+  );
+}
+
 const CSS = `
+.sw-avatar { width: 32px; height: 32px; border-radius: 50%; }
+.sw-tiktok-preview { width: 120px; aspect-ratio: 3 / 4; object-fit: cover; border-radius: 8px; }
 .sw-picture { display: block; width: 100%; max-width: 720px; aspect-ratio: 3 / 2; object-fit: cover; border-radius: 10px; }
 .sw-toolbar { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px; border: 1px solid #d4d4d4; border-bottom: 0; border-radius: 8px 8px 0 0; background: #f7f7f7; }
 .sw-toolbar button { font: inherit; font-size: 13px; padding: 4px 10px; border: 1px solid #d4d4d4; border-radius: 6px; background: #fff; cursor: pointer; }

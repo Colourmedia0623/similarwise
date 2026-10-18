@@ -8,11 +8,13 @@ import {
   postInstagram,
   postTikTok,
   refreshTikTok,
+  tiktokCreator,
   type Connected,
   type Fetch,
   type Network,
   type Post,
   type Posted,
+  type TikTokChoices,
 } from "./networks.server";
 import { seal, unseal } from "./seal.server";
 
@@ -79,7 +81,19 @@ async function liveToken(account: { id: string; network: string; token: string; 
   return t.token;
 }
 
-export type Pick = { accountId: string; caption: string };
+// The TikTok account a post would go to, read fresh each time the merchant
+// shares, as TikTok's rules ask.
+export async function tiktokAccount(shop: string, accountId: string, { f = fetch, now = new Date() }: { f?: Fetch; now?: Date } = {}) {
+  const account = await db.socialAccount.findFirst({ where: { id: accountId, shop, network: "tiktok" } });
+  if (!account) return { error: "That TikTok account isn't connected any more." };
+  try {
+    return { creator: await tiktokCreator(await liveToken(account, f, now), f) };
+  } catch (err) {
+    return { error: `TikTok said: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
+export type Pick = { accountId: string; caption: string; tiktok?: TikTokChoices };
 
 // Posts the article to each picked account. One failing doesn't stop the rest.
 export async function shareArticle(shop: string, articleId: string, picks: Pick[], { f = fetch, origin = null, now = new Date() }: { f?: Fetch; origin?: string | null; now?: Date } = {}) {
@@ -103,12 +117,13 @@ export async function shareArticle(shop: string, articleId: string, picks: Pick[
         return { accountId: account.id, error };
       };
       if (!caption) return fail(`Write a caption for ${NETWORK_NAME[network]}.`);
+      if (network === "tiktok" && !pick.tiktok?.privacy) return fail("Choose who can see the TikTok post.");
       if (network !== "facebook" && !image) return fail(`${NETWORK_NAME[network]} needs a picture. Make or upload one for the article first.`);
       try {
         const token = await liveToken(account, f, now);
         const post: Post = { caption, title: a.title, link, imageUrl: image ?? "" };
         const done: Posted =
-          network === "facebook" ? await postFacebook(account.accountId, token, post, f) : network === "instagram" ? await postInstagram(account.accountId, token, post, f) : await postTikTok(token, post, f);
+          network === "facebook" ? await postFacebook(account.accountId, token, post, f) : network === "instagram" ? await postInstagram(account.accountId, token, post, f) : await postTikTok(token, post, pick.tiktok!, f);
         await db.socialPost.create({ data: { shop, articleId, accountId: account.id, network, caption, status: done.processing ? "processing" : "posted", remoteId: done.remoteId, url: done.url } });
         return { accountId: account.id, ok: true as const };
       } catch (err) {
@@ -121,12 +136,14 @@ export async function shareArticle(shop: string, articleId: string, picks: Pick[
   return failed === results.length ? { error: results.map((r) => ("error" in r ? r.error : "")).join(" ") } : { posted: results.length - failed, failed };
 }
 
-// After the content calendar publishes an article: shares it everywhere
-// connected, when the merchant has asked for that.
+// After the content calendar publishes an article: shares it to the
+// connected Facebook Pages and Instagram accounts, when the merchant has
+// asked for that. TikTok is left out: it only allows posts the merchant
+// has checked and sent themselves.
 export async function autoShare(shop: string, articleId: string, opts: { ask?: AskJson | null; f?: Fetch; now?: Date } = {}) {
   const settings = await db.shopSettings.findUnique({ where: { shop } });
   if (!settings?.socialAuto) return;
-  const accounts = await db.socialAccount.findMany({ where: { shop } });
+  const accounts = await db.socialAccount.findMany({ where: { shop, network: { not: "tiktok" } } });
   if (!accounts.length) return;
   if (await db.socialPost.count({ where: { shop, articleId } })) return;
   const captions = await writeCaptions(shop, articleId, opts.ask === undefined ? claudeJson() : opts.ask);

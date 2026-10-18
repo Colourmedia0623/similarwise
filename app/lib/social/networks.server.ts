@@ -149,35 +149,69 @@ export async function postInstagram(igId: string, token: string, post: Post, f: 
   return { remoteId: published!.id, url: media.permalink ?? null };
 }
 
-// A TikTok photo post. TikTok only lets an app post publicly once it has
-// passed TikTok's review; before that it must post "only me", to a private
-// account. TIKTOK_PUBLIC=true switches public posting on after the review.
 // TikTok's reasons, in words a merchant can act on.
 function tiktokProblem(code?: string, message?: string) {
   if (code === "unaudited_client_can_only_post_to_private_accounts")
-    return "TikTok only lets SimilarWise post to private accounts until it approves the app. Set your TikTok account to private and try again.";
+    return "TikTok only lets SimilarWise post as \"Only me\" to private accounts until it approves the app. Set your TikTok account to private, choose Only me and try again.";
   if (code === "url_ownership_unverified") return "TikTok can't fetch the picture until the SimilarWise address is verified in the TikTok app's URL properties.";
   if (code === "spam_risk_too_many_posts") return "TikTok says you've posted too much today. Try again tomorrow.";
+  if (code === "reached_active_user_cap") return "TikTok is busy with SimilarWise's posts today. Try again tomorrow.";
   return [message, code && code !== "ok" ? `(${code})` : ""].filter(Boolean).join(" ");
 }
 
-export async function postTikTok(token: string, post: Post, f: Fetch = fetch): Promise<Posted> {
-  const call = async <T>(path: string, body: object) => {
-    const res = await f(`${TIKTOK}${path}`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${token}`, "content-type": "application/json; charset=UTF-8" },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(60_000),
-    });
-    const json = (await res.json().catch(() => ({}))) as { data?: T; error?: { code?: string; message?: string } };
-    if (!res.ok || (json.error?.code && json.error.code !== "ok")) throw new Error(tiktokProblem(json.error?.code, json.error?.message) || `TikTok answered ${res.status}`);
-    return json.data as T;
+async function tiktokCall<T>(f: Fetch, token: string, path: string, body: object) {
+  const res = await f(`${TIKTOK}${path}`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json; charset=UTF-8" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(60_000),
+  });
+  const json = (await res.json().catch(() => ({}))) as { data?: T; error?: { code?: string; message?: string } };
+  if (!res.ok || (json.error?.code && json.error.code !== "ok")) throw new Error(tiktokProblem(json.error?.code, json.error?.message) || `TikTok answered ${res.status}`);
+  return json.data as T;
+}
+
+// The account a TikTok post would go to, and what its owner allows, which
+// TikTok's rules say the merchant must see before posting.
+export type TikTokCreator = { nickname: string; username: string; avatar: string | null; privacyOptions: string[]; commentDisabled: boolean };
+
+export async function tiktokCreator(token: string, f: Fetch = fetch): Promise<TikTokCreator> {
+  const c = await tiktokCall<{ creator_nickname?: string; creator_username?: string; creator_avatar_url?: string; privacy_level_options?: string[]; comment_disabled?: boolean }>(
+    f,
+    token,
+    "/post/publish/creator_info/query/",
+    {},
+  );
+  return {
+    nickname: c?.creator_nickname ?? "",
+    username: c?.creator_username ?? "",
+    avatar: c?.creator_avatar_url ?? null,
+    privacyOptions: c?.privacy_level_options ?? [],
+    commentDisabled: !!c?.comment_disabled,
   };
-  const creator = await call<{ privacy_level_options?: string[] }>("/post/publish/creator_info/query/", {});
-  const options = creator?.privacy_level_options ?? [];
-  const privacy = process.env.TIKTOK_PUBLIC === "true" && options.includes("PUBLIC_TO_EVERYONE") ? "PUBLIC_TO_EVERYONE" : "SELF_ONLY";
-  const out = await call<{ publish_id?: string }>("/post/publish/content/init/", {
-    post_info: { title: post.title.slice(0, 90), description: post.caption.slice(0, 4000), privacy_level: privacy, disable_comment: false, auto_add_music: true },
+}
+
+// What the merchant chose for one TikTok post. TikTok requires these to be
+// picked by hand each time: who can see it, comments, and whether it
+// promotes their own brand or someone else's.
+export type TikTokChoices = { privacy: string; allowComments: boolean; yourBrand: boolean; brandedContent: boolean };
+
+// A TikTok photo post. Until TikTok has approved the app it only accepts
+// "Only me" posts to private accounts.
+export async function postTikTok(token: string, post: Post, choices: TikTokChoices, f: Fetch = fetch): Promise<Posted> {
+  const creator = await tiktokCreator(token, f);
+  if (!creator.privacyOptions.includes(choices.privacy)) throw new Error("Choose who can see the post again; your TikTok account's settings have changed.");
+  if (choices.brandedContent && choices.privacy === "SELF_ONLY") throw new Error("Branded content can't be posted as Only me. Choose who can see it.");
+  const out = await tiktokCall<{ publish_id?: string }>(f, token, "/post/publish/content/init/", {
+    post_info: {
+      title: post.title.slice(0, 90),
+      description: post.caption.slice(0, 4000),
+      privacy_level: choices.privacy,
+      disable_comment: creator.commentDisabled || !choices.allowComments,
+      brand_organic_toggle: choices.yourBrand,
+      brand_content_toggle: choices.brandedContent,
+      auto_add_music: true,
+    },
     source_info: { source: "PULL_FROM_URL", photo_cover_index: 0, photo_images: [post.imageUrl] },
     post_mode: "DIRECT_POST",
     media_type: "PHOTO",
