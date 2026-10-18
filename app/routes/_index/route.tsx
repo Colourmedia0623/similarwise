@@ -2,13 +2,13 @@ import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react
 import { redirect, Form, useActionData, useLoaderData, useNavigation } from "react-router";
 
 import { login } from "../../shopify.server";
-import { FEATURES, MAX_FEATURES, PRICE, REVENUE, TRACKING, parseSurvey, type Option } from "../../lib/survey";
-import { saveSurvey } from "../../lib/survey.server";
+import { parseSignup } from "../../lib/waitlist";
+import { saveSignup } from "../../lib/waitlist.server";
 
 import styles from "./styles.module.css";
 
-// The public landing page: what Similarwise does, and the early-access survey
-// merchants fill in to join the waitlist.
+// The public landing page: what Similarwise does, and the early-access
+// waitlist.
 
 export const meta: MetaFunction = () => [
   { title: "Similarwise: competitor intelligence for Shopify brands" },
@@ -32,9 +32,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const form = await request.formData();
   // Hidden from people; bots that fill every field get a quiet "thanks".
   if (form.get("website")) return { ok: true as const };
-  const parsed = parseSurvey(form);
+  const parsed = parseSignup(form);
   if (!parsed.ok) return { ok: false as const, error: parsed.error };
-  await saveSurvey(parsed.answers);
+  await saveSignup(parsed.signup);
   return { ok: true as const };
 };
 
@@ -56,19 +56,6 @@ const POINTS = [
     body: "No new tool to learn. It lives in your Shopify admin, at a fraction of the price of SimilarWeb.",
   },
 ];
-
-function Choices({ name, options, type }: { name: string; options: Option[]; type: "radio" | "checkbox" }) {
-  return (
-    <div className={styles.choices}>
-      {options.map((o) => (
-        <label key={o.value} className={styles.choice}>
-          <input type={type} name={name} value={o.value} required={type === "radio"} />
-          <span>{o.label}</span>
-        </label>
-      ))}
-    </div>
-  );
-}
 
 export default function App() {
   const { showForm } = useLoaderData<typeof loader>();
@@ -97,7 +84,7 @@ export default function App() {
         ))}
       </ul>
 
-      <section id="early-access" className={styles.survey}>
+      <section id="early-access" className={styles.waitlist}>
         <h2>Get early access</h2>
         {result?.ok ? (
           <p className={styles.thanks}>
@@ -105,7 +92,7 @@ export default function App() {
           </p>
         ) : (
           <Form method="post" className={styles.form}>
-            <p>Five quick questions help us build the right thing first. It takes about a minute.</p>
+            <p>Leave your email and we&apos;ll tell you when Similarwise opens to more stores.</p>
 
             <label className={styles.field}>
               <span>Email</span>
@@ -118,27 +105,6 @@ export default function App() {
             <label className={styles.hidden} aria-hidden="true">
               Website
               <input type="text" name="website" tabIndex={-1} autoComplete="off" />
-            </label>
-
-            <fieldset>
-              <legend>1. Roughly how much does your store sell a year?</legend>
-              <Choices name="revenue" options={REVENUE} type="radio" />
-            </fieldset>
-            <fieldset>
-              <legend>2. How do you keep an eye on competitors today?</legend>
-              <Choices name="tracking" options={TRACKING} type="checkbox" />
-            </fieldset>
-            <fieldset>
-              <legend>3. Which would help you most? Pick up to {MAX_FEATURES}.</legend>
-              <Choices name="features" options={FEATURES} type="checkbox" />
-            </fieldset>
-            <fieldset>
-              <legend>4. If it did those well, what would you pay?</legend>
-              <Choices name="price" options={PRICE} type="radio" />
-            </fieldset>
-            <label className={styles.field}>
-              <span>5. What would you most like to know about a competitor? (optional)</span>
-              <textarea name="question" rows={3} />
             </label>
 
             {result && !result.ok && <p className={styles.error}>{result.error}</p>}

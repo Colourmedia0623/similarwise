@@ -62,9 +62,9 @@ export default function Privacy() {
 
       <h2>Early-access waitlist</h2>
       <p>
-        If you join the waitlist on our website, we keep your email address, your store&apos;s website if you give it,
-        and your survey answers. We use them only to tell you when Similarwise opens to more stores and to decide what
-        to build. We don&apos;t share them. Email us to have them deleted.
+        If you join the waitlist on our website, we keep your email address and your store&apos;s website if you give
+        it. We use them only to tell you when Similarwise opens to more stores. We don&apos;t share them. Email us to
+        have them deleted.
       </p>
 
       <h2>How long it is kept</h2>

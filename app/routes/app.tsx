@@ -9,7 +9,7 @@ import { authenticate } from "../shopify.server";
 import { detectShopMarket } from "../lib/traffic/refresh.server";
 import { detectShopDomain } from "../lib/traffic/gap.server";
 import { detectAlertEmail } from "../lib/email/alerts.server";
-import { isOwnerShop } from "../lib/survey.server";
+import { isOwnerShop } from "../lib/waitlist.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
@@ -55,7 +55,7 @@ export default function App() {
         <s-link href="/app/ads">Ads</s-link>
         <s-link href="/app/ad-ideas">Ad ideas</s-link>
         <s-link href="/app/settings">Email alerts</s-link>
-        {owner && <s-link href="/app/survey">Survey results</s-link>}
+        {owner && <s-link href="/app/waitlist">Waitlist</s-link>}
       </s-app-nav>
       <Outlet />
     </AppProvider>

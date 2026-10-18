@@ -75,7 +75,7 @@
   color: var(--muted);
 }
 
-.survey {
+.waitlist {
   max-width: 640px;
   margin: 0 auto;
   padding: 32px;
@@ -84,7 +84,7 @@
   background: var(--soft);
 }
 
-.survey > h2 {
+.waitlist > h2 {
   margin: 0 0 8px;
   font-size: 1.6rem;
 }
@@ -99,16 +99,6 @@
   color: var(--muted);
 }
 
-.form fieldset {
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-
-.form legend {
-  margin-bottom: 8px;
-  font-weight: 600;
-}
 
 .field {
   display: grid;
@@ -116,34 +106,13 @@
   font-weight: 600;
 }
 
-.field input,
-.field textarea {
+.field input {
   padding: 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
   font: inherit;
   font-weight: 400;
   background: #fff;
-}
-
-.choices {
-  display: grid;
-  gap: 8px;
-}
-
-.choice {
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fff;
-  cursor: pointer;
-}
-
-.choice input {
-  margin-top: 4px;
 }
 
 .hidden {
