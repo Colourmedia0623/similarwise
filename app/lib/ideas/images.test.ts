@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import db from "../../db.server";
 import { articlePicture, writeTopic, sendArticle } from "./articles.server";
-import { imagePrompt, makeArticleImage } from "./images.server";
+import { ImageError, imageMime, imagePrompt, imageProblem, makeArticleImage } from "./images.server";
 import type { Graphql } from "../prices/prices.server";
 
 const SHOP = "images.myshopify.com";
@@ -51,12 +51,21 @@ describe("article images", () => {
     expect(sent.image).toEqual({ url: expect.stringMatching(new RegExp(`/images/${id}\\.jpg\\?v=\\d+$`)), altText: "Gift box ideas" });
   });
 
+  it("says why OpenAI wouldn't make a picture", () => {
+    expect(imageProblem(new ImageError("Incorrect API key provided", 401))).toMatch(/key isn't working/);
+    expect(imageProblem(new ImageError("Billing hard limit has been reached.", 400))).toMatch(/out of credit/);
+    expect(imageProblem(new ImageError("Your organization must be verified to use the model `gpt-image-1`.", 403))).toMatch(/verified/);
+    expect(imageProblem(new Error("socket hang up"))).toBe("Couldn't make a picture: socket hang up");
+    expect(imageMime(new Uint8Array([0x89, 0x50, 0x4e, 0x47]))).toBe("image/png");
+    expect(imageMime(new Uint8Array([0xff, 0xd8, 0xff]))).toBe("image/jpeg");
+  });
+
   it("keeps the article when the picture fails, and sends it without one", async () => {
     const { id } = await writeTopic(SHOP, topic, ask, async () => {
       throw new Error("content policy");
     });
     if (!id) throw new Error("not written");
-    expect(await db.blogArticle.findUniqueOrThrow({ where: { id } })).toMatchObject({ imageAlt: null, imageError: expect.stringMatching(/Couldn't make a picture/) });
+    expect(await db.blogArticle.findUniqueOrThrow({ where: { id } })).toMatchObject({ imageAlt: null, imageError: expect.stringMatching(/wouldn't make a picture/) });
     expect(await makeArticleImage(SHOP, id, async () => new Uint8Array([9]))).toEqual({ ok: true });
     expect(await db.blogArticle.findUniqueOrThrow({ where: { id } })).toMatchObject({ imageAlt: "Gift box ideas", imageError: null });
     expect(imagePrompt({ title: "T", keyword: "k", summary: "" })).not.toContain("The post:");
