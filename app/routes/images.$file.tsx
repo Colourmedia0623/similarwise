@@ -9,7 +9,17 @@ import { articlePicture } from "../lib/ideas/articles.server";
 // photo of a product it links to, fetched from Shopify's CDN, since TikTok
 // only takes pictures from the app's own address.
 
+// TikTok's proof that this address is ours, which it needs before it will
+// fetch pictures from it (URL properties in the TikTok developer app). TikTok
+// asks for tiktok<code>.txt under the verified prefix.
+const TIKTOK_VERIFICATION = ["tiktok-developers-site-verification=Tel2Q8BoGFcxQrZ7IT3sce5qmW5t6Qop"];
+
 export const loader = async ({ params }: LoaderFunctionArgs) => {
+  if (/^tiktok[\w-]*\.txt$/i.test(params.file ?? "")) {
+    const code = params.file!.slice(6, -4);
+    const line = TIKTOK_VERIFICATION.find((v) => !code || v.endsWith(`=${code}`)) ?? TIKTOK_VERIFICATION[0];
+    return new Response(line, { headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } });
+  }
   const id = /^([a-z0-9]+)\.jpg$/i.exec(params.file ?? "")?.[1];
   const image = id ? await articleImage(id) : null;
   if (image)
