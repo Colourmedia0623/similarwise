@@ -1,0 +1,49 @@
+# This file stores configurations for your Shopify app.
+# The private copy of Similarwise for 7fa72e-da.myshopify.com (custom
+# distribution, free), run from the same code beside the public app with its
+# own database. Keep the rest of this file in step with shopify.app.toml.
+# client_id comes from the private app's page in the Shopify Dev Dashboard.
+client_id = "REPLACE_WITH_PRIVATE_CLIENT_ID"
+name = "Similarwise Private"
+application_url = "https://private.similarwise.colourmedia.net"
+embedded = true
+
+[build]
+# The app runs on the EC2 server, so `shopify app dev` must not rewrite these URLs.
+automatically_update_urls_on_dev = false
+
+[auth]
+redirect_urls = [ "https://private.similarwise.colourmedia.net/auth/callback" ]
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+# Competitor data comes from their public storefronts. read_products lets the
+# app compare the shop's own prices with theirs; write_content lets it add
+# the blog articles it writes to the shop's blog.
+scopes = "read_products,write_content"
+
+[webhooks]
+api_version = "2026-10"
+
+  # Handled by: /app/routes/webhooks.app.uninstalled.tsx
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/uninstalled"
+  topics = ["app/uninstalled"]
+
+  # Handled by: /app/routes/webhooks.app.scopes_update.tsx
+  [[webhooks.subscriptions]]
+  topics = [ "app/scopes_update" ]
+  uri = "/webhooks/app/scopes_update"
+
+  # Mandatory privacy webhooks for public apps.
+  [[webhooks.subscriptions]]
+  compliance_topics = [ "customers/data_request" ]
+  uri = "/webhooks/customers/data_request"
+
+  [[webhooks.subscriptions]]
+  compliance_topics = [ "customers/redact" ]
+  uri = "/webhooks/customers/redact"
+
+  [[webhooks.subscriptions]]
+  compliance_topics = [ "shop/redact" ]
+  uri = "/webhooks/shop/redact"

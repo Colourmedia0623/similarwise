@@ -13,6 +13,21 @@ services:
       - app-data:/data
     restart: unless-stopped
 
+  # The private copy for 7fa72e-da.myshopify.com (shopify.app.private.toml):
+  # the same image with its own app credentials and database, free. Runs only
+  # once the deploy has its secret (the "private" profile).
+  private:
+    image: similarwise:latest
+    pull_policy: never
+    profiles: [private]
+    env_file: .env.private
+    environment:
+      DATABASE_URL: file:/data/similarwise.sqlite
+      PORT: "3000"
+    volumes:
+      - private-data:/data
+    restart: unless-stopped
+
   caddy:
     image: caddy:2.10
     env_file: .env
@@ -21,6 +36,7 @@ services:
       - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./Caddyfile.private:/etc/caddy/Caddyfile.private:ro
       - caddy-data:/data
     depends_on:
       - app
@@ -28,4 +44,5 @@ services:
 
 volumes:
   app-data:
+  private-data:
   caddy-data:
