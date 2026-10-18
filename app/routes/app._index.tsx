@@ -58,6 +58,7 @@ function groups(t: Tiles): { title: string; color: string; tiles: Tile[] }[] {
         { href: "/app/articles", icon: "pen", title: "Blog articles", text: "Articles written for those searches, sent to your blog.", stat: stat(t.articles, "on your blog") },
         { href: "/app/calendar", icon: "calendar", title: "Content calendar", text: "A blog post a day, written and published for you.", stat: stat(t.plannedPosts, "posts planned") },
         { href: "/app/links", icon: "link", title: "Link gap", text: "Sites linking to them that could link to you.", stat: stat(t.linkSites, "sites") },
+        { href: "/app/outreach", icon: "mail", title: "Outreach emails", text: "Emails asking those sites to link to you.", stat: stat(t.outreachSent, "sent") },
       ],
     },
     {
