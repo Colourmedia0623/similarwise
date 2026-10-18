@@ -49,24 +49,46 @@ async function graph<T>(f: Fetch, path: string, params: Record<string, string>, 
   return json;
 }
 
+type MetaPage = { id: string; name: string; access_token?: string; instagram_business_account?: { id: string; username?: string } };
+const PAGE_FIELDS = "id,name,access_token,instagram_business_account{id,username}";
+
 // The Pages the merchant manages, and the Instagram business account on each.
+// Pages held through a business portfolio don't always show under /me/accounts,
+// so those are looked for too.
 export async function connectMeta(code: string, f: Fetch = fetch): Promise<Connected[]> {
   const id = process.env.META_APP_ID ?? "";
   const secret = process.env.META_APP_SECRET ?? "";
   const short = await graph<{ access_token: string }>(f, "/oauth/access_token", { client_id: id, client_secret: secret, redirect_uri: callbackUrl("meta"), code });
   // A long-lived user token gives Page tokens that don't expire.
   const long = await graph<{ access_token: string }>(f, "/oauth/access_token", { grant_type: "fb_exchange_token", client_id: id, client_secret: secret, fb_exchange_token: short.access_token });
-  const pages = await graph<{ data?: { id: string; name: string; access_token: string; instagram_business_account?: { id: string; username?: string } }[] }>(f, "/me/accounts", {
-    fields: "id,name,access_token,instagram_business_account{id,username}",
-    access_token: long.access_token,
-    limit: "50",
-  });
-  return (pages.data ?? []).flatMap((p) => [
-    { network: "facebook" as const, accountId: p.id, name: p.name, token: p.access_token },
+  const token = long.access_token;
+  const list = (path: string) => graph<{ data?: MetaPage[] }>(f, path, { fields: PAGE_FIELDS, access_token: token, limit: "50" }).then((r) => r.data ?? []);
+  let pages = await list("/me/accounts");
+  if (!pages.length) {
+    const businesses = await graph<{ data?: { id: string }[] }>(f, "/me/businesses", { fields: "id", access_token: token, limit: "25" }).catch(() => ({ data: [] }));
+    for (const b of businesses.data ?? []) {
+      for (const kind of ["owned_pages", "client_pages"]) pages.push(...(await list(`/${b.id}/${kind}`).catch(() => [])));
+    }
+    pages = pages.filter((p, i) => p.access_token && pages.findIndex((q) => q.id === p.id) === i);
+  }
+  if (!pages.length) throw new Error(await whyNoPages(f, token));
+  return pages.flatMap((p) => [
+    { network: "facebook" as const, accountId: p.id, name: p.name, token: p.access_token ?? "" },
     ...(p.instagram_business_account
-      ? [{ network: "instagram" as const, accountId: p.instagram_business_account.id, name: p.instagram_business_account.username ? `@${p.instagram_business_account.username}` : p.name, token: p.access_token }]
+      ? [{ network: "instagram" as const, accountId: p.instagram_business_account.id, name: p.instagram_business_account.username ? `@${p.instagram_business_account.username}` : p.name, token: p.access_token ?? "" }]
       : []),
   ]);
+}
+
+// Names the permissions Facebook held back, which is the usual reason no Pages come through.
+async function whyNoPages(f: Fetch, token: string) {
+  const granted = await graph<{ data?: { permission: string; status: string }[] }>(f, "/me/permissions", { access_token: token })
+    .then((r) => new Set((r.data ?? []).filter((p) => p.status === "granted").map((p) => p.permission)))
+    .catch(() => null);
+  const missing = granted ? META_SCOPES.filter((s) => !granted.has(s)) : [];
+  if (missing.length)
+    return `Facebook didn't give SimilarWise these permissions: ${missing.join(", ")}. Add them to the app's Facebook Login configuration, then press Connect again and allow them.`;
+  return "No Facebook Pages came through. Make sure you picked your shop's Page when signing in, and that you're an admin of it.";
 }
 
 type TikTokToken = { access_token?: string; refresh_token?: string; expires_in?: number; open_id?: string; error?: string; error_description?: string };

@@ -22,12 +22,14 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       return {
         ok: false as const,
         message:
-          "No Facebook Pages came through. Make sure you picked your shop's Page when signing in, and that its Instagram is a business account linked to the Page.",
+          provider === "meta"
+            ? "No Facebook Pages came through. Make sure you picked your shop's Page when signing in, and that its Instagram is a business account linked to the Page."
+            : "No TikTok account came through. Try connecting again.",
       };
     return { ok: true as const, message: `Connected ${accounts.map((a) => a.name).join(", ")}.` };
   } catch (err) {
     console.error("Social sign-in failed", provider, state.shop, err);
-    return { ok: false as const, message: `Couldn't connect: ${err instanceof Error ? err.message : String(err)}` };
+    return { ok: false as const, message: `Not connected. ${err instanceof Error ? err.message : String(err)}` };
   }
 };
 
