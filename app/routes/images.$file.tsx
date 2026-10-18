@@ -12,7 +12,12 @@ import { articlePicture } from "../lib/ideas/articles.server";
 // TikTok's proof that this address is ours, which it needs before it will
 // fetch pictures from it (URL properties in the TikTok developer app). TikTok
 // asks for tiktok<code>.txt under the verified prefix.
-const TIKTOK_VERIFICATION = ["tiktok-developers-site-verification=Tel2Q8BoGFcxQrZ7IT3sce5qmW5t6Qop"];
+// The whole site (production app) is verified by the same file at the top
+// level, served from public/.
+const TIKTOK_VERIFICATION = [
+  "tiktok-developers-site-verification=Tel2Q8BoGFcxQrZ7IT3sce5qmW5t6Qop",
+  "tiktok-developers-site-verification=SOmS0sEZGOe7TnRb0G2SqgpMOHkONFeJ",
+];
 
 export const loader = async ({ params }: LoaderFunctionArgs) => {
   if (/^tiktok[\w-]*\.txt$/i.test(params.file ?? "")) {
