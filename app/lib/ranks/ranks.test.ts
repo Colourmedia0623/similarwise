@@ -59,7 +59,7 @@ describe("rank tracker", () => {
     const gift = view.keywords.find((k) => k.keyword === "gift boxes")!;
     const magnetic = view.keywords.find((k) => k.keyword === "magnetic boxes")!;
     expect(gift).toMatchObject({ position: 4, change: 8, competitors: [1], url: "https://giftboxes.co.uk/gift-boxes" });
-    expect(magnetic).toMatchObject({ position: 9, change: 92, competitors: [null] });
+    expect(magnetic).toMatchObject({ position: 9, change: 22, competitors: [null] });
     expect(view.trend.map((t) => t.top10)).toEqual([0, 2]);
     expect(view.competitors).toEqual([{ id: rival.id, name: "Foldabox" }]);
   });

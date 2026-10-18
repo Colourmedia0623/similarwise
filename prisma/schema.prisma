@@ -547,7 +547,7 @@ model KeywordRank {
   shop        String
   keywordId   String
   checkedAt   DateTime
-  position    Int?     // The shop's place in Google's results, null when not in the top 100
+  position    Int?     // The shop's place in Google's results, null when not in the top 30
   url         String?  // The shop's page that ranked
   competitors String   @default("{}") // JSON { competitorId: position }
   error       String?

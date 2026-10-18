@@ -31,7 +31,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 type Data = ReturnType<typeof useLoaderData<typeof loader>>;
 
 const day = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-const place = (p: number | null) => (p == null ? "Not in top 100" : `#${p}`);
+const place = (p: number | null, depth: number) => (p == null ? `Not in top ${depth}` : `#${p}`);
 
 function Change({ v }: { v: number | null }) {
   if (v == null || v === 0) return <s-text color="subdued">–</s-text>;
@@ -98,7 +98,7 @@ function TopTenChart({ trend }: { trend: Data["trend"] }) {
           <div style={{ fontWeight: 600, marginBottom: 4 }}>{day(trend[hover].at)}</div>
           <div>Top 3: {trend[hover].top3}</div>
           <div>Top 10: {trend[hover].top10}</div>
-          <div>Top 100: {trend[hover].top100}</div>
+          <div>Top 30: {trend[hover].ranked}</div>
         </div>
       )}
     </div>
@@ -144,7 +144,7 @@ export default function Ranks() {
         <s-stack gap="base">
           <s-paragraph>
             Choose the Google searches that matter to you. Every day SimilarWise looks them up as a shopper in {d.market} would, and records where
-            {d.domain ? ` ${d.domain}` : " your store"} and each competitor rank in the top 100.
+            {d.domain ? ` ${d.domain}` : " your store"} and each competitor rank in the top {d.depth}.
           </s-paragraph>
           {checking && <s-banner tone="info">Checking Google for each search. This takes a minute or two; the page updates by itself.</s-banner>}
           {checkError && <s-banner tone="warning">{checkError}</s-banner>}
@@ -160,7 +160,7 @@ export default function Ranks() {
               {[
                 { label: "In the top 3", v: latest.top3 },
                 { label: "In the top 10", v: latest.top10 },
-                { label: "In the top 100", v: latest.top100 },
+                { label: `In the top ${d.depth}`, v: latest.ranked },
               ].map((t) => (
                 <s-box key={t.label} padding="base" background="subdued" borderRadius="base">
                   <s-stack gap="small-200">
@@ -212,7 +212,7 @@ export default function Ranks() {
                 {d.keywords.map((k) => (
                   <s-table-row key={k.id}>
                     <s-table-cell>{k.keyword}</s-table-cell>
-                    <s-table-cell>{!k.checked ? <s-text color="subdued">Not checked yet</s-text> : k.error ? <s-text tone="critical">Couldn&apos;t check</s-text> : place(k.position)}</s-table-cell>
+                    <s-table-cell>{!k.checked ? <s-text color="subdued">Not checked yet</s-text> : k.error ? <s-text tone="critical">Couldn&apos;t check</s-text> : place(k.position, d.depth)}</s-table-cell>
                     <s-table-cell>
                       <Change v={k.change} />
                     </s-table-cell>

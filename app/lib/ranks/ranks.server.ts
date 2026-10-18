@@ -7,13 +7,16 @@ import { hostOf } from "../tracker/url";
 
 // Rank tracker: the Google searches a shop chooses, looked up daily through
 // DataForSEO's live results, to record where the shop and each competitor
-// rank in the top 100.
+// rank in the top 30.
 
 const DAY = 86400_000;
 const MIN_GAP = 6 * 3600_000; // Between checks the merchant starts
 const STUCK = 3600_000;
 const KEEP = 180 * DAY;
 export const MAX_KEYWORDS = 50;
+// How far down Google's results to look. DataForSEO bills each page of 10,
+// so three pages keeps a full list of searches near $9 a month per shop.
+export const DEPTH = 30;
 const AT_ONCE = 5;
 
 export type Result = { domain: string; position: number; url: string };
@@ -43,7 +46,7 @@ export function serpClient(): SerpClient | null {
         keyword: keyword.slice(0, 200),
         location_code: market.location,
         language_code: market.language,
-        depth: 100,
+        depth: DEPTH,
       }),
     );
 }
@@ -189,6 +192,7 @@ export async function rankOverview(shop: string, now = new Date()) {
   const live = rows.filter((r) => ids.has(r.keywordId) && !r.error);
 
   return {
+    depth: DEPTH,
     domain,
     market: marketFor(settings?.market).name,
     running: !!settings?.ranksRunningAt && now.getTime() - settings.ranksRunningAt.getTime() < STUCK,
@@ -206,19 +210,19 @@ export async function rankOverview(shop: string, now = new Date()) {
         error: cur?.error ?? null,
         position: cur?.position ?? null,
         url: cur?.url ?? null,
-        // Positive means the shop moved up. A new ranking counts from 101.
-        change: cur && before && !cur.error && !before.error && (cur.position != null || before.position != null) ? (before.position ?? 101) - (cur.position ?? 101) : null,
+        // Positive means the shop moved up. A new ranking counts from just below the depth.
+        change: cur && before && !cur.error && !before.error && (cur.position != null || before.position != null) ? (before.position ?? DEPTH + 1) - (cur.position ?? DEPTH + 1) : null,
         competitors: competitors.map((c) => theirs[c.id] ?? null),
       };
     }),
-    // How many tracked searches the shop was in the top 3, 10 and 100 for, on each check.
+    // How many tracked searches the shop was in the top 3, 10 and 30 for, on each check.
     trend: checks.map((t) => {
       const day = live.filter((r) => r.checkedAt.getTime() === t);
       return {
         at: new Date(t).toISOString(),
         top3: day.filter((r) => r.position != null && r.position <= 3).length,
         top10: day.filter((r) => r.position != null && r.position <= 10).length,
-        top100: day.filter((r) => r.position != null).length,
+        ranked: day.filter((r) => r.position != null).length,
       };
     }),
   };
