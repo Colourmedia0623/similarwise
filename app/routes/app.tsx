@@ -10,9 +10,22 @@ import { detectShopMarket } from "../lib/traffic/refresh.server";
 import { detectShopDomain } from "../lib/traffic/gap.server";
 import { detectAlertEmail } from "../lib/email/alerts.server";
 import { isOwnerShop } from "../lib/waitlist.server";
+import { PLAN_KEYS, covers, pageTier, parsePlanKey, type Tier } from "../lib/billing";
+
+const RANK: Tier[] = ["watch", "grow", "advertise"];
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { admin, session } = await authenticate.admin(request);
+  const { admin, session, billing, redirect } = await authenticate.admin(request);
+  const owner = isOwnerShop(session.shop);
+  // Colourmedia's own stores use everything for free. Everyone else needs a plan that covers the page.
+  if (!owner) {
+    const { appSubscriptions } = await billing.check({ plans: PLAN_KEYS, isTest: true });
+    const tiers = appSubscriptions.map((s) => parsePlanKey(s.name)?.tier).filter((t): t is Tier => t != null);
+    const tier = RANK.filter((t) => tiers.includes(t)).pop();
+    const path = new URL(request.url).pathname;
+    const need = pageTier(path);
+    if (path !== "/app/plans" && (!tier || !covers(tier, need))) throw redirect(`/app/plans?need=${need}`);
+  }
   // Read once, and only when a new shop's country, website or email is needed.
   let shopInfo: Promise<{ country: string | null; host: string | null; email: string | null }> | undefined;
   const readShop = () =>
@@ -28,7 +41,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   await detectShopDomain(session.shop, async () => (await readShop()).host);
   await detectAlertEmail(session.shop, async () => (await readShop()).email);
   // eslint-disable-next-line no-undef
-  return { apiKey: process.env.SHOPIFY_API_KEY || "", owner: isOwnerShop(session.shop) };
+  return { apiKey: process.env.SHOPIFY_API_KEY || "", owner };
 };
 
 export default function App() {
@@ -55,6 +68,7 @@ export default function App() {
         <s-link href="/app/ads">Ads</s-link>
         <s-link href="/app/ad-ideas">Ad ideas</s-link>
         <s-link href="/app/settings">Email alerts</s-link>
+        <s-link href="/app/plans">Plans</s-link>
         {owner && <s-link href="/app/waitlist">Waitlist</s-link>}
       </s-app-nav>
       <Outlet />

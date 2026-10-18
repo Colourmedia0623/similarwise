@@ -6,6 +6,7 @@ import { parseSignup } from "../../lib/waitlist";
 import { saveSignup } from "../../lib/waitlist.server";
 
 import styles from "./styles.module.css";
+import { PLANS, TRIAL_DAYS } from "../../lib/billing";
 
 // The public landing page: everything Similarwise does, grouped the way the
 // app's menu is, and the early-access waitlist.
@@ -109,6 +110,10 @@ const STEPS = [
 const REPLACES = ["Competitor price tracking", "Traffic estimates", "Ad library research", "SEO keyword tools", "Blog writing", "Social scheduling"];
 
 const FAQ = [
+  {
+    q: "How much does it cost?",
+    a: `${PLANS.map((p) => `${p.name} is $${p.monthly} a month`).join(", ")}, or ${PLANS.map((p) => `$${p.yearly}`).join(", ")} a month when you pay yearly. Every plan starts with a ${TRIAL_DAYS}-day free trial, billed through Shopify, and you can cancel at any time.`,
+  },
   {
     q: "Is it only for Shopify stores?",
     a: "Your store needs to be on Shopify, because Similarwise lives in your Shopify admin. Your competitors can be on any platform, though product and price tracking works best on Shopify stores.",
@@ -239,7 +244,7 @@ export default function App() {
         <ul className={styles.badges}>
           <li>Lives in your Shopify admin</li>
           <li>Checked every day</li>
-          <li>One simple monthly price</li>
+          <li>{TRIAL_DAYS}-day free trial</li>
         </ul>
         <Preview />
       </header>

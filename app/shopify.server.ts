@@ -1,7 +1,16 @@
 import "@shopify/shopify-app-react-router/adapters/node";
-import { ApiVersion, AppDistribution, shopifyApp } from "@shopify/shopify-app-react-router/server";
+import { ApiVersion, AppDistribution, BillingInterval, shopifyApp } from "@shopify/shopify-app-react-router/server";
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server";
+import { PLANS, TRIAL_DAYS, planKey } from "./lib/billing";
+
+// Two charges per plan: every 30 days, or once a year at the yearly monthly price times twelve.
+const billing = Object.fromEntries(
+  PLANS.flatMap((p) => [
+    [planKey(p.tier, "monthly"), { trialDays: TRIAL_DAYS, lineItems: [{ amount: p.monthly, currencyCode: "USD", interval: BillingInterval.Every30Days as const }] }],
+    [planKey(p.tier, "yearly"), { trialDays: TRIAL_DAYS, lineItems: [{ amount: p.yearly * 12, currencyCode: "USD", interval: BillingInterval.Annual as const }] }],
+  ]),
+);
 
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
@@ -12,6 +21,7 @@ const shopify = shopifyApp({
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
+  billing,
   future: {
     expiringOfflineAccessTokens: true,
   },
