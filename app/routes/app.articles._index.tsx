@@ -1,9 +1,9 @@
-import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
-import { Link, useLoaderData } from "react-router";
+import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "react-router";
+import { Link, useFetcher, useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { compact } from "../lib/format";
-import { blogArticles } from "../lib/ideas/articles.server";
+import { blogArticles, deleteArticle } from "../lib/ideas/articles.server";
 import { syncIfStale, type Graphql } from "../lib/prices/prices.server";
 import { STATUS } from "../lib/ideas/article-status";
 
@@ -16,6 +16,15 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   await syncIfStale(session.shop, graphql).catch((err) => console.error("Product sync failed", session.shop, err));
   return { articles: await blogArticles(session.shop) };
 };
+
+export const action = async ({ request }: ActionFunctionArgs) => {
+  const { admin, session } = await authenticate.admin(request);
+  const graphql: Graphql = async (query, variables) => (await admin.graphql(query, { variables })).json();
+  const id = String((await request.formData()).get("id") ?? "");
+  return { id, ...(await deleteArticle(session.shop, id, graphql)) };
+};
+
+type Article = ReturnType<typeof useLoaderData<typeof loader>>["articles"][number];
 
 
 export default function Articles() {
@@ -35,22 +44,9 @@ export default function Articles() {
       </s-section>
       {articles.length > 0 && (
         <div className="sw-tiles">
-          {articles.map((a) => {
-            const status = a.status as keyof typeof STATUS;
-            return (
-              <Link key={a.id} to={`/app/articles/${a.id}`} className="sw-tile">
-                {a.picture ? <img src={a.picture.url} alt="" /> : <div className="sw-noimg">No picture yet</div>}
-                <div className="sw-tile-body">
-                  <span className={`sw-status sw-${status}`}>{STATUS[status] ?? a.status}</span>
-                  <strong>{a.title}</strong>
-                  <span className="sw-muted">
-                    “{a.keyword}”{a.searchVolume != null ? ` · ${compact(a.searchVolume)} searches a month` : ""}
-                  </span>
-                  <span className="sw-muted">Written {new Date(a.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span>
-                </div>
-              </Link>
-            );
-          })}
+          {articles.map((a) => (
+            <ArticleTile key={a.id} a={a} />
+          ))}
         </div>
       )}
       <style>{CSS}</style>
@@ -58,7 +54,49 @@ export default function Articles() {
   );
 }
 
+function ArticleTile({ a }: { a: Article }) {
+  const del = useFetcher<typeof action>();
+  const status = a.status as keyof typeof STATUS;
+  const error = del.state === "idle" && del.data && "error" in del.data ? del.data.error : null;
+  if (del.state !== "idle") return null;
+  return (
+    <div className="sw-tile-wrap">
+      <Link to={`/app/articles/${a.id}`} className="sw-tile">
+        {a.picture ? <img src={a.picture.url} alt="" /> : <div className="sw-noimg">No picture yet</div>}
+        <div className="sw-tile-body">
+          <span className={`sw-status sw-${status}`}>{STATUS[status] ?? a.status}</span>
+          <strong>{a.title}</strong>
+          <span className="sw-muted">
+            “{a.keyword}”{a.searchVolume != null ? ` · ${compact(a.searchVolume)} searches a month` : ""}
+          </span>
+          <span className="sw-muted">Written {new Date(a.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span>
+          {error && <span className="sw-error">{error}</span>}
+        </div>
+      </Link>
+      <button
+        type="button"
+        className="sw-bin"
+        aria-label="Delete this article"
+        title="Delete"
+        onClick={() => {
+          const msg = a.shopifyId ? "Delete this article? It comes off your blog too." : "Delete this article?";
+          if (confirm(msg)) del.submit({ id: a.id }, { method: "post" });
+        }}
+      >
+        <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true">
+          <path d="M7 2h6v2h4v2H3V4h4V2Zm-2 5h10l-1 11H6L5 7Z" fill="currentColor" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
 const CSS = `
+.sw-tile-wrap { position: relative; display: flex; }
+.sw-tile-wrap .sw-tile { flex: 1; }
+.sw-bin { position: absolute; top: 8px; right: 8px; display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 1px solid #e3e3e3; border-radius: 50%; background: #fff; color: #d72c0d; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+.sw-bin:hover { background: #fff1f0; }
+.sw-error { color: #c4291c; }
 .sw-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
 .sw-tile { display: flex; flex-direction: column; background: #fff; border: 1px solid #e3e3e3; border-radius: 12px; overflow: hidden; color: inherit; text-decoration: none; transition: box-shadow .15s, transform .15s; }
 .sw-tile:hover { box-shadow: 0 4px 14px rgba(0,0,0,.08); transform: translateY(-1px); }

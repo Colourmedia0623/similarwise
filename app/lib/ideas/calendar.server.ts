@@ -1,7 +1,7 @@
 import db from "../../db.server";
 import { claudeJson, type AskJson } from "./claude.server";
 import { keywordGap } from "../traffic/gap.server";
-import { articlePicture, sendArticle, writeTopic } from "./articles.server";
+import { articlePicture, deleteArticle, sendArticle, writeTopic } from "./articles.server";
 import { syncIfStale, type Graphql } from "../prices/prices.server";
 
 // Content calendar: Claude plans a blog post a day from the searches in the
@@ -71,7 +71,8 @@ export function parsePlan(json: unknown, allowed: Map<string, string>): PlannedT
 
 // Plans the next month of posts, starting the day after the last one
 // already planned (or tomorrow).
-export async function planCalendar(shop: string, ask: AskJson | null = claudeJson(), now = new Date()) {
+// With `day`, plans just one post for that day.
+export async function planCalendar(shop: string, ask: AskJson | null = claudeJson(), now = new Date(), day?: string) {
   if (!ask) return { error: "The content calendar isn't switched on for this app yet." };
   const gap = await keywordGap(shop);
   if (!gap.domain) return { error: "Add your website on the Keyword gap page first." };
@@ -80,8 +81,9 @@ export async function planCalendar(shop: string, ask: AskJson | null = claudeJso
     db.blogArticle.findMany({ where: { shop }, select: { keyword: true } }),
     db.shopProduct.findMany({ where: { shop }, orderBy: { title: "asc" }, take: 300, select: { title: true } }),
   ]);
+  if (day && (!isDay(day) || day < today(now))) return { error: "Pick today or a later date." };
   const upcoming = planned.filter((p) => p.status !== "done");
-  const days = Math.min(DAYS, MAX_PLANNED - upcoming.length);
+  const days = Math.min(day ? 1 : DAYS, MAX_PLANNED - upcoming.length);
   if (days <= 0) return { error: `There are already ${upcoming.length} posts waiting. Delete some, or let them go out first.` };
   const covered = new Set([...planned, ...articles].map((p) => p.keyword.toLowerCase()));
   const candidates = [...gap.missing, ...gap.behind]
@@ -110,7 +112,7 @@ export async function planCalendar(shop: string, ask: AskJson | null = claudeJso
 
   const volume = new Map(candidates.map((r) => [r.keyword.toLowerCase(), r.searchVolume]));
   const last = planned.reduce((d, p) => (p.day > d ? p.day : d), today(now));
-  const start = addDays(last, 1);
+  const start = day ?? addDays(last, 1);
   await db.plannedPost.createMany({
     data: topics.map((t, i) => ({ shop, day: addDays(start, i), ...t, searchVolume: volume.get(t.keyword.toLowerCase()) ?? null })),
   });
@@ -132,8 +134,28 @@ export async function editPost(shop: string, id: string, edit: PostEdit, now = n
   return count ? { ok: true as const } : { error: "That post has already been written." };
 }
 
-export async function deletePost(shop: string, id: string) {
-  await db.plannedPost.deleteMany({ where: { id, shop, status: { not: "writing" } } });
+// Deletes a planned post. One already written takes its article with it,
+// off the blog too.
+export async function deletePost(shop: string, id: string, graphql?: Graphql) {
+  const post = await db.plannedPost.findFirst({ where: { id, shop } });
+  if (!post || post.status === "writing") return post ? { error: "That post is being written. Try again in a minute." } : { ok: true as const };
+  if (post.articleId) {
+    const gone = await deleteArticle(shop, post.articleId, graphql);
+    if ("error" in gone) return gone;
+  }
+  await db.plannedPost.deleteMany({ where: { id, shop } });
+  return { ok: true as const };
+}
+
+// Adds a post the merchant wrote the plan for themselves.
+export async function addPost(shop: string, edit: PostEdit, now = new Date()) {
+  const keyword = edit.keyword.trim().slice(0, 200);
+  const title = edit.title.trim().slice(0, 200);
+  if (!keyword || !title) return { error: "Give the post a search and a title." };
+  if (!isDay(edit.day)) return { error: "Pick a date for the post." };
+  if (edit.day < today(now)) return { error: "Pick today or a later date." };
+  const row = await db.plannedPost.create({ data: { shop, day: edit.day, keyword, title, angle: edit.angle.trim().slice(0, 500) } });
+  return { ok: true as const, postId: row.id };
 }
 
 export async function setCalendarPublish(shop: string, publish: boolean) {

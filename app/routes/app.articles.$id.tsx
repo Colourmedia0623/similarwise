@@ -31,7 +31,8 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   const at = Date.now();
 
   if (intent === "delete") {
-    await deleteArticle(shop, id);
+    const gone = await deleteArticle(shop, id, graphql);
+    if ("error" in gone) return { intent, at, error: gone.error };
     return redirect("/app/articles");
   }
   if (intent === "image" || intent === "upload") {
@@ -249,11 +250,18 @@ export default function ArticleEditor() {
                 <s-button loading={busy("draft")} onClick={() => submit("draft")}>
                   Add as hidden draft
                 </s-button>
-                <s-button variant="tertiary" tone="critical" loading={busy("delete")} onClick={() => save.submit({ intent: "delete" }, { method: "post" })}>
-                  Delete
-                </s-button>
               </>
             )}
+            <s-button
+              variant="tertiary"
+              tone="critical"
+              loading={busy("delete")}
+              onClick={() => {
+                if (!sent || confirm("Delete this article? It comes off your blog too.")) save.submit({ intent: "delete" }, { method: "post" });
+              }}
+            >
+              Delete
+            </s-button>
             {dirty && <s-text color="subdued">Unsaved changes</s-text>}
           </s-stack>
         </s-section>
