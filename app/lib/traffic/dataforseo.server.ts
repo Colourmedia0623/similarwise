@@ -108,7 +108,12 @@ export function poster(timeout = 60_000) {
       body: JSON.stringify([task]),
       signal: AbortSignal.timeout(timeout),
     });
-    if (!res.ok) throw new Error(`DataForSEO answered ${res.status}`);
+    if (!res.ok) {
+      // 402 is DataForSEO's "payment required": the account's balance has run out.
+      if (res.status === 402) throw new Error("DataForSEO: the account's balance has run out. Top it up at app.dataforseo.com");
+      const body = (await res.json().catch(() => null)) as { status_message?: string } | null;
+      throw new Error(`DataForSEO answered ${res.status}${body?.status_message ? `: ${body.status_message}` : ""}`);
+    }
     return res.json();
   };
 }

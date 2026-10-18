@@ -71,6 +71,10 @@ describe("rank tracker", () => {
     const view = await rankOverview(SHOP, NOW);
     expect(view.keywords[0]).toMatchObject({ checked: true, error: expect.stringMatching(/limit/) });
     expect((await db.shopSettings.findUnique({ where: { shop: SHOP } }))?.ranksRunningAt).toBeNull();
+    // A failed check doesn't read as no rankings, and can be tried again straight away.
+    expect(view.trend).toEqual([]);
+    expect(await startRankCheck(SHOP, { client: async () => [], now: new Date(NOW.getTime() + 60_000) })).toEqual({ started: true });
+    await new Promise((r) => setTimeout(r, 100));
   });
 
   it("checks daily, and not again within a few hours when asked", async () => {

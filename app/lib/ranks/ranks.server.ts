@@ -146,7 +146,8 @@ export async function startRankCheck(shop: string, { client = serpClient(), now 
   if (!(await db.trackedKeyword.count({ where: { shop } }))) return { error: "Add some searches first." };
   const s = await db.shopSettings.findUnique({ where: { shop } });
   if (s?.ranksRunningAt && now.getTime() - s.ranksRunningAt.getTime() < STUCK) return { error: "A check is already running." };
-  if (s?.ranksCheckedAt && now.getTime() - s.ranksCheckedAt.getTime() < MIN_GAP) return { error: "Rankings were checked in the last few hours. Try again later." };
+  // A check that failed outright can be tried again straight away.
+  if (s?.ranksCheckedAt && !s.ranksError && now.getTime() - s.ranksCheckedAt.getTime() < MIN_GAP) return { error: "Rankings were checked in the last few hours. Try again later." };
   void runRankCheck(shop, { client, now }).catch((err) => console.error("Rank check failed", shop, err));
   return { started: true as const };
 }
@@ -183,7 +184,9 @@ export async function rankOverview(shop: string, now = new Date()) {
     where: { shop, checkedAt: { gte: new Date(now.getTime() - 90 * DAY) } },
     orderBy: { checkedAt: "asc" },
   });
-  const checks = [...new Set(rows.map((r) => r.checkedAt.getTime()))].sort((a, b) => a - b);
+  // Checks where every lookup failed are left out, so they don't read as no rankings.
+  const checks = [...new Set(rows.filter((r) => !r.error).map((r) => r.checkedAt.getTime()))].sort((a, b) => a - b);
+  const lastRun = rows.length ? Math.max(...rows.map((r) => r.checkedAt.getTime())) : undefined;
   const latest = checks[checks.length - 1];
   // The check nearest a week before the latest, for the change column.
   const weekAgo = latest == null ? undefined : [...checks].reverse().find((t) => t <= latest - 6 * DAY) ?? (checks.length > 1 ? checks[0] : undefined);
@@ -200,14 +203,15 @@ export async function rankOverview(shop: string, now = new Date()) {
     error: settings?.ranksError ?? null,
     competitors,
     keywords: keywords.map((k) => {
+      const failed = lastRun !== latest ? at(lastRun, k.id) : undefined;
       const cur = at(latest, k.id);
       const before = at(weekAgo, k.id);
       const theirs = parse(cur?.competitors ?? "{}");
       return {
         id: k.id,
         keyword: k.keyword,
-        checked: !!cur,
-        error: cur?.error ?? null,
+        checked: !!cur || !!failed,
+        error: cur?.error ?? (cur ? null : (failed?.error ?? null)),
         position: cur?.position ?? null,
         url: cur?.url ?? null,
         // Positive means the shop moved up. A new ranking counts from just below the depth.
