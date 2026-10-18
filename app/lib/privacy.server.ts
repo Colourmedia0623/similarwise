@@ -14,6 +14,8 @@ export async function redactShop(shop: string) {
   await db.articleImage.deleteMany({ where: { shop } });
   await db.plannedPost.deleteMany({ where: { shop } });
   await db.outreach.deleteMany({ where: { shop } });
+  await db.aiAnswer.deleteMany({ where: { shop } });
+  await db.aiPrompt.deleteMany({ where: { shop } });
   await db.shopSettings.deleteMany({ where: { shop } });
   const sessions = await db.session.deleteMany({ where: { shop } });
   return { competitors: competitors.count, sessions: sessions.count };

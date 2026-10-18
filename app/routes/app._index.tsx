@@ -30,6 +30,7 @@ const ICONS: Record<string, string> = {
   megaphone: "M3 11v2a1 1 0 0 0 1 1h3l6 4V6L7 10H4a1 1 0 0 0-1 1zM17 8a5 5 0 0 1 0 8",
   sparkle: "M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z",
   mail: "M3 5h18v14H3zM3 7l9 6 9-6",
+  chat: "M4 5h16v11H9l-5 4z M8 10h.01M12 10h.01M16 10h.01",
 };
 
 type Tile = { href: string; icon: string; title: string; text: string; stat: string | null };
@@ -54,6 +55,7 @@ function groups(t: Tiles): { title: string; color: string; tiles: Tile[] }[] {
       color: "#7c3aed",
       tiles: [
         { href: "/app/keywords", icon: "search", title: "Keyword gap", text: "Searches they rank for on Google and you don't.", stat: stat(t.missingKeywords, "keywords to win") },
+        { href: "/app/ai", icon: "chat", title: "AI mentions", text: "Whether ChatGPT, Gemini and Perplexity recommend you.", stat: stat(t.aiShare, "of answers name you", (x) => `${x}%`) },
         { href: "/app/ideas", icon: "bulb", title: "Keyword ideas", text: "Page titles and descriptions written for those searches.", stat: stat(t.keywordIdeas, "ideas") },
         { href: "/app/articles", icon: "pen", title: "Blog articles", text: "Articles written for those searches, sent to your blog.", stat: stat(t.articles, "on your blog") },
         { href: "/app/calendar", icon: "calendar", title: "Content calendar", text: "A blog post a day, written and published for you.", stat: stat(t.plannedPosts, "posts planned") },

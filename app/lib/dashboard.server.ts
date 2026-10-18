@@ -1,4 +1,5 @@
 import db from "../db.server";
+import { aiShare } from "./ai/mentions.server";
 import { trafficClient } from "./traffic/dataforseo.server";
 import { MAX_COMPETITORS, parseStoredList } from "./tracker/check.server";
 import { hostOf } from "./tracker/url";
@@ -73,7 +74,7 @@ const parseCount = (json: string | undefined) => {
 async function tileNumbers(shop: string, competitors: { id: string; url: string; apps: string; organicTraffic: number | null; productCount: number }[]) {
   const ids = competitors.map((c) => c.id);
   const domains = competitors.map((c) => hostOf(c.url));
-  const [settings, matched, missing, ideas, links, ads, adIdeas, similar, measured, articles, planned, outreach] = await Promise.all([
+  const [settings, matched, missing, ideas, links, ads, adIdeas, similar, measured, articles, planned, outreach, ai] = await Promise.all([
     db.shopSettings.findUnique({ where: { shop } }),
     db.productMatch.count({ where: { competitorId: { in: ids }, competitorProductId: { not: null } } }),
     db.keywordGap.findMany({ where: { competitorId: { in: ids }, yourPosition: null }, select: { keyword: true }, distinct: ["keyword"] }),
@@ -86,6 +87,7 @@ async function tileNumbers(shop: string, competitors: { id: string; url: string;
     db.blogArticle.count({ where: { shop, shopifyId: { not: null } } }),
     db.plannedPost.count({ where: { shop, status: { not: "done" } } }),
     db.outreach.count({ where: { shop, status: { not: "draft" } } }),
+    aiShare(shop),
   ]);
   const tracked = new Set([settings?.domain, ...domains]);
   const apps = new Set(competitors.flatMap((c) => parseStoredList(c.apps)));
@@ -104,6 +106,7 @@ async function tileNumbers(shop: string, competitors: { id: string; url: string;
     articles: or(articles),
     plannedPosts: or(planned),
     outreachSent: or(outreach),
+    aiShare: ai,
     linkSites: or(links.length),
     searchVisits: or(visits),
     measured: or(measured),

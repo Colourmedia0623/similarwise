@@ -96,7 +96,7 @@ export function parseKeywords(json: unknown): RankedKeyword[] {
 }
 
 // Posts one task to DataForSEO, or null when it isn't set up.
-export function poster() {
+export function poster(timeout = 60_000) {
   const login = process.env.DATAFORSEO_LOGIN;
   const password = process.env.DATAFORSEO_PASSWORD;
   if (!login || !password) return null;
@@ -106,7 +106,7 @@ export function poster() {
       method: "POST",
       headers: { authorization: auth, "content-type": "application/json" },
       body: JSON.stringify([task]),
-      signal: AbortSignal.timeout(60_000),
+      signal: AbortSignal.timeout(timeout),
     });
     if (!res.ok) throw new Error(`DataForSEO answered ${res.status}`);
     return res.json();
