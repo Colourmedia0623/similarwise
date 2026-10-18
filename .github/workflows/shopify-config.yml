@@ -2,16 +2,16 @@ name: Push Shopify app config
 
 # Sends shopify.app.toml (URLs, scopes, webhooks) to Shopify as a new app
 # version. Run by hand after changing it. Needs the
-# SHOPIFY_APP_AUTOMATION_TOKEN secret (SHOPIFY_PRIVATE_AUTOMATION_TOKEN for
+# SHOPIFY_APP_AUTOMATION_TOKEN secret (SHOPIFY_DSS_AUTOMATION_TOKEN for
 # the private copy), generated in the Dev Dashboard under the app's
 # Settings > App Automation Token.
 on:
   workflow_dispatch:
     inputs:
       app:
-        description: "Which app: similarwise (public) or private (the free copy for 7fa72e-da)"
+        description: "Which app: similarwise (public) or dss (the free copy for 7fa72e-da)"
         type: choice
-        options: [similarwise, private]
+        options: [similarwise, dss]
         default: similarwise
 
 jobs:
@@ -27,8 +27,8 @@ jobs:
       - run: npm install -g @shopify/cli@latest
       - name: Deploy app version
         env:
-          SHOPIFY_APP_AUTOMATION_TOKEN: ${{ inputs.app == 'private' && secrets.SHOPIFY_PRIVATE_AUTOMATION_TOKEN || secrets.SHOPIFY_APP_AUTOMATION_TOKEN }}
-          CONFIG: ${{ inputs.app == 'private' && '--config private' || '' }}
+          SHOPIFY_APP_AUTOMATION_TOKEN: ${{ inputs.app == 'dss' && secrets.SHOPIFY_DSS_AUTOMATION_TOKEN || secrets.SHOPIFY_APP_AUTOMATION_TOKEN }}
+          CONFIG: ${{ inputs.app == 'dss' && '--config dss' || '' }}
           COMMIT_URL: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}
         # On failure, repeat the end of the output as an annotation, which is
         # readable from the run's summary and the API without the raw logs.

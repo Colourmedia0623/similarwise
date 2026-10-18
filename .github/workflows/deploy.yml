@@ -74,31 +74,31 @@ jobs:
 
       # The private, free copy for 7fa72e-da.myshopify.com runs beside the
       # public app once its app exists (a client ID in
-      # shopify.app.private.toml) and its secret is set. It shares the
+      # shopify.app.dss.toml) and its secret is set. It shares the
       # public app's data keys; only its Shopify app and address differ.
       - name: Write private copy environment
         env:
-          SHOPIFY_PRIVATE_API_SECRET: ${{ secrets.SHOPIFY_PRIVATE_API_SECRET }}
+          SHOPIFY_DSS_API_SECRET: ${{ secrets.SHOPIFY_DSS_API_SECRET }}
         run: |
-          own_id=$(sed -n 's/^client_id = "\(.*\)"/\1/p' shopify.app.private.toml)
-          own_url=$(sed -n 's/^application_url = "\(.*\)"/\1/p' shopify.app.private.toml)
+          own_id=$(sed -n 's/^client_id = "\(.*\)"/\1/p' shopify.app.dss.toml)
+          own_url=$(sed -n 's/^application_url = "\(.*\)"/\1/p' shopify.app.dss.toml)
           own_host=${own_url#https://}
-          : > deploy/Caddyfile.private
-          : > deploy/.env.private
-          if [ -n "$SHOPIFY_PRIVATE_API_SECRET" ] && [ "$own_id" != REPLACE_WITH_PRIVATE_CLIENT_ID ]; then
-            scopes=$(sed -n 's/^scopes = "\(.*\)"/\1/p' shopify.app.private.toml)
+          : > deploy/Caddyfile.dss
+          : > deploy/.env.dss
+          if [ -n "$SHOPIFY_DSS_API_SECRET" ] && [ "$own_id" != REPLACE_WITH_DSS_CLIENT_ID ]; then
+            scopes=$(sed -n 's/^scopes = "\(.*\)"/\1/p' shopify.app.dss.toml)
             {
               grep -vE '^(SHOPIFY_API_KEY|SHOPIFY_API_SECRET|SHOPIFY_APP_URL|SCOPES|APP_HOST|APP_STORE_URL)=' deploy/.env
               echo "SHOPIFY_API_KEY=$own_id"
-              echo "SHOPIFY_API_SECRET=$SHOPIFY_PRIVATE_API_SECRET"
+              echo "SHOPIFY_API_SECRET=$SHOPIFY_DSS_API_SECRET"
               echo "SHOPIFY_APP_URL=$own_url"
               echo "SCOPES=$scopes"
               # Every page free, as for Colourmedia's own stores.
               echo "OWNER_SHOPS=7fa72e-da.myshopify.com"
-            } > deploy/.env.private
-            printf '%s {\n\treverse_proxy private:3000\n}\n' "$own_host" > deploy/Caddyfile.private
-            echo "PRIVATE_PROFILE=--profile private" >> "$GITHUB_ENV"
-            echo "PRIVATE_HOST=$own_host" >> "$GITHUB_ENV"
+            } > deploy/.env.dss
+            printf '%s {\n\treverse_proxy dss:3000\n}\n' "$own_host" > deploy/Caddyfile.dss
+            echo "DSS_PROFILE=--profile dss" >> "$GITHUB_ENV"
+            echo "DSS_HOST=$own_host" >> "$GITHUB_ENV"
           else
             echo "Private copy not set up yet; deploying the public app only."
           fi
@@ -136,7 +136,7 @@ jobs:
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
           EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
-          PRIVATE_PROFILE: ${{ env.PRIVATE_PROFILE }}
+          DSS_PROFILE: ${{ env.DSS_PROFILE }}
         run: |
           mkdir -p ~/.ssh
           # Keys copied on Windows carry CRLF line endings, which OpenSSH rejects.
@@ -149,14 +149,14 @@ jobs:
           ssh_ec2() { ssh -i ~/.ssh/ec2 "ubuntu@$EC2_HOST" "$@"; }
 
           docker save similarwise:latest | gzip -1 | ssh_ec2 'gunzip | docker load'
-          tar czf - deploy | ssh_ec2 "PRIVATE_PROFILE='$PRIVATE_PROFILE'" '
+          tar czf - deploy | ssh_ec2 "DSS_PROFILE='$DSS_PROFILE'" '
             set -e
             rm -rf /opt/similarwise/src.new && mkdir -p /opt/similarwise/src.new
             tar xzf - -C /opt/similarwise/src.new
             rm -rf /opt/similarwise/src && mv /opt/similarwise/src.new /opt/similarwise/src
-            cd /opt/similarwise/src/deploy && docker compose $PRIVATE_PROFILE up -d --remove-orphans
+            cd /opt/similarwise/src/deploy && docker compose $DSS_PROFILE up -d --remove-orphans
             # The Caddyfiles are replaced on each deploy, so restart Caddy to read the new ones.
-            docker compose $PRIVATE_PROFILE up -d --force-recreate --no-deps caddy
+            docker compose $DSS_PROFILE up -d --force-recreate --no-deps caddy
             docker image prune -f'
 
       # Caddy may need a minute to get the certificate after an address change.
@@ -174,7 +174,7 @@ jobs:
               ssh -i ~/.ssh/ec2 "ubuntu@$EC2_HOST" 'cd /opt/similarwise/src/deploy && docker compose logs --tail 30 caddy'
             fi
           }
-          for host in $APP_HOST $PRIVATE_HOST; do
+          for host in $APP_HOST $DSS_HOST; do
             ok=
             for i in $(seq 1 12); do
               code=$(curl -s -o /dev/null -w '%{http_code}' -m 10 "https://$host/" || true)
