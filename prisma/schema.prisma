@@ -187,6 +187,9 @@ model ShopSettings {
 
   // Social posting (lib/social): share each calendar article when it goes out.
   socialAuto Boolean @default(false)
+
+  // Site audit (lib/audit): a weekly SEO check of the shop's own storefront.
+  auditRunningAt DateTime?
 }
 
 // A competitor's search numbers on each traffic refresh, for trends.
@@ -524,4 +527,18 @@ model SocialPost {
   createdAt DateTime  @default(now())
 
   @@index([shop, articleId])
+}
+
+// One SEO check of the shop's own storefront (lib/audit).
+model SiteAudit {
+  id     String   @id @default(cuid())
+  shop   String
+  ranAt  DateTime @default(now())
+  domain String
+  pages  Int      @default(0) // Pages read
+  score  Int?     // 0 to 100, null when the check failed
+  issues String   @default("[]") // JSON [{ code, pages: [{ url, detail }] }]
+  error  String?
+
+  @@index([shop, ranAt])
 }

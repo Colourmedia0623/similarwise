@@ -1,7 +1,7 @@
 import db from "../db.server";
 
 // Everything the app holds for a shop: its sessions, settings, its own
-// products (for price comparison), its keyword and ad ideas, blog articles and content calendar, similar sites and the
+// products (for price comparison), its keyword and ad ideas, blog articles and content calendar, site audits, similar sites and the
 // competitors it tracks (their products, keywords, events and snapshots go
 // with them). Nothing about the shop's customers is stored.
 export async function redactShop(shop: string) {
@@ -18,6 +18,7 @@ export async function redactShop(shop: string) {
   await db.aiPrompt.deleteMany({ where: { shop } });
   await db.socialPost.deleteMany({ where: { shop } });
   await db.socialAccount.deleteMany({ where: { shop } });
+  await db.siteAudit.deleteMany({ where: { shop } });
   await db.shopSettings.deleteMany({ where: { shop } });
   const sessions = await db.session.deleteMany({ where: { shop } });
   return { competitors: competitors.count, sessions: sessions.count };

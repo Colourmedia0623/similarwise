@@ -9,10 +9,11 @@ import { refreshAllSimilar } from "../traffic/similar.server";
 import { sendAlerts, sendDigests } from "../email/alerts.server";
 import { runCalendar } from "../ideas/calendar.server";
 import { refreshAllAiMentions } from "../ai/mentions.server";
+import { refreshAllAudits } from "../audit/audit.server";
 
 // Every hour, re-checks the competitors nobody has checked in a day, one at
 // a time, and their search traffic and keyword gap, ads and link gap when they're a week old.
-// Then reads the shops' own storefronts daily, finds similar sites weekly, writes the blog posts due on the content calendar, asks AI assistants the shops' questions weekly,
+// Then reads the shops' own storefronts daily, finds similar sites weekly, writes the blog posts due on the content calendar, asks AI assistants the shops' questions weekly, audits the shops' own storefronts weekly,
 // and emails what changed, and on Mondays the weekly summary.
 
 const HOUR = 3600_000;
@@ -35,6 +36,7 @@ export async function checkStale() {
     await refreshAllSimilar();
     await runCalendar().catch((err) => console.error("Couldn't run the content calendar", err));
     await refreshAllAiMentions().catch((err) => console.error("Couldn't check AI mentions", err));
+    await refreshAllAudits().catch((err) => console.error("Couldn't audit storefronts", err));
     await sendAlerts().catch((err) => console.error("Couldn't send alerts", err));
     await sendDigests().catch((err) => console.error("Couldn't send weekly summaries", err));
   } finally {
