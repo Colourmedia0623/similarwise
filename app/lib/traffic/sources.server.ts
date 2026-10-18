@@ -20,7 +20,10 @@ export type Engagement = {
   countryRank: number | null;
   rankCountry: string | null;
   category: string | null;
+  categoryRank?: number | null; // Rank among sites in the same category
   history: { month: string; visits: number }[]; // Oldest first, "2026-09"
+  aiShare?: number | null; // 0-1, the share of visits sent by AI assistants
+  aiChatbots?: { name: string; share: number }[]; // Each assistant's share of those visits, biggest first
 };
 
 export type SiteFigures = {
@@ -93,6 +96,39 @@ const month = (v: unknown) => {
   return Number.isNaN(d.getTime()) ? null : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 };
 
+const BOT_NAMES: Record<string, string> = { chatgpt: "ChatGPT", openai: "ChatGPT", perplexity: "Perplexity", gemini: "Gemini", claude: "Claude", copilot: "Copilot", deepseek: "DeepSeek", grok: "Grok", meta: "Meta AI" };
+const botName = (k: string) => {
+  const flat = k.toLowerCase().replace(/[^a-z]/g, "");
+  const hit = Object.keys(BOT_NAMES).find((b) => flat.includes(b));
+  return hit ? BOT_NAMES[hit] : k.slice(0, 40);
+};
+
+// Each AI assistant's share of the AI visits, from { chatgpt: 70 } or [{ name, share }].
+export function parseChatbots(v: unknown): { name: string; share: number }[] {
+  const pairs: [string, unknown][] = Array.isArray(v)
+    ? v.map(obj).flatMap((o) => {
+        const name = o.name ?? o.chatbot ?? o.source ?? o.domain;
+        return typeof name === "string" ? [[name, o.share ?? o.percentage ?? o.visitsShare] as [string, unknown]] : [];
+      })
+    : Object.entries(obj(v));
+  const merged = new Map<string, number>();
+  for (const [k, raw] of pairs) {
+    const r = ratio(raw);
+    if (r == null || r <= 0) continue;
+    const name = botName(k);
+    merged.set(name, (merged.get(name) ?? 0) + r);
+  }
+  return [...merged].map(([name, share]) => ({ name, share })).sort((a, b) => b.share - a.share).slice(0, 5);
+}
+
+// AI visits over all visits. The scraper's own share field doesn't say
+// whether 0.4 means 0.4% or 40%, so it's worked out from the visit counts.
+function aiShare(a: Json) {
+  const ai = num(a.aiChatbotVisits);
+  const all = num(a.monthly_visits_avg ?? a.monthlyVisitsAvg ?? a.monthlyVisits ?? a.totalVisits ?? a.visits);
+  return ai != null && all != null && all > 0 && ai >= 0 && ai <= all ? ai / all : null;
+}
+
 export function parseEngagement(a: Json): Engagement {
   const history = (Array.isArray(a.monthlyVisitsHistory) ? a.monthlyVisitsHistory : []).flatMap((h) => {
     const o = obj(h);
@@ -111,6 +147,9 @@ export function parseEngagement(a: Json): Engagement {
     countryRank: rank(a.countryRank),
     rankCountry: typeof a.countryRankCountry === "string" ? a.countryRankCountry.slice(0, 40) : null,
     category: typeof a.category === "string" && a.category ? a.category.slice(0, 80) : null,
+    categoryRank: rank(a.categoryRank),
+    aiShare: aiShare(a),
+    aiChatbots: parseChatbots(a.aiChatbotShares),
     history: history.sort((x, y) => x.month.localeCompare(y.month)).slice(-12),
   };
 }
