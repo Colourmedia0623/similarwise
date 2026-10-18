@@ -303,9 +303,35 @@ export async function storeOrigin(graphql: Graphql) {
 // saved before a domain change (or with the wrong domain) still open.
 export const atOrigin = (url: string | null, origin: string | null) => (url && origin ? url.replace(/^https?:\/\/[^/]+/, origin) : url);
 
-export async function deleteArticle(shop: string, id: string) {
-  const { count } = await db.blogArticle.deleteMany({ where: { id, shop, shopifyId: null } });
-  if (count) await db.articleImage.deleteMany({ where: { articleId: id, shop } });
+const ARTICLE_DELETE = `#graphql
+  mutation ArticleDelete($id: ID!) {
+    articleDelete(id: $id) {
+      deletedArticleId
+      userErrors { code field message }
+    }
+  }`;
+
+// Deletes an article here and, when it was added to the blog, from the blog
+// too. A calendar post it was written for is removed with it, freeing the day.
+export async function deleteArticle(shop: string, id: string, graphql?: Graphql) {
+  const a = await db.blogArticle.findFirst({ where: { id, shop } });
+  if (!a) return { ok: true as const };
+  if (a.shopifyId) {
+    if (!graphql) return { error: "Couldn't reach your store to take it off your blog." };
+    const res = (await graphql(ARTICLE_DELETE, { id: a.shopifyId }).catch(() => null)) as {
+      data?: { articleDelete?: { userErrors: { code?: string; message: string }[] } };
+      errors?: { message: string }[];
+    } | null;
+    // Already gone from the blog (deleted in Shopify) is fine.
+    const problem = !res ? "Couldn't reach your store." : (res.errors?.[0]?.message ?? res.data?.articleDelete?.userErrors.find((e) => e.code !== "NOT_FOUND")?.message);
+    if (problem) return { error: `Couldn't take it off your blog: ${problem}` };
+  }
+  await db.$transaction([
+    db.plannedPost.deleteMany({ where: { shop, articleId: id } }),
+    db.articleImage.deleteMany({ where: { articleId: id, shop } }),
+    db.blogArticle.deleteMany({ where: { id, shop } }),
+  ]);
+  return { ok: true as const };
 }
 
 export async function blogArticles(shop: string) {

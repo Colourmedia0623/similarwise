@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "react-router";
 import { Link, useFetcher, useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { compact } from "../lib/format";
-import { contentCalendar, deletePost, editPost, planCalendar, setCalendarPublish, writePost } from "../lib/ideas/calendar.server";
+import { addPost, contentCalendar, deletePost, editPost, planCalendar, setCalendarPublish, writePost } from "../lib/ideas/calendar.server";
 import type { Graphql } from "../lib/prices/prices.server";
 import { atOrigin, storeOrigin } from "../lib/ideas/articles.server";
 
@@ -29,18 +29,19 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     await setCalendarPublish(shop, form.get("publish") === "true");
     return { intent, ok: true as const };
   }
-  if (intent === "plan") {
+  if (intent === "plan" || intent === "suggest") {
     try {
-      return { intent, ...(await planCalendar(shop)) };
+      return { intent, ...(await planCalendar(shop, undefined, undefined, intent === "suggest" ? text("day") : undefined)) };
     } catch (err) {
       console.error("Couldn't plan the content calendar", shop, err);
       return { intent, error: "Couldn't plan posts just now. Try again in a minute." };
     }
   }
   if (intent === "delete") {
-    await deletePost(shop, id);
-    return { intent, id, ok: true as const };
+    const graphql: Graphql = async (query, variables) => (await admin.graphql(query, { variables })).json();
+    return { intent, id, ...(await deletePost(shop, id, graphql)) };
   }
+  if (intent === "add") return { intent, ...(await addPost(shop, { day: text("day"), keyword: text("keyword"), title: text("title"), angle: text("angle") })) };
   if (intent === "edit") return { intent, id, ...(await editPost(shop, id, { day: text("day"), keyword: text("keyword"), title: text("title"), angle: text("angle") })) };
   if (intent === "write") {
     const graphql: Graphql = async (query, variables) => (await admin.graphql(query, { variables })).json();
@@ -64,8 +65,9 @@ export default function Calendar() {
   // Posts that went out more than a fortnight ago stay on the month view only.
   const since = new Date(Date.parse(`${today}T00:00:00Z`) - 14 * 86400_000).toISOString().slice(0, 10);
   const done = posts.filter((p) => p.status === "done" && p.day >= since).reverse();
-  const [selected, setSelected] = useState<string | null>(null);
-  const picked = posts.find((p) => p.id === selected);
+  const [selected, setSelected] = useState<{ id: string; edit: boolean } | null>(null);
+  const picked = posts.find((p) => p.id === selected?.id);
+  const [adding, setAdding] = useState<string | null>(null);
 
   return (
     <s-page heading="Content calendar">
@@ -95,10 +97,23 @@ export default function Calendar() {
       </s-section>
 
       <s-section heading="Month view">
-        <MonthGrid posts={posts} today={today} selected={selected} onSelect={setSelected} />
+        <MonthGrid
+          posts={posts}
+          today={today}
+          selected={selected?.id ?? adding}
+          onSelect={(id, edit = false) => {
+            setSelected({ id, edit });
+            setAdding(null);
+          }}
+          onAdd={(day) => {
+            setAdding(day);
+            setSelected(null);
+          }}
+        />
+        {adding && <AddPost key={adding} day={adding} today={today} onDone={() => setAdding(null)} />}
         {picked && (
           <div className="sw-picked">
-            <PostRow key={picked.id} p={picked} today={today} />
+            <PostRow key={`${picked.id}-${selected?.edit}`} p={picked} today={today} edit={selected?.edit} />
           </div>
         )}
       </s-section>
@@ -134,7 +149,7 @@ const STATE = { planned: "Planned", writing: "Writing", failed: "Didn't go out",
 
 // A month at a time, Monday first, each day showing its post. Pressing a post
 // opens it below the grid to change, write now or delete.
-function MonthGrid({ posts, today, selected, onSelect }: { posts: Post[]; today: string; selected: string | null; onSelect: (id: string) => void }) {
+function MonthGrid({ posts, today, selected, onSelect, onAdd }: { posts: Post[]; today: string; selected: string | null; onSelect: Select; onAdd: (day: string) => void }) {
   const [month, setMonth] = useState(today.slice(0, 7));
   const first = new Date(`${month}-01T00:00:00Z`);
   const lead = (first.getUTCDay() + 6) % 7;
@@ -163,19 +178,12 @@ function MonthGrid({ posts, today, selected, onSelect }: { posts: Post[]; today:
         {cells.map((day, i) => (
           <div key={day ?? `blank-${i}`} className={`sw-cell${day ? "" : " sw-blank"}${day === today ? " sw-cell-today" : ""}${day && day < today ? " sw-past" : ""}`}>
             {day && <span className="sw-date">{Number(day.slice(8))}</span>}
-            {day &&
-              (byDay.get(day) ?? []).map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  className={`sw-chip sw-chip-${p.status}${p.id === selected ? " sw-chip-on" : ""}`}
-                  title={`${p.title} (${STATE[p.status as keyof typeof STATE] ?? p.status})`}
-                  onClick={() => onSelect(p.id)}
-                >
-                  {p.picture && <img src={p.picture} alt="" />}
-                  <span>{p.title}</span>
-                </button>
-              ))}
+            {day && (byDay.get(day) ?? []).map((p) => <DayTile key={p.id} p={p} on={p.id === selected} onSelect={onSelect} />)}
+            {day && day >= today && !byDay.get(day)?.length && (
+              <button type="button" className={`sw-add${selected === day ? " sw-add-on" : ""}`} onClick={() => onAdd(day)}>
+                + Add a post
+              </button>
+            )}
           </div>
         ))}
       </div>
@@ -191,9 +199,128 @@ function MonthGrid({ posts, today, selected, onSelect }: { posts: Post[]; today:
   );
 }
 
-function PostRow({ p, today }: { p: Post; today: string }) {
+type Select = (id: string, edit?: boolean) => void;
+
+// A post that's been written goes with its article, off the blog too, so
+// that one asks first.
+const remove = (p: Post, submit: ReturnType<typeof useFetcher>["submit"]) => {
+  if (p.articleId && !confirm(p.shopifyId ? "Delete this post? Its article comes off your blog too." : "Delete this post and its article?")) return;
+  void submit({ intent: "delete", id: p.id }, { method: "post" });
+};
+
+// Fills an empty day: Claude suggests a post from the keyword gap, or the
+// merchant writes the plan.
+function AddPost({ day, today, onDone }: { day: string; today: string; onDone: () => void }) {
   const act = useFetcher<typeof action>();
-  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({ day, keyword: "", title: "", angle: "" });
+  const busy = (intent: string) => act.state !== "idle" && act.formData?.get("intent") === intent;
+  const data = act.state === "idle" ? act.data : undefined;
+  const error = data && "error" in data ? data.error : null;
+  const added = !!data && !error;
+  useEffect(() => {
+    if (added) onDone();
+  }, [added, onDone]);
+  return (
+    <div className="sw-picked">
+      <s-box padding="base" border="base" borderRadius="base">
+        <s-stack gap="base">
+          <s-heading>Add a post on {dayLabel(day, { weekday: "long", day: "numeric", month: "long" })}</s-heading>
+          <s-stack direction="inline" gap="small" alignItems="center">
+            <s-button variant="primary" loading={busy("suggest")} onClick={() => act.submit({ intent: "suggest", day }, { method: "post" })}>
+              Suggest one for me
+            </s-button>
+            <s-text color="subdued">Picks a search from your keyword gap that doesn&apos;t have a post yet.</s-text>
+          </s-stack>
+          <s-text color="subdued">Or plan it yourself:</s-text>
+          <s-text-field label="Title" value={draft.title} onInput={(e) => setDraft({ ...draft, title: e.currentTarget.value })} />
+          <s-grid gridTemplateColumns="repeat(auto-fit, minmax(200px, 1fr))" gap="small">
+            <s-text-field label="Google search it targets" value={draft.keyword} onInput={(e) => setDraft({ ...draft, keyword: e.currentTarget.value })} />
+            <s-date-field label="Day" value={draft.day} allow={`${today}--`} onChange={(e) => setDraft({ ...draft, day: e.currentTarget.value })} />
+          </s-grid>
+          <s-text-area label="What it covers" value={draft.angle} rows={2} onInput={(e) => setDraft({ ...draft, angle: e.currentTarget.value })} />
+          {error && <s-banner tone="warning">{error}</s-banner>}
+          <s-stack direction="inline" gap="small">
+            <s-button loading={busy("add")} onClick={() => act.submit({ intent: "add", ...draft }, { method: "post" })}>
+              Add to the calendar
+            </s-button>
+            <s-button variant="tertiary" onClick={onDone}>
+              Cancel
+            </s-button>
+          </s-stack>
+        </s-stack>
+      </s-box>
+    </div>
+  );
+}
+
+const PENCIL = "M14.7 2.3a1 1 0 0 1 1.4 0l1.6 1.6a1 1 0 0 1 0 1.4L7.4 15.6 3 17l1.4-4.4L14.7 2.3Z";
+const BIN = "M7 2h6v2h4v2H3V4h4V2Zm-2 5h10l-1 11H6L5 7Z";
+const Icon = ({ d }: { d: string }) => (
+  <svg viewBox="0 0 20 20" width="13" height="13" aria-hidden="true">
+    <path d={d} fill="currentColor" />
+  </svg>
+);
+
+// A post on its day in the month view: its picture, title, search, when it
+// goes out, and the next thing to do with it.
+function DayTile({ p, on, onSelect }: { p: Post; on: boolean; onSelect: Select }) {
+  const act = useFetcher<typeof action>();
+  const busy = (intent: string) => act.state !== "idle" && act.formData?.get("intent") === intent;
+  const error = act.state === "idle" && act.data && "error" in act.data ? act.data.error : null;
+  if (busy("delete")) return null;
+  const writing = p.status === "writing" || busy("write");
+  const editable = !writing && (p.status === "planned" || p.status === "failed");
+  const state = writing ? "writing" : p.status;
+  const when = dayLabel(p.day, { weekday: "short", day: "numeric", month: "short" });
+  const line = {
+    planned: `Will be written on ${when}`,
+    writing: "Being written now",
+    failed: "Didn't go out. Try again.",
+    done: p.sentAs === "draft" ? `Hidden draft since ${when}` : `On your blog since ${when}`,
+  }[state as "planned"];
+
+  return (
+    <div className={`sw-tile sw-tile-${state}${on ? " sw-tile-on" : ""}`}>
+      {!writing && (
+        <div className="sw-tile-tools">
+          {editable && (
+            <button type="button" aria-label="Change this post" title="Change" onClick={() => onSelect(p.id, true)}>
+              <Icon d={PENCIL} />
+            </button>
+          )}
+          <button type="button" className="sw-tile-bin" aria-label="Delete this post" title="Delete" onClick={() => remove(p, act.submit)}>
+            <Icon d={BIN} />
+          </button>
+        </div>
+      )}
+      {error && <span className="sw-tile-error">{error}</span>}
+      <button type="button" className="sw-tile-main" onClick={() => onSelect(p.id)}>
+        {p.picture && <img src={p.picture} alt="" />}
+        <strong className="sw-tile-title">{p.title}</strong>
+        <span className="sw-tile-term">
+          <b>Search term:</b> {p.keyword}
+        </span>
+        <span className="sw-tile-when">{line ?? STATE[p.status as keyof typeof STATE]}</span>
+      </button>
+      {editable && (
+        <button type="button" className="sw-tile-go" onClick={() => act.submit({ intent: "write", id: p.id }, { method: "post" })}>
+          <Icon d={PENCIL} />
+          {p.status === "failed" ? "Try again" : "Write now"}
+        </button>
+      )}
+      {writing && <span className="sw-tile-go sw-tile-wait">Writing…</span>}
+      {p.status === "done" && p.articleId && (
+        <Link className="sw-tile-go" to={`/app/articles/${p.articleId}`}>
+          Edit article
+        </Link>
+      )}
+    </div>
+  );
+}
+
+function PostRow({ p, today, edit = false }: { p: Post; today: string; edit?: boolean }) {
+  const act = useFetcher<typeof action>();
+  const [editing, setEditing] = useState(edit);
   const [draft, setDraft] = useState({ day: p.day, keyword: p.keyword, title: p.title, angle: p.angle });
   const busy = (intent: string) => act.state !== "idle" && act.formData?.get("intent") === intent;
   const result = act.data && "id" in act.data && act.data.id === p.id ? act.data : null;
@@ -267,10 +394,12 @@ function PostRow({ p, today }: { p: Post; today: string }) {
                   <s-button variant="tertiary" onClick={() => setEditing(true)}>
                     Edit
                   </s-button>
-                  <s-button variant="tertiary" tone="critical" onClick={() => act.submit({ intent: "delete", id: p.id }, { method: "post" })}>
-                    Delete
-                  </s-button>
                 </>
+              )}
+              {!writing && (
+                <s-button variant="tertiary" tone="critical" onClick={() => remove(p, act.submit)}>
+                  Delete
+                </s-button>
               )}
               {busy("write") && <s-text color="subdued">Writing takes about a minute.</s-text>}
             </s-stack>
@@ -295,25 +424,48 @@ const CSS = `
 .sw-month-count { margin-left: auto; color: #616161; font-size: 13px; }
 .sw-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border-top: 1px solid #e3e3e3; border-left: 1px solid #e3e3e3; border-radius: 10px; overflow: hidden; }
 .sw-weekday { padding: 6px 8px; font-size: 12px; font-weight: 600; color: #616161; background: #f7f7f7; border-right: 1px solid #e3e3e3; border-bottom: 1px solid #e3e3e3; }
-.sw-cell { min-height: 108px; padding: 6px; display: flex; flex-direction: column; gap: 4px; border-right: 1px solid #e3e3e3; border-bottom: 1px solid #e3e3e3; background: #fff; min-width: 0; }
+.sw-cell { min-height: 120px; padding: 8px; display: flex; flex-direction: column; gap: 4px; border-right: 1px solid #e3e3e3; border-bottom: 1px solid #e3e3e3; background: #fff; min-width: 0; }
 .sw-blank { background: #fafafa; }
 .sw-past { background: #fcfcfc; }
 .sw-date { font-size: 12px; color: #616161; }
 .sw-cell-today .sw-date { align-self: flex-start; padding: 0 6px; border-radius: 8px; background: #2a78d6; color: #fff; font-weight: 600; }
-.sw-chip { display: flex; flex-direction: column; gap: 4px; width: 100%; padding: 4px; border: 0; border-left: 3px solid #8a8a8a; border-radius: 6px; background: #f3f3f3; text-align: left; font: inherit; font-size: 12px; line-height: 1.3; color: #303030; cursor: pointer; }
-.sw-chip span { display: -webkit-box; -webkit-line-clamp: 2; padding-bottom: 1px; -webkit-box-orient: vertical; overflow: hidden; }
-.sw-chip img { width: 100%; aspect-ratio: 3 / 2; object-fit: cover; border-radius: 4px; }
-.sw-chip:hover { filter: brightness(.97); }
-.sw-chip-on { outline: 2px solid #2a78d6; }
-.sw-chip-planned { border-left-color: #2a78d6; background: #eef5fd; }
-.sw-chip-writing { border-left-color: #eda100; background: #fff6e0; }
-.sw-chip-done { border-left-color: #1baf7a; background: #e8f8f1; }
-.sw-chip-failed { border-left-color: #e5484d; background: #fdecec; }
+.sw-tile { position: relative; display: flex; flex-direction: column; gap: 8px; padding: 8px; border: 1px solid #c9dcf3; border-radius: 10px; background: #f4f8fd; min-width: 0; }
+.sw-tile-on { outline: 2px solid #2a78d6; outline-offset: 1px; }
+.sw-tile-main { display: flex; flex-direction: column; gap: 6px; padding: 0; border: 0; background: none; text-align: left; font: inherit; color: #303030; cursor: pointer; min-width: 0; }
+.sw-tile-main img { width: 100%; aspect-ratio: 3 / 2; object-fit: cover; border-radius: 6px; }
+.sw-tile-title { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; padding-right: 2px; font-size: 13px; line-height: 1.35; color: #1f5199; overflow-wrap: anywhere; }
+.sw-tile-term { font-size: 12px; line-height: 1.35; color: #4a4a4a; overflow-wrap: anywhere; }
+.sw-tile-term b { display: block; color: #303030; }
+.sw-tile-when { font-size: 11px; line-height: 1.3; color: #2a78d6; }
+.sw-tile-tools { position: absolute; top: 6px; right: 6px; z-index: 1; display: flex; gap: 4px; }
+.sw-tile-tools button { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 1px solid #e3e3e3; border-radius: 50%; background: #fff; color: #2a78d6; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.sw-tile-tools .sw-tile-bin { color: #d72c0d; }
+.sw-tile-tools button:hover { background: #f3f3f3; }
+.sw-tile:not(:has(img)) .sw-tile-tools { position: static; align-self: flex-end; margin: -2px -2px -4px 0; }
+.sw-tile-go { display: flex; align-items: center; justify-content: center; gap: 5px; padding: 7px 4px; white-space: nowrap; border: 0; border-radius: 8px; background: #1a8f5e; color: #fff; font: inherit; font-size: 13px; font-weight: 600; text-align: center; text-decoration: none; cursor: pointer; }
+.sw-tile-go:hover { background: #157a50; }
+.sw-tile-wait { background: #eda100; cursor: default; }
+.sw-tile-wait:hover { background: #eda100; }
+.sw-tile-writing { border-color: #f1d089; background: #fff8e6; }
+.sw-tile-writing .sw-tile-when { color: #8a5a00; }
+.sw-tile-done { border-color: #a8e0c8; background: #eefaf4; }
+.sw-tile-done .sw-tile-title { color: #0f6e45; }
+.sw-tile-done .sw-tile-when { color: #0f6e45; }
+.sw-tile-done .sw-tile-go { background: #fff; color: #0f6e45; border: 1px solid #a8e0c8; }
+.sw-tile-done .sw-tile-go:hover { background: #f3fbf7; }
+.sw-tile-failed { border-color: #f3b8b8; background: #fdf1f1; }
+.sw-tile-failed .sw-tile-when { color: #c4291c; }
+.sw-tile-error { font-size: 11px; color: #c4291c; }
+.sw-add { flex: 1; min-height: 60px; border: 1px dashed transparent; border-radius: 10px; background: none; color: #8a8a8a; font: inherit; font-size: 12px; cursor: pointer; opacity: 0; transition: opacity .15s; }
+.sw-cell:hover .sw-add, .sw-add:focus-visible, .sw-add-on { opacity: 1; border-color: #c9c9c9; }
+.sw-add:hover, .sw-add-on { color: #2a78d6; border-color: #2a78d6; background: #f4f8fd; }
+@media (hover: none) { .sw-add { opacity: 1; border-color: #e3e3e3; } }
+.sw-chip-planned { background: #2a78d6; } .sw-chip-writing { background: #eda100; } .sw-chip-done { background: #1baf7a; } .sw-chip-failed { background: #e5484d; }
 .sw-legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px; font-size: 12px; color: #616161; }
 .sw-dot { display: inline-block; width: 10px; height: 10px; margin-right: 5px; border-radius: 3px; border: 0; vertical-align: -1px; }
-.sw-dot.sw-chip-planned { background: #2a78d6; } .sw-dot.sw-chip-writing { background: #eda100; } .sw-dot.sw-chip-done { background: #1baf7a; } .sw-dot.sw-chip-failed { background: #e5484d; }
 .sw-picked { margin-top: 12px; }
-@media (max-width: 700px) { .sw-cell { min-height: 72px; } .sw-chip img, .sw-chip span { display: none; } .sw-chip { min-height: 10px; padding: 3px; } }
+@media (max-width: 900px) { .sw-tile-term, .sw-tile-when, .sw-tile-tools { display: none; } }
+@media (max-width: 700px) { .sw-cell { min-height: 72px; } .sw-tile { padding: 4px; } .sw-tile-main img, .sw-tile-go { display: none; } .sw-tile-title { font-size: 11px; -webkit-line-clamp: 3; } }
 .sw-post { display: grid; grid-template-columns: 56px 1fr; gap: 16px; align-items: start; }
 .sw-day { display: flex; flex-direction: column; align-items: center; padding: 6px 0; border-radius: 8px; background: #f1f1f1; color: #616161; font-size: 12px; line-height: 1.3; }
 .sw-day strong { font-size: 20px; color: #303030; }

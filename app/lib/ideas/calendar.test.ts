@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import db from "../../db.server";
-import { addDays, contentCalendar, editPost, parsePlan, planCalendar, runCalendar } from "./calendar.server";
+import { addDays, addPost, contentCalendar, deletePost, editPost, parsePlan, planCalendar, runCalendar } from "./calendar.server";
 import type { AskJson } from "./claude.server";
 import type { Graphql } from "../prices/prices.server";
 
@@ -57,6 +57,43 @@ describe("content calendar", () => {
     // Searches with a post already aren't offered again.
     expect(await planCalendar(SHOP, ask, NOW)).toEqual({ error: "Couldn't plan any posts. Try again." });
     expect(offered).toEqual(["rival discount code"]);
+  });
+
+  it("plans one post for an empty day", async () => {
+    await seedGap();
+    const ask: AskJson = async (_system, input) => {
+      expect((input as { postsWanted: number }).postsWanted).toBe(1);
+      return { posts: [{ keyword: "gift box ideas", title: "Gift box ideas", angle: "" }, { keyword: "how to wrap a gift box", title: "Wrap", angle: "" }] };
+    };
+    expect(await planCalendar(SHOP, ask, NOW, "2026-10-25")).toEqual({ count: 1 });
+    expect(await db.plannedPost.findMany({ where: { shop: SHOP }, select: { day: true, keyword: true } })).toEqual([{ day: "2026-10-25", keyword: "gift box ideas" }]);
+    expect(await planCalendar(SHOP, ask, NOW, "2026-10-01")).toEqual({ error: "Pick today or a later date." });
+  });
+
+  it("adds a post the merchant planned", async () => {
+    expect(await addPost(SHOP, { day: "2026-10-20", keyword: "  box sizes ", title: "Which box size?", angle: "" }, NOW)).toMatchObject({ ok: true });
+    expect(await addPost(SHOP, { day: "2026-10-20", keyword: "", title: "No search", angle: "" }, NOW)).toEqual({ error: "Give the post a search and a title." });
+    expect(await addPost(SHOP, { day: "2026-10-01", keyword: "k", title: "t", angle: "" }, NOW)).toEqual({ error: "Pick today or a later date." });
+    expect((await db.plannedPost.findFirst({ where: { shop: SHOP } }))?.keyword).toBe("box sizes");
+  });
+
+  it("deletes a written post with its article, off the blog too", async () => {
+    const a = await db.blogArticle.create({
+      data: { shop: SHOP, keyword: "k", title: "T", summary: "S", bodyHtml: BODY, metaTitle: "M", metaDescription: "D", tags: "[]", status: "published", shopifyId: "gid://shopify/Article/9" },
+    });
+    const post = await db.plannedPost.create({ data: { shop: SHOP, day: "2026-10-16", keyword: "k", title: "T", status: "done", articleId: a.id } });
+    const calls: unknown[] = [];
+    const failing: Graphql = async () => ({ data: { articleDelete: { userErrors: [{ code: "INTERNAL", message: "Nope" }] } } });
+    expect(await deletePost(SHOP, post.id, failing)).toEqual({ error: "Couldn't take it off your blog: Nope" });
+    expect(await db.blogArticle.count({ where: { shop: SHOP } })).toBe(1);
+    const ok: Graphql = async (_q, v) => {
+      calls.push(v);
+      return { data: { articleDelete: { deletedArticleId: "gid://shopify/Article/9", userErrors: [] } } };
+    };
+    expect(await deletePost(SHOP, post.id, ok)).toEqual({ ok: true });
+    expect(calls).toEqual([{ id: "gid://shopify/Article/9" }]);
+    expect(await db.blogArticle.count({ where: { shop: SHOP } })).toBe(0);
+    expect(await db.plannedPost.count({ where: { shop: SHOP } })).toBe(0);
   });
 
   it("lets the merchant move a post, but not into the past", async () => {
