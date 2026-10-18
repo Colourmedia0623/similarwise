@@ -20,6 +20,11 @@ export type Provider = "meta" | "tiktok";
 export const providerOn = (p: Provider) =>
   p === "meta" ? !!(process.env.META_APP_ID && process.env.META_APP_SECRET) : !!(process.env.TIKTOK_CLIENT_KEY && process.env.TIKTOK_CLIENT_SECRET);
 
+// Until Meta or TikTok approves SimilarWise, only people added to its app
+// can sign in, so the Connect button is shown only to Colourmedia's own
+// stores. SOCIAL_APPROVED lists the approved ones, e.g. "meta,tiktok".
+export const providerApproved = (p: Provider) => (process.env.SOCIAL_APPROVED ?? "").split(",").map((s) => s.trim()).includes(p);
+
 export const callbackUrl = (p: Provider) => `${process.env.SHOPIFY_APP_URL || ""}/social/callback/${p}`;
 
 const META_SCOPES = ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "business_management", "instagram_basic", "instagram_content_publish"];

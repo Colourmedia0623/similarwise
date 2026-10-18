@@ -5,7 +5,8 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
 import { NETWORK_NAME } from "../lib/social/networks";
-import { authorizeUrl, providerOn, type Provider } from "../lib/social/networks.server";
+import { authorizeUrl, providerApproved, providerOn, type Provider } from "../lib/social/networks.server";
+import { isOwnerShop } from "../lib/waitlist.server";
 import { signState } from "../lib/social/seal.server";
 import { disconnectAccount, setSocialAuto, socialAccounts } from "../lib/social/social.server";
 
@@ -17,7 +18,8 @@ const SIGN_IN_FOR = 30 * 60_000;
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
-  const link = (p: Provider) => (providerOn(p) ? authorizeUrl(p, signState({ shop, network: p, exp: Date.now() + SIGN_IN_FOR })) : null);
+  const open = (p: Provider) => providerOn(p) && (providerApproved(p) || isOwnerShop(shop));
+  const link = (p: Provider) => (open(p) ? authorizeUrl(p, signState({ shop, network: p, exp: Date.now() + SIGN_IN_FOR })) : null);
   const [accounts, settings] = await Promise.all([socialAccounts(shop), db.shopSettings.findUnique({ where: { shop } })]);
   return { accounts, auto: settings?.socialAuto ?? false, meta: link("meta"), tiktok: link("tiktok") };
 };
@@ -58,19 +60,22 @@ export default function Social() {
                 Connect Facebook and Instagram
               </s-button>
             ) : (
-              <s-button disabled>Facebook and Instagram aren&apos;t switched on yet</s-button>
+              <s-button disabled>Facebook and Instagram coming soon</s-button>
             )}
             {tiktok ? (
               <s-button href={tiktok} target="_blank">
                 Connect TikTok
               </s-button>
             ) : (
-              <s-button disabled>TikTok isn&apos;t switched on yet</s-button>
+              <s-button disabled>TikTok coming soon</s-button>
             )}
           </s-stack>
           <s-text color="subdued">
             Instagram needs a business or creator account linked to your Facebook Page. Signing in to Facebook connects both.
           </s-text>
+          {(!meta || !tiktok) && (
+            <s-text color="subdued">Sharing to the networks marked coming soon opens once they&apos;ve finished approving SimilarWise. We&apos;ll email you when it&apos;s ready.</s-text>
+          )}
         </s-stack>
       </s-section>
 

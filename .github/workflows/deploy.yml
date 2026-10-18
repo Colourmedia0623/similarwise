@@ -43,6 +43,10 @@ jobs:
           META_CONFIG_ID: ${{ secrets.META_CONFIG_ID }}
           TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
           TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
+          # "meta,tiktok" once each network has approved the app; until then only our own stores can connect.
+          SOCIAL_APPROVED: ${{ vars.SOCIAL_APPROVED }}
+          # The App Store listing, once it's live: the landing page then says Install instead of the waitlist.
+          APP_STORE_URL: ${{ vars.APP_STORE_URL }}
         run: |
           scopes=$(sed -n 's/^scopes = "\(.*\)"/\1/p' shopify.app.toml)
           {
@@ -64,6 +68,8 @@ jobs:
             echo "META_CONFIG_ID=$META_CONFIG_ID"
             echo "TIKTOK_CLIENT_KEY=$TIKTOK_CLIENT_KEY"
             echo "TIKTOK_CLIENT_SECRET=$TIKTOK_CLIENT_SECRET"
+            echo "SOCIAL_APPROVED=$SOCIAL_APPROVED"
+            echo "APP_STORE_URL=$APP_STORE_URL"
           } > deploy/.env
 
       # Build here rather than on the small EC2 instance, reusing CI's layer cache.

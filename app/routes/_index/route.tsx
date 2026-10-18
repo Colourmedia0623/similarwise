@@ -25,7 +25,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     throw redirect(`/app?${url.searchParams.toString()}`);
   }
 
-  return { showForm: Boolean(login) };
+  // Set once the App Store listing is live; until then the page collects a waitlist.
+  return { showForm: Boolean(login), install: process.env.APP_STORE_URL || null };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -203,7 +204,8 @@ function Waitlist() {
 }
 
 export default function App() {
-  const { showForm } = useLoaderData<typeof loader>();
+  const { showForm, install } = useLoaderData<typeof loader>();
+  const cta = install ? { href: install, label: "Install on Shopify" } : { href: "#early-access", label: "Get early access" };
 
   return (
     <div className={styles.page}>
@@ -213,8 +215,8 @@ export default function App() {
           <a href="#features">Features</a>
           <a href="#how">How it works</a>
           <a href="#faq">FAQ</a>
-          <a className={styles.navCta} href="#early-access">
-            Get early access
+          <a className={styles.navCta} href={cta.href}>
+            {cta.label}
           </a>
         </div>
       </nav>
@@ -227,8 +229,8 @@ export default function App() {
           posts written for you and shared to Facebook, Instagram and TikTok.
         </p>
         <div className={styles.ctas}>
-          <a className={styles.cta} href="#early-access">
-            Get early access
+          <a className={styles.cta} href={cta.href}>
+            {cta.label}
           </a>
           <a className={styles.ghost} href="#features">
             See everything it does
@@ -237,7 +239,7 @@ export default function App() {
         <ul className={styles.badges}>
           <li>Lives in your Shopify admin</li>
           <li>Checked every day</li>
-          <li>A fraction of the price of SimilarWeb</li>
+          <li>One simple monthly price</li>
         </ul>
         <Preview />
       </header>
@@ -291,11 +293,21 @@ export default function App() {
         ))}
       </section>
 
-      <section id="early-access" className={styles.waitlist}>
-        <h2>Be one of the first stores on Similarwise</h2>
-        <p>We&apos;re opening to more stores soon. Join the waitlist and we&apos;ll email you as soon as there&apos;s a place.</p>
-        <Waitlist />
-      </section>
+      {install ? (
+        <section id="early-access" className={styles.waitlist}>
+          <h2>Start winning on Shopify</h2>
+          <p>Install Similarwise from the Shopify App Store and add your first competitor in under a minute.</p>
+          <a className={styles.cta} href={install}>
+            Install on Shopify
+          </a>
+        </section>
+      ) : (
+        <section id="early-access" className={styles.waitlist}>
+          <h2>Be one of the first stores on Similarwise</h2>
+          <p>We&apos;re opening to more stores soon. Join the waitlist and we&apos;ll email you as soon as there&apos;s a place.</p>
+          <Waitlist />
+        </section>
+      )}
 
       <footer className={styles.footer}>
         {showForm && (
