@@ -178,6 +178,12 @@ model ShopSettings {
 
   // Content calendar (lib/ideas/calendar): planned posts go on the blog published, or as hidden drafts.
   calendarPublish Boolean @default(true)
+
+  // AI mentions (lib/ai/mentions): the shop's questions asked of AI assistants weekly.
+  aiCheckedAt DateTime? // The last finished check
+  aiRunningAt DateTime? // Set while a check runs
+  aiError     String?
+  aiBrand     String? // The shop's name as people say it, e.g. Gift Boxes 3000
 }
 
 // A competitor's search numbers on each traffic refresh, for trends.
@@ -454,4 +460,31 @@ model Outreach {
 
   @@unique([shop, domain])
   @@index([shop])
+}
+
+// A question shoppers might ask an AI assistant, asked of each one weekly
+// to see which shops it names (lib/ai/mentions).
+model AiPrompt {
+  id        String   @id @default(cuid())
+  shop      String
+  prompt    String
+  createdAt DateTime @default(now())
+
+  @@index([shop])
+}
+
+// One assistant's answer to one prompt on one check.
+model AiAnswer {
+  id       String   @id @default(cuid())
+  shop     String
+  promptId String
+  platform String   // chat_gpt | gemini | perplexity
+  ranAt    DateTime // The check it was part of
+  text     String   @default("")
+  brands   String   @default("[]") // JSON [{ key, position, cited }] for the shop ("you") and each competitor id named
+  sources  String   @default("[]") // JSON [{ url, title, domain }] the answer cited
+  error    String?
+
+  @@index([shop, ranAt])
+  @@index([promptId])
 }
