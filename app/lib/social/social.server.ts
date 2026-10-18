@@ -9,6 +9,7 @@ import {
   postTikTok,
   refreshTikTok,
   tiktokCreator,
+  tiktokStatus,
   type Connected,
   type Fetch,
   type Network,
@@ -154,6 +155,24 @@ export async function autoShare(shop: string, articleId: string, opts: { ask?: A
     accounts.map((x) => ({ accountId: x.id, caption: captions[x.network as Network] })),
     { f: opts.f, now: opts.now },
   );
+}
+
+// Asks TikTok where the article's sent posts got to, and records the answer.
+// One that can't be checked stays as sent, to try again next time.
+export async function checkTikTokPosts(shop: string, articleId: string, { f = fetch, now = new Date() }: { f?: Fetch; now?: Date } = {}) {
+  const posts = await db.socialPost.findMany({ where: { shop, articleId, network: "tiktok", status: "processing", remoteId: { not: null } } });
+  for (const p of posts) {
+    const account = await db.socialAccount.findFirst({ where: { id: p.accountId, shop } });
+    if (!account) continue;
+    try {
+      const token = await liveToken(account, f, now);
+      const done = await tiktokStatus(token, p.remoteId!, f);
+      if (done.status === "posted") await db.socialPost.update({ where: { id: p.id }, data: { status: "posted" } });
+      if (done.status === "failed") await db.socialPost.update({ where: { id: p.id }, data: { status: "failed", error: done.error.slice(0, 300) } });
+    } catch (err) {
+      console.error("Couldn't check a TikTok post", shop, p.id, err);
+    }
+  }
 }
 
 export async function articleShares(shop: string, articleId: string) {

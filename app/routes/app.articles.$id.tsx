@@ -8,7 +8,7 @@ import { atOrigin, blogArticle, deleteArticle, editArticle, sendArticle, storeOr
 import { makeArticleImage, uploadArticleImage } from "../lib/ideas/images.server";
 import type { Graphql } from "../lib/prices/prices.server";
 import { STATUS, TONE } from "../lib/ideas/article-status";
-import { articleShares, shareArticle, socialAccounts, tiktokAccount, writeCaptions } from "../lib/social/social.server";
+import { articleShares, checkTikTokPosts, shareArticle, socialAccounts, tiktokAccount, writeCaptions } from "../lib/social/social.server";
 import type { TikTokChoices } from "../lib/social/networks.server";
 import { NETWORK_NAME, type Network } from "../lib/social/networks";
 
@@ -19,6 +19,7 @@ import { NETWORK_NAME, type Network } from "../lib/social/networks";
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
   const graphql: Graphql = async (query, variables) => (await admin.graphql(query, { variables })).json();
+  await checkTikTokPosts(session.shop, params.id ?? "");
   const [article, origin, accounts, shares] = await Promise.all([
     blogArticle(session.shop, params.id ?? ""),
     storeOrigin(graphql),
@@ -405,6 +406,7 @@ function Share({ published, picture }: { published: boolean; picture: string | n
                   </s-link>
                 )}
                 {p.error && <s-text color="subdued">{p.error}</s-text>}
+                {p.network === "tiktok" && p.status === "processing" && <s-text color="subdued">TikTok is still processing it. Reload this page in a minute.</s-text>}
               </s-stack>
             ))}
           </s-stack>
