@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import db from "../../db.server";
-import { authorizeUrl, connectMeta, type Fetch } from "./networks.server";
+import { authorizeUrl, connectMeta, postTikTok, type Fetch } from "./networks.server";
 import { readState, seal, signState, unseal } from "./seal.server";
 import { autoShare, saveAccounts, shareArticle, socialAccounts } from "./social.server";
 
@@ -146,6 +146,20 @@ describe("social sharing", () => {
       ["instagram", "posted", "https://instagram.com/p/x"],
       ["tiktok", "processing", null],
     ]);
+  });
+
+  it("posts to TikTok as only me until the app is approved, and explains TikTok's refusals", async () => {
+    const calls: Call[] = [];
+    const creator: [RegExp, unknown] = [/creator_info/, { data: { privacy_level_options: ["PUBLIC_TO_EVERYONE", "SELF_ONLY"] }, error: { code: "ok" } }];
+    const post = { caption: "c", title: "t", link: "https://x.test/a", imageUrl: "https://x.test/i.jpg" };
+    await postTikTok("tok", post, fakeFetch([creator, [/content\/init/, { data: { publish_id: "p" }, error: { code: "ok" } }]], calls));
+    expect(JSON.parse(calls.at(-1)!.body).post_info.privacy_level).toBe("SELF_ONLY");
+    process.env.TIKTOK_PUBLIC = "true";
+    await postTikTok("tok", post, fakeFetch([creator, [/content\/init/, { data: { publish_id: "p" }, error: { code: "ok" } }]], calls));
+    expect(JSON.parse(calls.at(-1)!.body).post_info.privacy_level).toBe("PUBLIC_TO_EVERYONE");
+    delete process.env.TIKTOK_PUBLIC;
+    const refused = fakeFetch([creator, [/content\/init/, { error: { code: "unaudited_client_can_only_post_to_private_accounts", message: "Please review our integration guidelines" } }]], calls);
+    await expect(postTikTok("tok", post, refused)).rejects.toThrow(/Set your TikTok account to private/);
   });
 
   it("won't share an article that isn't published, and keeps a failed post's reason", async () => {
