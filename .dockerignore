@@ -4,4 +4,5 @@ node_modules
 .git
 .env
 deploy/.env
+deploy/.env.*
 prisma/*.sqlite*

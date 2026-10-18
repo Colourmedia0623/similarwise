@@ -2,10 +2,17 @@ name: Push Shopify app config
 
 # Sends shopify.app.toml (URLs, scopes, webhooks) to Shopify as a new app
 # version. Run by hand after changing it. Needs the
-# SHOPIFY_APP_AUTOMATION_TOKEN secret, generated in the Dev Dashboard under
-# the app's Settings > App Automation Token.
+# SHOPIFY_APP_AUTOMATION_TOKEN secret (SHOPIFY_DSS_AUTOMATION_TOKEN for
+# the private copy), generated in the Dev Dashboard under the app's
+# Settings > App Automation Token.
 on:
   workflow_dispatch:
+    inputs:
+      app:
+        description: "Which app: similarwise (public) or dss (the free copy for 7fa72e-da)"
+        type: choice
+        options: [similarwise, dss]
+        default: similarwise
 
 jobs:
   deploy-config:
@@ -20,13 +27,14 @@ jobs:
       - run: npm install -g @shopify/cli@latest
       - name: Deploy app version
         env:
-          SHOPIFY_APP_AUTOMATION_TOKEN: ${{ secrets.SHOPIFY_APP_AUTOMATION_TOKEN }}
+          SHOPIFY_APP_AUTOMATION_TOKEN: ${{ inputs.app == 'dss' && secrets.SHOPIFY_DSS_AUTOMATION_TOKEN || secrets.SHOPIFY_APP_AUTOMATION_TOKEN }}
+          CONFIG: ${{ inputs.app == 'dss' && '--config dss' || '' }}
           COMMIT_URL: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}
         # On failure, repeat the end of the output as an annotation, which is
         # readable from the run's summary and the API without the raw logs.
         run: |
           set -o pipefail
-          if ! shopify app deploy --allow-updates --source-control-url "$COMMIT_URL" 2>&1 | tee deploy.log; then
+          if ! shopify app deploy $CONFIG --allow-updates --source-control-url "$COMMIT_URL" 2>&1 | tee deploy.log; then
             msg=$(sed 's/\x1b\[[0-9;]*[A-Za-z]//g' deploy.log | grep -v '^[[:space:]]*$' | tail -25 | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')
             echo "::error title=shopify app deploy failed::$msg"
             exit 1

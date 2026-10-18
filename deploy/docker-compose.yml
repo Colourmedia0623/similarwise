@@ -13,6 +13,21 @@ services:
       - app-data:/data
     restart: unless-stopped
 
+  # The private copy for 7fa72e-da.myshopify.com (shopify.app.dss.toml):
+  # the same image with its own app credentials and database, free. Runs only
+  # once the deploy has its secret (the "dss" profile).
+  dss:
+    image: similarwise:latest
+    pull_policy: never
+    profiles: [dss]
+    env_file: .env.dss
+    environment:
+      DATABASE_URL: file:/data/similarwise.sqlite
+      PORT: "3000"
+    volumes:
+      - dss-data:/data
+    restart: unless-stopped
+
   caddy:
     image: caddy:2.10
     env_file: .env
@@ -21,6 +36,7 @@ services:
       - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./Caddyfile.dss:/etc/caddy/Caddyfile.dss:ro
       - caddy-data:/data
     depends_on:
       - app
@@ -28,4 +44,5 @@ services:
 
 volumes:
   app-data:
+  dss-data:
   caddy-data:

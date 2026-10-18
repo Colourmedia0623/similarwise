@@ -64,3 +64,17 @@ Dev Dashboard.
 - Logs: `ssh -i similarwise.pem ubuntu@<EC2_HOST>` then
   `cd /opt/similarwise/src/deploy && docker compose logs -f app`
 - The SQLite database lives in the `app-data` Docker volume and survives deploys.
+
+## The free private copy for 7fa72e-da.myshopify.com
+
+A second app, Similarwise DSS (custom distribution), runs beside the
+public one from the same image, with its own database and address. That store
+gets every page free, as Colourmedia's own stores do.
+
+1. Dev Dashboard: create the app, choose Custom distribution for
+   7fa72e-da.myshopify.com, and put its client ID in `shopify.app.dss.toml`.
+2. DNS: an A record for `dss.similarwise.colourmedia.net` to the server.
+3. GitHub secrets: `SHOPIFY_DSS_API_SECRET` and
+   `SHOPIFY_DSS_AUTOMATION_TOKEN`.
+4. Run "Deploy to EC2", then "Push Shopify app config" with app `dss`.
+5. Install it from the custom distribution link the Dev Dashboard gives.
