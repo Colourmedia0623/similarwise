@@ -62,6 +62,10 @@ describe("traffic sources", () => {
         countryRank: "#17,399",
         countryRankCountry: "United Kingdom",
         category: "E-commerce_and_Shopping",
+        categoryRank: "#1,204",
+        monthlyVisits: 90000,
+        aiChatbotVisits: 378,
+        aiChatbotShares: { chatgpt: 71.5, "perplexity.ai": 20, gemini: 8.5, claude: 0 },
         monthlyVisitsHistory: [
           { month: "2026-09", visits: 90000 },
           { month: "2026-07-01", visits: 70000.4 },
@@ -78,6 +82,13 @@ describe("traffic sources", () => {
       countryRank: 17399,
       rankCountry: "United Kingdom",
       category: "E-commerce_and_Shopping",
+      categoryRank: 1204,
+      aiShare: 0.0042,
+      aiChatbots: [
+        { name: "ChatGPT", share: 0.715 },
+        { name: "Perplexity", share: 0.2 },
+        { name: "Gemini", share: 0.085 },
+      ],
       history: [
         { month: "2026-07", visits: 70000 },
         { month: "2026-08", visits: 80000 },

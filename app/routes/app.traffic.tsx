@@ -188,6 +188,7 @@ export default function Traffic() {
               <s-table-header format="numeric">Bounce rate</s-table-header>
               <s-table-header format="numeric">Global rank</s-table-header>
               <s-table-header format="numeric">Country rank</s-table-header>
+              <s-table-header format="numeric">Category rank</s-table-header>
             </s-table-header-row>
             <s-table-body>
               {sites.map((s) => {
@@ -205,11 +206,41 @@ export default function Traffic() {
                     <s-table-cell>{pct(e?.bounceRate)}</s-table-cell>
                     <s-table-cell>{rank(e?.globalRank)}</s-table-cell>
                     <s-table-cell>{rank(e?.countryRank, e?.rankCountry)}</s-table-cell>
+                    <s-table-cell>{rank(e?.categoryRank, e?.category?.replace(/_/g, " "))}</s-table-cell>
                   </s-table-row>
                 );
               })}
             </s-table-body>
           </s-table>
+        </s-section>
+      )}
+
+      {sites.some((s) => s.engagement?.aiShare != null) && (
+        <s-section heading="Visits from AI assistants">
+          <s-stack gap="base">
+            <s-paragraph>Shoppers who clicked through from ChatGPT, Perplexity, Gemini and other assistants, and which ones sent them.</s-paragraph>
+            <s-table>
+              <s-table-header-row>
+                <s-table-header listSlot="primary">Site</s-table-header>
+                <s-table-header format="numeric">Share of visits</s-table-header>
+                <s-table-header format="numeric">Visits a month</s-table-header>
+                <s-table-header>Sent by</s-table-header>
+              </s-table-header-row>
+              <s-table-body>
+                {sites.map((s) => {
+                  const e = s.engagement;
+                  return (
+                    <s-table-row key={s.id}>
+                      <s-table-cell>{s.you ? `You (${s.domain})` : s.name}</s-table-cell>
+                      <s-table-cell>{e?.aiShare == null ? "–" : `${(e.aiShare * 100).toFixed(e.aiShare < 0.01 ? 2 : 1)}%`}</s-table-cell>
+                      <s-table-cell>{e?.aiShare == null || s.visits == null ? "–" : compact(Math.round(e.aiShare * s.visits))}</s-table-cell>
+                      <s-table-cell>{e?.aiChatbots?.length ? e.aiChatbots.map((b) => `${b.name} ${pct(b.share)}`).join(", ") : "–"}</s-table-cell>
+                    </s-table-row>
+                  );
+                })}
+              </s-table-body>
+            </s-table>
+          </s-stack>
         </s-section>
       )}
 
