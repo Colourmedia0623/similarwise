@@ -74,6 +74,7 @@ const GROUPS = [
     features: [
       { title: "Keyword gap", body: "Searches that bring competitors visits where you don't rank, or rank below them." },
       { title: "Rank tracker", body: "Where you and each competitor rank on Google for the searches you choose, checked every day." },
+      { title: "Site audit", body: "A weekly check of your store for broken links, missing titles and descriptions, slow pages and more." },
       { title: "Keyword ideas", body: "Which page to point at each search, and the words to put on it." },
       { title: "AI mentions", body: "Whether ChatGPT, Gemini and Perplexity recommend you or your competitors, and the sites they quote." },
       { title: "Link gap", body: "Websites that link to competitors but not to you, with an outreach email written for each." },

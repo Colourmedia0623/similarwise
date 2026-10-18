@@ -21,7 +21,7 @@ export const PLANS: { tier: Tier; name: string; blurb: string; monthly: number; 
     blurb: "Win more search traffic, from Google and AI answers.",
     monthly: 189,
     yearly: 149,
-    includes: ["Everything in Watch", "Keyword gap and keyword ideas", "Daily Google rank tracking", "AI mentions", "Blog articles and content calendar", "Link gap and outreach emails"],
+    includes: ["Everything in Watch", "Keyword gap and keyword ideas", "Daily Google rank tracking", "Weekly SEO site audit", "AI mentions", "Blog articles and content calendar", "Link gap and outreach emails"],
   },
   {
     tier: "advertise",
@@ -48,6 +48,7 @@ export function parsePlanKey(key: string): { tier: Tier; cycle: Cycle } | null {
 const PAGES: [string, Tier][] = [
   ["/app/keywords", "grow"],
   ["/app/ranks", "grow"],
+  ["/app/audit", "grow"],
   ["/app/ai", "grow"],
   ["/app/ideas", "grow"],
   ["/app/articles", "grow"],
