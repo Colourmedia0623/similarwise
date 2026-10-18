@@ -55,6 +55,7 @@ export default function App() {
         <s-link href="/app/similar">Similar sites</s-link>
         <s-link href="/app/prices">Price comparison</s-link>
         <s-link href="/app/keywords">Keyword gap</s-link>
+        <s-link href="/app/ranks">Rank tracker</s-link>
         <s-link href="/app/audit">Site audit</s-link>
         <s-link href="/app/ai">AI mentions</s-link>
         <s-link href="/app/ideas">Keyword ideas</s-link>

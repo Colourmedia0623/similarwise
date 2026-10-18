@@ -188,6 +188,11 @@ model ShopSettings {
   // Social posting (lib/social): share each calendar article when it goes out.
   socialAuto Boolean @default(false)
 
+  // Rank tracker (lib/ranks): the shop's chosen Google searches, checked daily.
+  ranksCheckedAt DateTime?
+  ranksRunningAt DateTime?
+  ranksError     String?
+
   // Site audit (lib/audit): a weekly SEO check of the shop's own storefront.
   auditRunningAt DateTime?
 }
@@ -527,6 +532,31 @@ model SocialPost {
   createdAt DateTime  @default(now())
 
   @@index([shop, articleId])
+}
+
+// A Google search the shop tracks its position for daily (lib/ranks).
+model TrackedKeyword {
+  id        String   @id @default(cuid())
+  shop      String
+  keyword   String
+  createdAt DateTime @default(now())
+
+  @@unique([shop, keyword])
+}
+
+// Where the shop and each competitor ranked for one tracked search on one check.
+model KeywordRank {
+  id          String   @id @default(cuid())
+  shop        String
+  keywordId   String
+  checkedAt   DateTime
+  position    Int?     // The shop's place in Google's results, null when not in the top 30
+  url         String?  // The shop's page that ranked
+  competitors String   @default("{}") // JSON { competitorId: position }
+  error       String?
+
+  @@index([shop, checkedAt])
+  @@index([keywordId, checkedAt])
 }
 
 // One SEO check of the shop's own storefront (lib/audit).
