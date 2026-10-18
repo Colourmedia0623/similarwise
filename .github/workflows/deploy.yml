@@ -40,6 +40,7 @@ jobs:
           # Sharing articles to Facebook, Instagram and TikTok; each off until its pair is set.
           META_APP_ID: ${{ secrets.META_APP_ID }}
           META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
+          META_CONFIG_ID: ${{ secrets.META_CONFIG_ID }}
           TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
           TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
         run: |
@@ -60,6 +61,7 @@ jobs:
             echo "OPENAI_API_KEY=$OPENAI_API_KEY"
             echo "META_APP_ID=$META_APP_ID"
             echo "META_APP_SECRET=$META_APP_SECRET"
+            echo "META_CONFIG_ID=$META_CONFIG_ID"
             echo "TIKTOK_CLIENT_KEY=$TIKTOK_CLIENT_KEY"
             echo "TIKTOK_CLIENT_SECRET=$TIKTOK_CLIENT_SECRET"
           } > deploy/.env
