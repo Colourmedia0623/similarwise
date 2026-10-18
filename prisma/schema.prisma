@@ -184,6 +184,9 @@ model ShopSettings {
   aiRunningAt DateTime? // Set while a check runs
   aiError     String?
   aiBrand     String? // The shop's name as people say it, e.g. Gift Boxes 3000
+
+  // Social posting (lib/social): share each calendar article when it goes out.
+  socialAuto Boolean @default(false)
 }
 
 // A competitor's search numbers on each traffic refresh, for trends.
@@ -487,4 +490,37 @@ model AiAnswer {
 
   @@index([shop, ranAt])
   @@index([promptId])
+}
+
+// A Facebook Page, Instagram business account or TikTok account the merchant
+// connected, to post articles to (lib/social). Tokens are stored encrypted.
+model SocialAccount {
+  id             String    @id @default(cuid())
+  shop           String
+  network        String    // facebook | instagram | tiktok
+  accountId      String    // Page id, Instagram user id or TikTok open_id
+  name           String
+  token          String    // Encrypted access token
+  refreshToken   String?   // Encrypted (TikTok)
+  tokenExpiresAt DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@unique([shop, network, accountId])
+}
+
+// An article shared to one social account.
+model SocialPost {
+  id        String    @id @default(cuid())
+  shop      String
+  articleId String
+  accountId String    // SocialAccount.id
+  network   String
+  caption   String
+  status    String    // posted | failed | processing
+  remoteId  String?
+  url       String?
+  error     String?
+  createdAt DateTime  @default(now())
+
+  @@index([shop, articleId])
 }

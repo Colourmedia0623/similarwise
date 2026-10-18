@@ -8,6 +8,8 @@ import { atOrigin, blogArticle, deleteArticle, editArticle, sendArticle, storeOr
 import { makeArticleImage, uploadArticleImage } from "../lib/ideas/images.server";
 import type { Graphql } from "../lib/prices/prices.server";
 import { STATUS, TONE } from "../lib/ideas/article-status";
+import { articleShares, shareArticle, socialAccounts, writeCaptions } from "../lib/social/social.server";
+import { NETWORK_NAME, type Network } from "../lib/social/networks";
 
 // One blog article: read and change its words, Google listing and picture,
 // then add it to the blog. Changes to an article already on the blog are
@@ -16,9 +18,14 @@ import { STATUS, TONE } from "../lib/ideas/article-status";
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
   const graphql: Graphql = async (query, variables) => (await admin.graphql(query, { variables })).json();
-  const [article, origin] = await Promise.all([blogArticle(session.shop, params.id ?? ""), storeOrigin(graphql)]);
+  const [article, origin, accounts, shares] = await Promise.all([
+    blogArticle(session.shop, params.id ?? ""),
+    storeOrigin(graphql),
+    socialAccounts(session.shop),
+    articleShares(session.shop, params.id ?? ""),
+  ]);
   if (!article) throw redirect("/app/articles");
-  return { article: { ...article, url: atOrigin(article.url, origin) }, imagesOn: Boolean(process.env.OPENAI_API_KEY) };
+  return { article: { ...article, url: atOrigin(article.url, origin) }, imagesOn: Boolean(process.env.OPENAI_API_KEY), accounts, shares };
 };
 
 export const action = async ({ request, params }: ActionFunctionArgs) => {
@@ -29,6 +36,20 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   const form = await request.formData();
   const intent = String(form.get("intent") ?? "");
   const at = Date.now();
+
+  if (intent === "captions") {
+    try {
+      const captions = await writeCaptions(shop, id);
+      return "error" in captions ? { intent, at, error: captions.error } : { intent, at, captions };
+    } catch (err) {
+      console.error("Couldn't write captions", shop, err);
+      return { intent, at, error: "Couldn't write the captions just now. Try again in a minute." };
+    }
+  }
+  if (intent === "share") {
+    const picks = JSON.parse(String(form.get("picks") ?? "[]")) as { accountId: string; caption: string }[];
+    return { intent, at, ...(await shareArticle(shop, id, picks, { origin: await storeOrigin(graphql) })) };
+  }
 
   if (intent === "delete") {
     const gone = await deleteArticle(shop, id, graphql);
@@ -265,9 +286,115 @@ export default function ArticleEditor() {
             {dirty && <s-text color="subdued">Unsaved changes</s-text>}
           </s-stack>
         </s-section>
+
+        <Share published={a.status === "published"} />
       </s-stack>
       <style>{CSS}</style>
     </s-page>
+  );
+}
+
+// Sharing the article to the shop's connected social accounts, with a
+// caption for each network.
+function Share({ published }: { published: boolean }) {
+  const { accounts, shares } = useLoaderData<typeof loader>();
+  const write = useFetcher<typeof action>();
+  const post = useFetcher<typeof action>();
+  const [captions, setCaptions] = useState<Record<Network, string>>({ facebook: "", instagram: "", tiktok: "" });
+  const [picked, setPicked] = useState<string[]>(accounts.map((x) => x.id));
+  const [seen, setSeen] = useState<number | null>(null);
+  const written = write.state === "idle" && write.data && "captions" in write.data && write.data.captions ? { at: write.data.at, captions: write.data.captions } : null;
+  // New captions from Claude replace what's in the boxes, once.
+  if (written && written.at !== seen) {
+    setSeen(written.at);
+    setCaptions(written.captions);
+  }
+  const writeError = write.state === "idle" && write.data && "error" in write.data ? write.data.error : null;
+  const result = post.state === "idle" ? post.data : undefined;
+  const networks = [...new Set(accounts.filter((x) => picked.includes(x.id)).map((x) => x.network))];
+
+  return (
+    <s-section heading="Share on social">
+      <s-stack gap="base">
+        {accounts.length === 0 ? (
+          <s-paragraph>
+            Connect your Facebook Page, Instagram or TikTok under <s-link href="/app/social">Social accounts</s-link> to share your articles there.
+          </s-paragraph>
+        ) : !published ? (
+          <s-paragraph>Publish the article on your blog first, so the posts can link to it.</s-paragraph>
+        ) : (
+          <>
+            <s-stack direction="inline" gap="base">
+              {accounts.map((x) => (
+                <s-checkbox
+                  key={x.id}
+                  label={`${NETWORK_NAME[x.network]}: ${x.name}`}
+                  checked={picked.includes(x.id)}
+                  onChange={(e) => setPicked(e.currentTarget.checked ? [...picked, x.id] : picked.filter((p) => p !== x.id))}
+                />
+              ))}
+            </s-stack>
+            <s-stack direction="inline" gap="small" alignItems="center">
+              <s-button loading={write.state !== "idle"} onClick={() => write.submit({ intent: "captions" }, { method: "post" })}>
+                {captions.facebook || captions.instagram || captions.tiktok ? "Write new captions" : "Write captions"}
+              </s-button>
+              {writeError && <s-text tone="critical">{writeError}</s-text>}
+            </s-stack>
+            {networks.map((n) => (
+              <s-text-area
+                key={n}
+                label={`${NETWORK_NAME[n]} caption`}
+                rows={n === "facebook" ? 3 : 5}
+                value={captions[n]}
+                details={n === "facebook" ? "The link to the article is added below it." : n === "tiktok" ? "Posted as a photo post with the article's picture." : "Posted with the article's picture."}
+                onInput={(e) => setCaptions({ ...captions, [n]: e.currentTarget.value })}
+              />
+            ))}
+            <s-stack direction="inline" gap="small" alignItems="center">
+              <s-button
+                variant="primary"
+                loading={post.state !== "idle"}
+                disabled={!picked.length || networks.some((n) => !captions[n].trim())}
+                onClick={() =>
+                  post.submit(
+                    { intent: "share", picks: JSON.stringify(accounts.filter((x) => picked.includes(x.id)).map((x) => ({ accountId: x.id, caption: captions[x.network] }))) },
+                    { method: "post" },
+                  )
+                }
+              >
+                Post now
+              </s-button>
+              {result && "error" in result && <s-text tone="critical">{result.error}</s-text>}
+              {result && "posted" in result && (
+                <s-text tone="success">
+                  Posted to {result.posted === 1 ? "1 account" : `${result.posted} accounts`}
+                  {result.failed ? `; ${result.failed} didn't go, see below.` : "."}
+                </s-text>
+              )}
+            </s-stack>
+          </>
+        )}
+        {shares.length > 0 && (
+          <s-stack gap="small">
+            <s-heading>Shared</s-heading>
+            {shares.map((p) => (
+              <s-stack key={p.id} direction="inline" gap="small" alignItems="center">
+                <s-badge tone={p.status === "failed" ? "critical" : "success"}>{p.status === "failed" ? "Didn't go" : p.status === "processing" ? "Sent to TikTok" : "Posted"}</s-badge>
+                <s-text>
+                  {NETWORK_NAME[p.network]}: {p.account}, {new Date(p.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                </s-text>
+                {p.url && (
+                  <s-link href={p.url} target="_blank">
+                    Open the post
+                  </s-link>
+                )}
+                {p.error && <s-text color="subdued">{p.error}</s-text>}
+              </s-stack>
+            ))}
+          </s-stack>
+        )}
+      </s-stack>
+    </s-section>
   );
 }
 

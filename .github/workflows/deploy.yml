@@ -37,6 +37,11 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           # Pictures for blog articles, made by OpenAI; off until set.
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # Sharing articles to Facebook, Instagram and TikTok; each off until its pair is set.
+          META_APP_ID: ${{ secrets.META_APP_ID }}
+          META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
+          TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
+          TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
         run: |
           scopes=$(sed -n 's/^scopes = "\(.*\)"/\1/p' shopify.app.toml)
           {
@@ -53,6 +58,10 @@ jobs:
             echo "APIFY_TOKEN=$APIFY_TOKEN"
             echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY"
             echo "OPENAI_API_KEY=$OPENAI_API_KEY"
+            echo "META_APP_ID=$META_APP_ID"
+            echo "META_APP_SECRET=$META_APP_SECRET"
+            echo "TIKTOK_CLIENT_KEY=$TIKTOK_CLIENT_KEY"
+            echo "TIKTOK_CLIENT_SECRET=$TIKTOK_CLIENT_SECRET"
           } > deploy/.env
 
       # Build here rather than on the small EC2 instance, reusing CI's layer cache.

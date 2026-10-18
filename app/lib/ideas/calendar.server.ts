@@ -3,6 +3,7 @@ import { claudeJson, type AskJson } from "./claude.server";
 import { keywordGap } from "../traffic/gap.server";
 import { articlePicture, deleteArticle, sendArticle, writeTopic } from "./articles.server";
 import { syncIfStale, type Graphql } from "../prices/prices.server";
+import { autoShare } from "../social/social.server";
 
 // Content calendar: Claude plans a blog post a day from the searches in the
 // shop's keyword gap, the merchant edits or deletes any of them, and the
@@ -195,6 +196,8 @@ export async function writePost(shop: string, id: string, graphql: Graphql, ask:
     const sent = await sendArticle(shop, articleId, settings?.calendarPublish ?? true, graphql, now);
     if ("error" in sent && sent.error !== "That article is already on your blog.") return await fail(sent.error ?? "Couldn't add it to your blog.");
     await db.plannedPost.update({ where: { id }, data: { status: "done", error: null } });
+    // Shared to the shop's social accounts, when it asked for that.
+    if (settings?.calendarPublish ?? true) await autoShare(shop, articleId).catch((err) => console.error("Couldn't share a calendar post", shop, err));
     return { ok: true as const };
   } catch (err) {
     console.error("Couldn't write a planned post", shop, id, err);
