@@ -160,7 +160,7 @@ export default function App() {
           </Form>
         )}
         <p>
-          Made by Colourmedia. <a href="/privacy">Privacy policy</a>
+          Made by Colourmedia. <a href="/privacy">Privacy policy</a> · <a href="/terms">Terms of service</a>
         </p>
       </footer>
     </div>
