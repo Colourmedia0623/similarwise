@@ -308,7 +308,7 @@ export default function App() {
           </Form>
         )}
         <p>
-          Made by Colourmedia. <a href="/privacy">Privacy policy</a> · <a href="/terms">Terms of service</a>
+          Made by Colourmedia. <a href="/privacy">Privacy policy</a> · <a href="/terms">Terms of service</a> · <a href="/data-deletion">Deleting your data</a>
         </p>
       </footer>
     </div>
