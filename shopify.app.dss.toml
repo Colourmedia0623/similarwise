@@ -3,7 +3,7 @@
 # distribution, free), run from the same code beside the public app with its
 # own database. Keep the rest of this file in step with shopify.app.toml.
 # client_id comes from the private app's page in the Shopify Dev Dashboard.
-client_id = "REPLACE_WITH_DSS_CLIENT_ID"
+client_id = "c54d817d44294b26db22379366a07905"
 name = "Similarwise DSS"
 application_url = "https://dss.similarwise.colourmedia.net"
 embedded = true
