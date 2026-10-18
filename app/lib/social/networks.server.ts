@@ -150,7 +150,17 @@ export async function postInstagram(igId: string, token: string, post: Post, f: 
 }
 
 // A TikTok photo post. TikTok only lets an app post publicly once it has
-// passed TikTok's review; before that posts are visible to the poster only.
+// passed TikTok's review; before that it must post "only me", to a private
+// account. TIKTOK_PUBLIC=true switches public posting on after the review.
+// TikTok's reasons, in words a merchant can act on.
+function tiktokProblem(code?: string, message?: string) {
+  if (code === "unaudited_client_can_only_post_to_private_accounts")
+    return "TikTok only lets SimilarWise post to private accounts until it approves the app. Set your TikTok account to private and try again.";
+  if (code === "url_ownership_unverified") return "TikTok can't fetch the picture until the SimilarWise address is verified in the TikTok app's URL properties.";
+  if (code === "spam_risk_too_many_posts") return "TikTok says you've posted too much today. Try again tomorrow.";
+  return [message, code && code !== "ok" ? `(${code})` : ""].filter(Boolean).join(" ");
+}
+
 export async function postTikTok(token: string, post: Post, f: Fetch = fetch): Promise<Posted> {
   const call = async <T>(path: string, body: object) => {
     const res = await f(`${TIKTOK}${path}`, {
@@ -160,12 +170,12 @@ export async function postTikTok(token: string, post: Post, f: Fetch = fetch): P
       signal: AbortSignal.timeout(60_000),
     });
     const json = (await res.json().catch(() => ({}))) as { data?: T; error?: { code?: string; message?: string } };
-    if (!res.ok || (json.error?.code && json.error.code !== "ok")) throw new Error(json.error?.message || `TikTok answered ${res.status}`);
+    if (!res.ok || (json.error?.code && json.error.code !== "ok")) throw new Error(tiktokProblem(json.error?.code, json.error?.message) || `TikTok answered ${res.status}`);
     return json.data as T;
   };
   const creator = await call<{ privacy_level_options?: string[] }>("/post/publish/creator_info/query/", {});
   const options = creator?.privacy_level_options ?? [];
-  const privacy = options.includes("PUBLIC_TO_EVERYONE") ? "PUBLIC_TO_EVERYONE" : (options[0] ?? "SELF_ONLY");
+  const privacy = process.env.TIKTOK_PUBLIC === "true" && options.includes("PUBLIC_TO_EVERYONE") ? "PUBLIC_TO_EVERYONE" : "SELF_ONLY";
   const out = await call<{ publish_id?: string }>("/post/publish/content/init/", {
     post_info: { title: post.title.slice(0, 90), description: post.caption.slice(0, 4000), privacy_level: privacy, disable_comment: false, auto_add_music: true },
     source_info: { source: "PULL_FROM_URL", photo_cover_index: 0, photo_images: [post.imageUrl] },

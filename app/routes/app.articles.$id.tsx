@@ -346,7 +346,7 @@ function Share({ published }: { published: boolean }) {
                 label={`${NETWORK_NAME[n]} caption`}
                 rows={n === "facebook" ? 3 : 5}
                 value={captions[n]}
-                details={n === "facebook" ? "The link to the article is added below it." : n === "tiktok" ? "Posted as a photo post with the article's picture." : "Posted with the article's picture."}
+                details={n === "facebook" ? "The link to the article is added below it." : n === "tiktok" ? "Posted as a photo post with the article's picture. Only you can see it until TikTok approves SimilarWise." : "Posted with the article's picture."}
                 onInput={(e) => setCaptions({ ...captions, [n]: e.currentTarget.value })}
               />
             ))}
