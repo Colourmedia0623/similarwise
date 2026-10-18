@@ -118,8 +118,16 @@ export const refreshTikTok = (refreshToken: string, f: Fetch = fetch, now = new 
 export type Post = { caption: string; title: string; link: string; imageUrl: string };
 export type Posted = { remoteId: string; url: string | null; processing?: boolean };
 
-// A link post on the Page; Facebook shows the article's picture from the link.
+// The article's picture as a photo post, with the link under the caption.
+// A plain link post relies on Facebook reading the article's page for its
+// picture, which fails while a store is password-protected. Without a
+// picture it falls back to a link post.
 export async function postFacebook(pageId: string, token: string, post: Post, f: Fetch = fetch): Promise<Posted> {
+  if (post.imageUrl) {
+    const res = await graph<{ id: string; post_id?: string }>(f, `/${pageId}/photos`, { url: post.imageUrl, caption: `${post.caption}\n\n${post.link}`, access_token: token }, "POST");
+    const id = res.post_id ?? res.id;
+    return { remoteId: id, url: `https://www.facebook.com/${id}` };
+  }
   const res = await graph<{ id: string }>(f, `/${pageId}/feed`, { message: post.caption, link: post.link, access_token: token }, "POST");
   return { remoteId: res.id, url: `https://www.facebook.com/${res.id}` };
 }

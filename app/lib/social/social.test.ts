@@ -112,7 +112,7 @@ describe("social sharing", () => {
     const calls: Call[] = [];
     const f = fakeFetch(
       [
-        [/p1\/feed/, { id: "p1_99" }],
+        [/p1\/photos/, { id: "ph1", post_id: "p1_99" }],
         [/ig1\/media_publish/, { id: "m1" }],
         [/ig1\/media$/, { id: "c1" }],
         [/m1\?/, { permalink: "https://instagram.com/p/x" }],
@@ -133,8 +133,9 @@ describe("social sharing", () => {
       { f, origin: "https://gift-boxes-3000.myshopify.com", now: NOW },
     );
     expect(res).toEqual({ posted: 3, failed: 0 });
-    const feed = new URLSearchParams(calls.find((c) => c.url.includes("p1/feed"))!.body);
-    expect(feed.get("link")).toBe("https://gift-boxes-3000.myshopify.com/blogs/news/gift-box-ideas");
+    const photo = new URLSearchParams(calls.find((c) => c.url.includes("p1/photos"))!.body);
+    expect(photo.get("caption")).toBe("Read this\n\nhttps://gift-boxes-3000.myshopify.com/blogs/news/gift-box-ideas");
+    expect(photo.get("url")).toMatch(new RegExp(`/images/${a.id}\\.jpg\\?v=${NOW.getTime()}$`));
     expect(new URLSearchParams(calls.find((c) => /ig1\/media$/.test(c.url))!.body).get("image_url")).toMatch(new RegExp(`/images/${a.id}\\.jpg\\?v=${NOW.getTime()}$`));
     const init = JSON.parse(calls.find((c) => c.url.includes("content/init"))!.body);
     expect(init).toMatchObject({ media_type: "PHOTO", post_info: { privacy_level: "SELF_ONLY" } });
