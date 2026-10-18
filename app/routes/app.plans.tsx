@@ -5,6 +5,7 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { PLANS, PLAN_KEYS, TRIAL_DAYS, parsePlanKey, planKey, type Cycle, type Tier } from "../lib/billing";
 import { isOwnerShop } from "../lib/waitlist.server";
+import { providerApproved } from "../lib/social/networks.server";
 
 // Choosing, changing or cancelling a plan. Charges go through Shopify.
 
@@ -18,6 +19,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     owner,
     current: sub ? { ...parsePlanKey(sub.name), id: sub.id, trialDays: sub.trialDays } : null,
     need: PLANS.find((p) => p.tier === need)?.name ?? null,
+    // Until Meta and TikTok approve the app, other stores can't connect social accounts yet.
+    socialSoon: !owner && !(providerApproved("meta") && providerApproved("tiktok")),
   };
 };
 
@@ -46,7 +49,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function Plans() {
-  const { owner, current, need } = useLoaderData<typeof loader>();
+  const { owner, current, need, socialSoon } = useLoaderData<typeof loader>();
   const [cycle, setCycle] = useState<Cycle>(current?.cycle ?? "yearly");
   const busy = useNavigation().state !== "idle";
 
@@ -86,7 +89,7 @@ export default function Plans() {
               </s-text>
               <s-unordered-list>
                 {p.includes.map((i) => (
-                  <s-list-item key={i}>{i}</s-list-item>
+                  <s-list-item key={i}>{socialSoon && i.startsWith("Sharing to") ? `${i} (coming soon)` : i}</s-list-item>
                 ))}
               </s-unordered-list>
               {!owner && (
