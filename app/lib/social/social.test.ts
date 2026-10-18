@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import db from "../../db.server";
 import { authorizeUrl, connectMeta, postTikTok, tiktokCreator, type Fetch, type TikTokChoices } from "./networks.server";
 import { readState, seal, signState, unseal } from "./seal.server";
-import { autoShare, saveAccounts, shareArticle, socialAccounts } from "./social.server";
+import { autoShare, checkTikTokPosts, saveAccounts, shareArticle, socialAccounts } from "./social.server";
 
 const SHOP = "social.myshopify.com";
 const NOW = new Date("2026-10-18T09:00:00Z");
@@ -164,6 +164,24 @@ describe("social sharing", () => {
     await expect(postTikTok("tok", post, choose({ privacy: "SELF_ONLY", brandedContent: true }), fakeFetch([creator, ok], calls))).rejects.toThrow(/Branded content can't/);
     const refused = fakeFetch([creator, [/content\/init/, { error: { code: "unaudited_client_can_only_post_to_private_accounts", message: "Please review our integration guidelines" } }]], calls);
     await expect(postTikTok("tok", post, choose({}), refused)).rejects.toThrow(/Set your TikTok account to private/);
+  });
+
+  it("asks TikTok where sent posts got to, and records why one failed", async () => {
+    const a = await article();
+    await saveAccounts(SHOP, [{ network: "tiktok", accountId: "tt1", name: "Tok", token: "t" }]);
+    const [acc] = await socialAccounts(SHOP);
+    const sent = (remoteId: string) => db.socialPost.create({ data: { shop: SHOP, articleId: a.id, accountId: acc.id, network: "tiktok", caption: "c", status: "processing", remoteId } });
+    const [done, broken, waiting] = [await sent("p1"), await sent("p2"), await sent("p3")];
+    const f: Fetch = async (_url, init) => {
+      const id = JSON.parse(String(init?.body)).publish_id;
+      const data = id === "p1" ? { status: "PUBLISH_COMPLETE" } : id === "p2" ? { status: "FAILED", fail_reason: "file_format_check_failed" } : { status: "PROCESSING_DOWNLOAD" };
+      return new Response(JSON.stringify({ data, error: { code: "ok" } }));
+    };
+    await checkTikTokPosts(SHOP, a.id, { f });
+    const row = (id: string) => db.socialPost.findUniqueOrThrow({ where: { id } });
+    expect((await row(done.id)).status).toBe("posted");
+    expect(await row(broken.id)).toMatchObject({ status: "failed", error: expect.stringMatching(/couldn't read the picture/) });
+    expect((await row(waiting.id)).status).toBe("processing");
   });
 
   it("won't post to TikTok until the merchant chooses who can see it, and never shares to TikTok on its own", async () => {

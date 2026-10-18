@@ -191,6 +191,31 @@ export async function tiktokCreator(token: string, f: Fetch = fetch): Promise<Ti
   };
 }
 
+// Where a TikTok post got to after it was sent. TikTok fetches the picture
+// and publishes in the background, so a post can still fail after it was
+// accepted.
+const TIKTOK_FAILS: Record<string, string> = {
+  file_format_check_failed: "TikTok couldn't read the picture. Use a JPEG or WebP picture.",
+  picture_size_check_failed: "The picture's size isn't one TikTok accepts. Try a different picture.",
+  url_ownership_unverified: "TikTok can't fetch the picture until the SimilarWise address is verified in the TikTok app's URL properties.",
+  spam_risk_too_many_posts: "TikTok says you've posted too much today. Try again tomorrow.",
+  spam_risk_user_banned_from_posting: "TikTok isn't letting this account post right now.",
+  privacy_level_option_mismatch: "TikTok only takes Only me posts to private accounts until it approves SimilarWise.",
+  unaudited_client_can_only_post_to_private_accounts: "TikTok only takes Only me posts to private accounts until it approves SimilarWise. Set the account to private.",
+};
+
+export type TikTokStatus = { status: "processing" | "posted" } | { status: "failed"; error: string };
+
+export async function tiktokStatus(token: string, publishId: string, f: Fetch = fetch): Promise<TikTokStatus> {
+  const d = await tiktokCall<{ status?: string; fail_reason?: string }>(f, token, "/post/publish/status/fetch/", { publish_id: publishId });
+  if (d?.status === "PUBLISH_COMPLETE") return { status: "posted" };
+  if (d?.status === "FAILED") {
+    const reason = d.fail_reason ?? "";
+    return { status: "failed", error: TIKTOK_FAILS[reason] ?? `TikTok didn't publish it${reason ? ` (${reason})` : ""}.` };
+  }
+  return { status: "processing" };
+}
+
 // What the merchant chose for one TikTok post. TikTok requires these to be
 // picked by hand each time: who can see it, comments, and whether it
 // promotes their own brand or someone else's.
