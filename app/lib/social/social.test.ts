@@ -76,6 +76,30 @@ describe("social sharing", () => {
     expect((await db.socialAccount.findFirstOrThrow({ where: { shop: SHOP, accountId: "p1" } })).token).not.toBe("page-token");
   });
 
+  it("finds Pages held through a business portfolio, and says which permissions are missing when there are none", async () => {
+    const calls: Call[] = [];
+    const base: [RegExp, unknown][] = [
+      [/oauth\/access_token\?.*code=abc/, { access_token: "short" }],
+      [/oauth\/access_token\?.*fb_exchange_token=short/, { access_token: "long" }],
+      [/me\/accounts/, { data: [] }],
+    ];
+    const viaBusiness = fakeFetch(
+      [
+        ...base,
+        [/me\/businesses/, { data: [{ id: "b1" }] }],
+        [/b1\/owned_pages/, { data: [{ id: "p9", name: "Shop Page", access_token: "pt" }] }],
+        [/b1\/client_pages/, { data: [{ id: "p9", name: "Shop Page", access_token: "pt" }] }],
+      ],
+      calls,
+    );
+    expect((await connectMeta("abc", viaBusiness)).map((a) => a.accountId)).toEqual(["p9"]);
+    const none = fakeFetch(
+      [...base, [/me\/businesses/, { data: [] }], [/me\/permissions/, { data: [{ permission: "pages_show_list", status: "granted" }, { permission: "pages_manage_posts", status: "declined" }] }]],
+      calls,
+    );
+    await expect(connectMeta("abc", none)).rejects.toThrow(/permissions: pages_read_engagement, pages_manage_posts, business_management/);
+  });
+
   it("posts to Facebook and Instagram with the article's link and picture, refreshing TikTok's token", async () => {
     const a = await article();
     await db.articleImage.create({ data: { articleId: a.id, shop: SHOP, data: new Uint8Array([1]), createdAt: NOW } });
