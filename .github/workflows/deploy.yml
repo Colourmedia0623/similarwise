@@ -45,6 +45,13 @@ jobs:
           TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
           # "meta,tiktok" once each network has approved the app; until then only our own stores can connect.
           SOCIAL_APPROVED: ${{ vars.SOCIAL_APPROVED }}
+          # The merchant's own Google Analytics and Google Ads figures; off until
+          # the client pair is set, and Ads also needs the developer token.
+          # GOOGLE_APPROVED=true once Google has verified the sign-in.
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_ADS_DEVELOPER_TOKEN: ${{ secrets.GOOGLE_ADS_DEVELOPER_TOKEN }}
+          GOOGLE_APPROVED: ${{ vars.GOOGLE_APPROVED }}
           # The App Store listing, once it's live: the landing page then says Install instead of the waitlist.
           APP_STORE_URL: ${{ vars.APP_STORE_URL }}
         run: |
@@ -69,6 +76,10 @@ jobs:
             echo "TIKTOK_CLIENT_KEY=$TIKTOK_CLIENT_KEY"
             echo "TIKTOK_CLIENT_SECRET=$TIKTOK_CLIENT_SECRET"
             echo "SOCIAL_APPROVED=$SOCIAL_APPROVED"
+            echo "GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID"
+            echo "GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET"
+            echo "GOOGLE_ADS_DEVELOPER_TOKEN=$GOOGLE_ADS_DEVELOPER_TOKEN"
+            echo "GOOGLE_APPROVED=$GOOGLE_APPROVED"
             echo "APP_STORE_URL=$APP_STORE_URL"
           } > deploy/.env
 

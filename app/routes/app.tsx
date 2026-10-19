@@ -67,6 +67,7 @@ export default function App() {
         <s-link href="/app/tech">Website technologies</s-link>
         <s-link href="/app/traffic">Traffic and engagement</s-link>
         <s-link href="/app/channels">Marketing channels</s-link>
+        <s-link href="/app/google">Google Analytics and Ads</s-link>
         <s-link href="/app/ads">Ads</s-link>
         <s-link href="/app/ad-ideas">Ad ideas</s-link>
         <s-link href="/app/settings">Email alerts</s-link>
