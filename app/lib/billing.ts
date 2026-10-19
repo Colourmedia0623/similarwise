@@ -13,7 +13,7 @@ export const PLANS: { tier: Tier; name: string; blurb: string; monthly: number; 
     blurb: "Keep an eye on the stores you compete with.",
     monthly: 69,
     yearly: 49,
-    includes: ["Competitor tracking and alerts", "Similar sites", "Price comparison", "Website technologies", "Traffic and engagement", "Marketing channels"],
+    includes: ["Competitor tracking and alerts", "Similar sites", "Price comparison", "Website technologies", "Traffic and engagement", "Marketing channels", "Your Google Analytics and Google Ads figures"],
   },
   {
     tier: "grow",

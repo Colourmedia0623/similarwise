@@ -572,3 +572,21 @@ model SiteAudit {
 
   @@index([shop, ranAt])
 }
+
+// The merchant's own Google account, for their real Analytics and Google Ads
+// figures (lib/google). One per shop; the latest figures are kept as JSON.
+model GoogleConnection {
+  shop         String    @id
+  email        String
+  refreshToken String    // Encrypted
+  scopes       String    // What the merchant allowed, space-separated
+  gaProperty   String?   // e.g. properties/123456
+  gaName       String?
+  adsCustomer  String?   // Google Ads customer id, digits only
+  adsLogin     String?   // The manager account it's reached through, if any
+  adsName      String?
+  report       Json?     // The latest figures (lib/google/google.server.ts Report)
+  checkedAt    DateTime?
+  runningAt    DateTime?
+  createdAt    DateTime  @default(now())
+}
