@@ -217,7 +217,10 @@ export default function App() {
   return (
     <div className={styles.page}>
       <nav className={styles.nav}>
-        <p className={styles.brand}>Similarwise</p>
+        <p className={styles.brand}>
+          <img src="/icon-512.png" alt="" width={32} height={32} />
+          Similarwise
+        </p>
         <div>
           <a href="#features">Features</a>
           <a href="#how">How it works</a>
