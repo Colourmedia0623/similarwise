@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import db from "../../db.server";
-import { addCompetitor, checkCompetitor, MAX_COMPETITORS, removeCompetitor } from "./check.server";
+import { addCompetitor, checkCompetitor, MAX_COMPETITORS, maxCompetitors, removeCompetitor } from "./check.server";
 import type { Fetcher } from "./fetch.server";
 import { redactShop } from "../privacy.server";
 import { overview } from "../dashboard.server";
@@ -96,6 +96,11 @@ describe("tracking a competitor", () => {
     expect(await addCompetitor(SHOP, "one-too-many.com", fetcher)).toEqual({
       error: `You can track up to ${MAX_COMPETITORS} competitors.`,
     });
+  });
+
+  it("lets Dye Sub Supplies track 20 competitors", () => {
+    expect(maxCompetitors(SHOP)).toBe(5);
+    expect(maxCompetitors("7fa72e-da.myshopify.com")).toBe(20);
   });
 
   it("notes a store it can't reach instead of failing", async () => {

@@ -1,7 +1,7 @@
 import db from "../db.server";
 import { aiShare } from "./ai/mentions.server";
 import { trafficClient } from "./traffic/dataforseo.server";
-import { MAX_COMPETITORS, parseStoredList } from "./tracker/check.server";
+import { maxCompetitors, parseStoredList } from "./tracker/check.server";
 import { hostOf } from "./tracker/url";
 
 // The numbers for the overview page: what changed at the shop's competitors
@@ -96,7 +96,7 @@ async function tileNumbers(shop: string, competitors: { id: string; url: string;
   const or = (n: number) => (n > 0 ? n : null);
   return {
     competitors: competitors.length,
-    maxCompetitors: MAX_COMPETITORS,
+    maxCompetitors: maxCompetitors(shop),
     products: or(products),
     similar: or(similar.filter((s) => !tracked.has(s.domain)).length),
     matched: or(matched),

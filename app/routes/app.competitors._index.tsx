@@ -4,7 +4,7 @@ import { useFetcher, useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
-import { MAX_COMPETITORS, addCompetitor, removeCompetitor } from "../lib/tracker/check.server";
+import { addCompetitor, maxCompetitors, removeCompetitor } from "../lib/tracker/check.server";
 import { timeAgo } from "../lib/format";
 import { MARKETS } from "../lib/traffic/markets";
 import { setShopMarket, shopMarket } from "../lib/traffic/refresh.server";
@@ -25,7 +25,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     market: (await shopMarket(session.shop)).code,
     markets: MARKETS.map((m) => ({ code: m.code, name: m.name })),
     searchOn: trafficClient() != null,
-    max: MAX_COMPETITORS,
+    max: maxCompetitors(session.shop),
     competitors: competitors.map((c) => ({ ...c, lastCheckedAt: c.lastCheckedAt?.toISOString() ?? null })),
   };
 };
