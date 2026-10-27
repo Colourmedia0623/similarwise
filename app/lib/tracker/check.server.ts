@@ -15,6 +15,18 @@ import type { TrafficClient } from "../traffic/dataforseo.server";
 
 export const MAX_COMPETITORS = 5;
 
+// Shops allowed more competitors than MAX_COMPETITORS, as shop:limit pairs.
+// 7fa72e-da is Dye Sub Supplies, on its own private copy (shopify.app.dss.toml).
+const COMPETITOR_LIMITS = new Map(
+  (process.env.COMPETITOR_LIMITS ?? "7fa72e-da.myshopify.com:20")
+    .split(",")
+    .map((pair) => pair.split(":").map((s) => s.trim()))
+    .filter(([shop, n]) => shop && Number(n) > 0)
+    .map(([shop, n]) => [shop, Number(n)] as const),
+);
+
+export const maxCompetitors = (shop: string) => COMPETITOR_LIMITS.get(shop) ?? MAX_COMPETITORS;
+
 const parseList = (s: string): string[] => {
   try {
     const v = JSON.parse(s);
@@ -34,7 +46,8 @@ export async function addCompetitor(
   if (!url) return { error: "Enter the competitor's website, like rival.com." };
   if (url === `https://${shop}` || hostOf(url) === shop) return { error: "That's your own store." };
   const count = await db.competitor.count({ where: { shop } });
-  if (count >= MAX_COMPETITORS) return { error: `You can track up to ${MAX_COMPETITORS} competitors.` };
+  const max = maxCompetitors(shop);
+  if (count >= max) return { error: `You can track up to ${max} competitors.` };
   const existing = await db.competitor.findUnique({ where: { shop_url: { shop, url } } });
   if (existing) return { error: `You're already tracking ${existing.name}.` };
   const c = await db.competitor.create({ data: { shop, url, name: hostOf(url) } });

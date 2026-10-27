@@ -1,6 +1,6 @@
 import db from "../../db.server";
 import { hostOf } from "../tracker/url";
-import { MAX_COMPETITORS } from "../tracker/check.server";
+import { maxCompetitors } from "../tracker/check.server";
 import { isPlatform } from "../links/links.server";
 import { poster, taskResult } from "./dataforseo.server";
 import { shopDomain } from "./gap.server";
@@ -146,7 +146,7 @@ export async function similarSites(shop: string) {
   return {
     domain,
     tracking: competitors.length,
-    full: competitors.length >= MAX_COMPETITORS,
+    full: competitors.length >= maxCompetitors(shop),
     at: s?.similarAt?.toISOString() ?? null,
     error: s?.similarError ?? null,
     sites,
