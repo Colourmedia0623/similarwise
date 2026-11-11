@@ -137,6 +137,8 @@ export async function checkCompetitor(id: string, fetcher: Fetcher = fetchPublic
             compareAtCents: p.compareAtCents,
             publishedAt: p.publishedAt,
             available: p.available,
+            variantCount: p.variantCount,
+            soldOutOptions: JSON.stringify(p.soldOutOptions),
             // Keeps when it first sold out while it stays sold out.
             soldOutAt: p.available ? null : prev?.available === false ? (prev.soldOutAt ?? now) : now,
             lastSeenAt: now,

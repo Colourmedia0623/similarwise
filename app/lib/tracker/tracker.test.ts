@@ -82,12 +82,22 @@ describe("parseProducts", () => {
   it("counts a product sold out only when every variant is", () => {
     const [some, none, hidden] = parseProducts({
       products: [
-        { id: 1, title: "Some left", variants: [{ price: "10", available: false }, { price: "12", available: true }] },
+        {
+          id: 1,
+          title: "Some left",
+          variants: [
+            { title: "S", price: "10", available: false },
+            { title: "M", price: "12", available: true },
+          ],
+        },
         { id: 2, title: "Sold out", variants: [{ price: "10", available: false }, { price: "12", available: false }] },
         { id: 3, title: "Stock hidden", variants: [{ price: "10" }] },
       ],
     });
     expect([some.available, none.available, hidden.available]).toEqual([true, false, true]);
+    expect(some).toMatchObject({ variantCount: 2, soldOutOptions: ["S"] });
+    expect(none.soldOutOptions).toEqual(["Option 1", "Option 2"]);
+    expect(hidden.soldOutOptions).toEqual([]);
   });
 
   it("copes with junk", () => {
@@ -106,6 +116,8 @@ describe("diffProducts", () => {
     compareAtCents: null,
     publishedAt: null,
     available,
+    variantCount: 1,
+    soldOutOptions: [],
   });
 
   it("finds launches, price changes and products taken down", () => {

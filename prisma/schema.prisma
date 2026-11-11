@@ -108,6 +108,8 @@ model CompetitorProduct {
   compareAtCents Int?     // Highest compare-at price, when on sale
   available    Boolean?   // False when every variant is sold out; null until first read
   soldOutAt    DateTime?  // When it last sold out, while it stays sold out
+  variantCount   Int      @default(0)
+  soldOutOptions String   @default("[]") // JSON list of the variants sold out, e.g. ["S / Black"]
   publishedAt  DateTime?
   firstSeenAt  DateTime   @default(now())
   lastSeenAt   DateTime   @default(now())
