@@ -11,7 +11,7 @@ import type { TrafficClient } from "../traffic/dataforseo.server";
 
 // Adding competitors and checking their stores: the home page for the theme,
 // apps and ad pixels, and (for Shopify stores) the public product catalogue
-// for launches, price changes and products taken down.
+// for launches, price changes, products taken down and products selling out.
 
 export const MAX_COMPETITORS = 5;
 
@@ -91,7 +91,7 @@ export async function checkCompetitor(id: string, fetcher: Fetcher = fetchPublic
     const firstCheck = !c.lastCheckedAt;
     const known = await db.competitorProduct.findMany({
       where: { competitorId: id, removedAt: null },
-      select: { id: true, productId: true, title: true, priceCents: true },
+      select: { id: true, productId: true, title: true, priceCents: true, available: true, soldOutAt: true },
     });
 
     const changes: Change[] = [];
@@ -99,7 +99,11 @@ export async function checkCompetitor(id: string, fetcher: Fetcher = fetchPublic
       changes.push({
         kind: "tracking",
         message: catalogue
-          ? `Started tracking ${catalogue.length.toLocaleString()} products`
+          ? `Started tracking ${catalogue.length.toLocaleString()} products${
+              catalogue.some((p) => !p.available)
+                ? `, ${catalogue.filter((p) => !p.available).length.toLocaleString()} of them sold out`
+                : ""
+            }`
           : "Started tracking (product catalogue isn't public)",
       });
     } else {
@@ -115,6 +119,7 @@ export async function checkCompetitor(id: string, fetcher: Fetcher = fetchPublic
       ? Math.round(products.reduce((s, p) => s + p.priceCents, 0) / products.length)
       : null;
     const onSale = products.filter((p) => p.compareAtCents != null).length;
+    const soldOut = products.filter((p) => !p.available).length;
     const byId = new Map(known.map((k) => [k.productId, k]));
 
     await db.$transaction(async (tx) => {
@@ -123,6 +128,7 @@ export async function checkCompetitor(id: string, fetcher: Fetcher = fetchPublic
         for (const p of catalogue) {
           if (seen.has(p.productId)) continue;
           seen.add(p.productId);
+          const prev = byId.get(p.productId);
           const fields = {
             handle: p.handle,
             title: p.title,
@@ -130,6 +136,9 @@ export async function checkCompetitor(id: string, fetcher: Fetcher = fetchPublic
             priceCents: p.priceCents,
             compareAtCents: p.compareAtCents,
             publishedAt: p.publishedAt,
+            available: p.available,
+            // Keeps when it first sold out while it stays sold out.
+            soldOutAt: p.available ? null : prev && !prev.available ? (prev.soldOutAt ?? now) : now,
             lastSeenAt: now,
             removedAt: null,
           };
@@ -157,6 +166,7 @@ export async function checkCompetitor(id: string, fetcher: Fetcher = fetchPublic
           productCount: catalogue ? products.length : c.productCount,
           avgPriceCents: catalogue ? avg : c.avgPriceCents,
           onSaleCount: onSale,
+          soldOutCount: catalogue ? soldOut : 0,
         },
       });
       await tx.competitor.update({

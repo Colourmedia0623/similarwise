@@ -79,6 +79,17 @@ describe("parseProducts", () => {
     expect(q).toMatchObject({ productId: "2", priceCents: 2000, compareAtCents: null, productType: null });
   });
 
+  it("counts a product sold out only when every variant is", () => {
+    const [some, none, hidden] = parseProducts({
+      products: [
+        { id: 1, title: "Some left", variants: [{ price: "10", available: false }, { price: "12", available: true }] },
+        { id: 2, title: "Sold out", variants: [{ price: "10", available: false }, { price: "12", available: false }] },
+        { id: 3, title: "Stock hidden", variants: [{ price: "10" }] },
+      ],
+    });
+    expect([some.available, none.available, hidden.available]).toEqual([true, false, true]);
+  });
+
   it("copes with junk", () => {
     expect(parseProducts(null)).toEqual([]);
     expect(parseProducts({ products: "nope" })).toEqual([]);
@@ -86,7 +97,7 @@ describe("parseProducts", () => {
 });
 
 describe("diffProducts", () => {
-  const seen = (productId: string, title: string, priceCents: number) => ({
+  const seen = (productId: string, title: string, priceCents: number, available = true) => ({
     productId,
     title,
     priceCents,
@@ -94,6 +105,7 @@ describe("diffProducts", () => {
     productType: null,
     compareAtCents: null,
     publishedAt: null,
+    available,
   });
 
   it("finds launches, price changes and products taken down", () => {
@@ -108,6 +120,19 @@ describe("diffProducts", () => {
       { kind: "price_down", message: "“Jacket” went from £100.00 to £80.00" },
       { kind: "price_up", message: "“Cap” went from £20.00 to £25.00" },
       { kind: "removed", message: "Took down “Gloves”" },
+    ]);
+  });
+
+  it("finds products that sold out and came back in stock", () => {
+    const before = [
+      { productId: "1", title: "Jacket", priceCents: 10000, available: true },
+      { productId: "2", title: "Cap", priceCents: 2000, available: false },
+      { productId: "3", title: "Gloves", priceCents: 1500, available: false },
+    ];
+    const after = [seen("1", "Jacket", 10000, false), seen("2", "Cap", 2000, true), seen("3", "Gloves", 1500, false)];
+    expect(diffProducts(before, after, "GBP")).toEqual([
+      { kind: "sold_out", message: "“Jacket” sold out" },
+      { kind: "restocked", message: "“Cap” is back in stock" },
     ]);
   });
 
