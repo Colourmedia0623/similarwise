@@ -155,6 +155,7 @@ type Cell = {
   gap: number | null;
   confirmed: boolean;
   removed: boolean;
+  soldOut: boolean;
 } | null;
 
 // The comparison table: the shop's matched products, with each competitor's
@@ -185,6 +186,7 @@ export async function priceComparison(shop: string) {
         gap: comparable ? priceGap(p.priceCents, cp.priceCents) : null,
         confirmed: m.confirmed,
         removed: cp.removedAt != null,
+        soldOut: cp.available === false,
       };
     });
     return { id: p.id, title: p.title, priceCents: p.priceCents, currency: p.currency, cells };
@@ -200,6 +202,8 @@ export async function priceComparison(shop: string) {
       // Rows where at least one competitor sells the same thing for less.
       undercut: matched.filter((r) => r.cells.some((c) => c && !c.removed && c.gap != null && c.gap < 0)).length,
       cheapest: matched.filter((r) => r.cells.every((c) => !c || c.removed || c.gap == null || c.gap >= 0)).length,
+      // Rows where a competitor that sells the same thing has run out of it.
+      soldOut: matched.filter((r) => r.cells.some((c) => c && !c.removed && c.soldOut)).length,
       averageGap: gaps.length ? gaps.reduce((a, b) => a + b, 0) / gaps.length : null,
     },
   };

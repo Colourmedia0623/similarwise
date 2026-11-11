@@ -12,13 +12,14 @@ import { marketFor } from "../lib/traffic/markets";
 import { EVENT_LABEL, EVENT_TONE, branded, compact, formatPrice, timeAgo } from "../lib/format";
 
 // One competitor: what their store runs, the ad channels they're set up for,
-// their catalogue over time, their latest changes and newest products.
+// their catalogue over time, their latest changes, newest products and what's
+// sold out.
 
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const c = await db.competitor.findFirst({ where: { id: params.id, shop: session.shop } });
   if (!c) throw new Response("Not found", { status: 404 });
-  const [events, newest, snapshots, onSale, keywords, traffic] = await Promise.all([
+  const [events, newest, snapshots, onSale, keywords, traffic, soldOut, soldOutCount] = await Promise.all([
     db.competitorEvent.findMany({ where: { competitorId: c.id }, orderBy: { createdAt: "desc" }, take: 50 }),
     db.competitorProduct.findMany({
       where: { competitorId: c.id, removedAt: null },
@@ -29,6 +30,12 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     db.competitorProduct.count({ where: { competitorId: c.id, removedAt: null, compareAtCents: { not: null } } }),
     db.competitorKeyword.findMany({ where: { competitorId: c.id }, orderBy: [{ traffic: "desc" }] }),
     db.trafficSnapshot.findMany({ where: { competitorId: c.id }, orderBy: { takenAt: "desc" }, take: 12 }),
+    db.competitorProduct.findMany({
+      where: { competitorId: c.id, removedAt: null, available: false },
+      orderBy: [{ soldOutAt: "desc" }, { title: "asc" }],
+      take: 25,
+    }),
+    db.competitorProduct.count({ where: { competitorId: c.id, removedAt: null, available: false } }),
   ]);
   return {
     competitor: {
@@ -43,6 +50,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       productCount: c.productCount,
       avgPriceCents: c.avgPriceCents,
       onSale,
+      soldOut: soldOutCount,
       lastCheckedAt: c.lastCheckedAt?.toISOString() ?? null,
       lastError: c.lastError,
     },
@@ -85,12 +93,21 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       compareAtCents: p.compareAtCents,
       publishedAt: (p.publishedAt ?? p.firstSeenAt).toISOString(),
     })),
+    soldOut: soldOut.map((p) => ({
+      id: p.id,
+      title: p.title,
+      handle: p.handle,
+      productType: p.productType,
+      priceCents: p.priceCents,
+      soldOutAt: p.soldOutAt?.toISOString() ?? null,
+    })),
     snapshots: snapshots.map((s) => ({
       id: s.id,
       takenAt: s.takenAt.toISOString(),
       productCount: s.productCount,
       avgPriceCents: s.avgPriceCents,
       onSaleCount: s.onSaleCount,
+      soldOutCount: s.soldOutCount,
     })),
   };
 };
@@ -107,7 +124,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
 };
 
 export default function Competitor() {
-  const { competitor: c, search, keywords, traffic, events, newest, snapshots } = useLoaderData<typeof loader>();
+  const { competitor: c, search, keywords, traffic, events, newest, soldOut, snapshots } = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
   const checking = fetcher.state !== "idle";
   const price = (cents: number | null) => (cents == null ? "–" : formatPrice(cents, c.currency));
@@ -133,6 +150,7 @@ export default function Competitor() {
           <Stat label="Products" value={c.isShopify ? c.productCount.toLocaleString() : "–"} />
           <Stat label="Average price" value={price(c.avgPriceCents)} />
           <Stat label="On sale" value={c.isShopify ? c.onSale.toLocaleString() : "–"} />
+          <Stat label="Sold out" value={c.isShopify ? c.soldOut.toLocaleString() : "–"} />
         </s-grid>
         <s-box paddingBlockStart="base">
           <s-text color="subdued">Last checked {timeAgo(c.lastCheckedAt)}. Checked again every day.</s-text>
@@ -204,6 +222,42 @@ export default function Competitor() {
         </s-section>
       )}
 
+      {c.isShopify && (
+        <s-section heading={`Sold out now${c.soldOut ? ` (${c.soldOut.toLocaleString()})` : ""}`}>
+          {soldOut.length === 0 ? (
+            <s-paragraph>Everything they sell is in stock.</s-paragraph>
+          ) : (
+            <s-stack gap="base">
+              <s-table>
+                <s-table-header-row>
+                  <s-table-header>Product</s-table-header>
+                  <s-table-header>Type</s-table-header>
+                  <s-table-header format="numeric">Price</s-table-header>
+                  <s-table-header>Sold out</s-table-header>
+                </s-table-header-row>
+                <s-table-body>
+                  {soldOut.map((p) => (
+                    <s-table-row key={p.id}>
+                      <s-table-cell>
+                        <s-link href={`${c.url}/products/${p.handle}`} target="_blank">
+                          {p.title}
+                        </s-link>
+                      </s-table-cell>
+                      <s-table-cell>{p.productType ?? "–"}</s-table-cell>
+                      <s-table-cell>{price(p.priceCents)}</s-table-cell>
+                      <s-table-cell>{p.soldOutAt ? timeAgo(p.soldOutAt) : "–"}</s-table-cell>
+                    </s-table-row>
+                  ))}
+                </s-table-body>
+              </s-table>
+              {c.soldOut > soldOut.length && (
+                <s-link href={`/app/stock?competitor=${c.id}`}>See all {c.soldOut.toLocaleString()} sold out</s-link>
+              )}
+            </s-stack>
+          )}
+        </s-section>
+      )}
+
       {c.isShopify && snapshots.length > 1 && (
         <s-section heading="Catalogue over time">
           <s-table>
@@ -212,6 +266,7 @@ export default function Competitor() {
               <s-table-header format="numeric">Products</s-table-header>
               <s-table-header format="numeric">Average price</s-table-header>
               <s-table-header format="numeric">On sale</s-table-header>
+              <s-table-header format="numeric">Sold out</s-table-header>
             </s-table-header-row>
             <s-table-body>
               {snapshots.map((s) => (
@@ -220,6 +275,7 @@ export default function Competitor() {
                   <s-table-cell>{s.productCount.toLocaleString()}</s-table-cell>
                   <s-table-cell>{price(s.avgPriceCents)}</s-table-cell>
                   <s-table-cell>{s.onSaleCount.toLocaleString()}</s-table-cell>
+                  <s-table-cell>{s.soldOutCount.toLocaleString()}</s-table-cell>
                 </s-table-row>
               ))}
             </s-table-body>

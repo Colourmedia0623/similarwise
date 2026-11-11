@@ -8,7 +8,11 @@ import { adminUrl, escapeHtml, mailer, unsubscribeUrl, type Email, type Mailer }
 
 export const TOPICS = [
   { key: "prices", label: "Price cuts and rises", kinds: ["price_down", "price_up"] },
-  { key: "products", label: "New products and products taken down", kinds: ["launch", "removed"] },
+  {
+    key: "products",
+    label: "New products, products taken down and products selling out",
+    kinds: ["launch", "removed", "sold_out", "restocked"],
+  },
   {
     key: "ads",
     label: "New ads, apps and ad spend",
@@ -188,6 +192,18 @@ export async function digestEmail(shop: string, to: string, now = new Date()): P
     sections.push({
       title: `Prices: a competitor is cheaper on ${prices.totals.undercut} of ${prices.totals.matched} matched products`,
       ...list(undercuts.length ? undercuts : ["You're the cheapest on every matched product."]),
+    });
+  }
+
+  if (prices.totals.soldOut > 0) {
+    const soldOut = prices.rows
+      .flatMap((r) =>
+        r.cells.flatMap((c, i) => (c && !c.removed && c.soldOut ? [`${r.title}: sold out at ${prices.competitors[i].name}`] : [])),
+      )
+      .slice(0, 5);
+    sections.push({
+      title: `Stock: ${prices.totals.soldOut} of your matched products ${prices.totals.soldOut === 1 ? "is" : "are"} sold out at a competitor`,
+      ...list(soldOut),
     });
   }
 

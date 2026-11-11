@@ -106,6 +106,8 @@ model CompetitorProduct {
   productType  String?
   priceCents   Int        // Lowest variant price
   compareAtCents Int?     // Highest compare-at price, when on sale
+  available    Boolean?   // False when every variant is sold out; null until first read
+  soldOutAt    DateTime?  // When it last sold out, while it stays sold out
   publishedAt  DateTime?
   firstSeenAt  DateTime   @default(now())
   lastSeenAt   DateTime   @default(now())
@@ -121,7 +123,7 @@ model CompetitorEvent {
   id           String     @id @default(cuid())
   competitorId String
   competitor   Competitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
-  kind         String     // launch | price_up | price_down | removed | app_added | app_removed | channel_added | channel_removed | theme_changed
+  kind         String     // launch | price_up | price_down | removed | sold_out | restocked | app_added | app_removed | channel_added | channel_removed | theme_changed
   message      String
   createdAt    DateTime   @default(now())
 
@@ -137,6 +139,7 @@ model CompetitorSnapshot {
   productCount  Int
   avgPriceCents Int?
   onSaleCount   Int        @default(0)
+  soldOutCount  Int        @default(0)
 
   @@index([competitorId, takenAt])
 }

@@ -48,10 +48,14 @@ export default function Prices() {
   const { syncError, competitors, rows, totals } = useLoaderData<typeof loader>();
   const sync = useFetcher<typeof action>();
   const [params, setParams] = useSearchParams();
-  const undercutOnly = params.get("show") === "undercut";
+  const show = params.get("show");
+  const undercutOnly = show === "undercut";
+  const soldOutOnly = show === "sold-out";
   const shown = undercutOnly
     ? rows.filter((r) => r.cells.some((c) => c && !c.removed && c.gap != null && c.gap < 0))
-    : rows;
+    : soldOutOnly
+      ? rows.filter((r) => r.cells.some((c) => c && !c.removed && c.soldOut))
+      : rows;
   const avg = totals.averageGap == null ? "–" : `${totals.averageGap > 0 ? "+" : ""}${Math.round(totals.averageGap * 100)}%`;
 
   return (
@@ -73,6 +77,7 @@ export default function Prices() {
           <Stat label="Matched at a competitor" value={totals.matched.toLocaleString()} />
           <Stat label="A competitor is cheaper" value={totals.undercut.toLocaleString()} />
           <Stat label="You're cheapest" value={totals.cheapest.toLocaleString()} />
+          <Stat label="Sold out at a competitor" value={totals.soldOut.toLocaleString()} />
           <Stat label="Competitors vs you, on average" value={avg} />
         </s-grid>
       </s-section>
@@ -90,7 +95,7 @@ export default function Prices() {
         ) : (
           <s-stack gap="base">
             <s-stack direction="inline" gap="small">
-              <s-button variant={undercutOnly ? "secondary" : "primary"} onClick={() => setParams({})}>
+              <s-button variant={show ? "secondary" : "primary"} onClick={() => setParams({})}>
                 All matched ({rows.length})
               </s-button>
               <s-button
@@ -98,6 +103,12 @@ export default function Prices() {
                 onClick={() => setParams({ show: "undercut" })}
               >
                 A competitor is cheaper ({totals.undercut})
+              </s-button>
+              <s-button
+                variant={soldOutOnly ? "primary" : "secondary"}
+                onClick={() => setParams({ show: "sold-out" })}
+              >
+                Sold out at a competitor ({totals.soldOut})
               </s-button>
             </s-stack>
             <s-paragraph>
@@ -147,6 +158,7 @@ function PriceCell({ cell }: { cell: CellData }) {
       </s-link>
       <s-stack direction="inline" gap="small-200">
         <s-badge tone={gap.tone}>{gap.label}</s-badge>
+        {cell.soldOut && <s-badge tone="success">Sold out</s-badge>}
         {!cell.confirmed && (
           <s-button
             variant="tertiary"

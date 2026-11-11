@@ -8,6 +8,7 @@ export type SeenProduct = {
   priceCents: number;
   compareAtCents: number | null;
   publishedAt: Date | null;
+  available: boolean; // False when every variant is sold out
 };
 
 type RawVariant = { price?: string | number | null; compare_at_price?: string | number | null; available?: boolean };
@@ -38,6 +39,9 @@ export function parseProducts(json: unknown): SeenProduct[] {
       .filter((c): c is number => c != null && c > 0);
     const price = Math.min(...prices);
     const highestCompare = compareAt.length ? Math.max(...compareAt) : null;
+    // Stores that hide stock leave `available` out: count those as in stock.
+    const variants = p.variants ?? [];
+    const available = !variants.length || variants.some((v) => v?.available !== false);
     const published = p.published_at ? new Date(p.published_at) : null;
     out.push({
       productId: String(p.id),
@@ -47,6 +51,7 @@ export function parseProducts(json: unknown): SeenProduct[] {
       priceCents: price,
       compareAtCents: highestCompare != null && highestCompare > price ? highestCompare : null,
       publishedAt: published && !Number.isNaN(published.getTime()) ? published : null,
+      available,
     });
   }
   return out;

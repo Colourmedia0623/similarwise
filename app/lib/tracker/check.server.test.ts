@@ -4,6 +4,7 @@ import { addCompetitor, checkCompetitor, MAX_COMPETITORS, maxCompetitors, remove
 import type { Fetcher } from "./fetch.server";
 import { redactShop } from "../privacy.server";
 import { overview } from "../dashboard.server";
+import { soldOutProducts } from "./stock.server";
 
 const SHOP = "mine.myshopify.com";
 
@@ -13,11 +14,11 @@ const home = (extra = "") =>
 Shopify.theme = {"name":"Dawn","schema_name":"Dawn"};</script>
 <script src="https://connect.facebook.net/en_US/fbevents.js"></script>${extra}</head></html>`;
 
-const product = (id: number, title: string, price: string) => ({
+const product = (id: number, title: string, price: string, available = true) => ({
   id,
   handle: title.toLowerCase(),
   title,
-  variants: [{ price }],
+  variants: [{ price, available }],
 });
 
 // A fake competitor store whose pages the test changes between checks.
@@ -81,6 +82,40 @@ describe("tracking a competitor", () => {
     const o = await overview(SHOP);
     expect(o.week).toEqual({ launches: 1, priceChanges: 1, removed: 1, channelChanges: 1 });
     expect(o.competitors[0].adChannels).toEqual(["Meta (Facebook & Instagram)", "TikTok"]);
+  });
+
+  it("tracks products selling out and coming back in stock", async () => {
+    const pages = { home: home(), products: [product(1, "Jacket", "100.00"), product(2, "Cap", "20.00", false)] };
+    const fetcher = store(pages);
+    const id = ((await addCompetitor(SHOP, "rival.com", fetcher)) as { id: string }).id;
+    expect((await db.competitorEvent.findFirstOrThrow({ where: { competitorId: id } })).message).toBe(
+      "Started tracking 2 products, 1 of them sold out",
+    );
+    const cap = await db.competitorProduct.findFirstOrThrow({ where: { competitorId: id, productId: "2" } });
+    expect(cap.available).toBe(false);
+    expect(cap.soldOutAt).not.toBeNull();
+
+    pages.products = [product(1, "Jacket", "100.00", false), product(2, "Cap", "20.00", false)];
+    await checkCompetitor(id, fetcher);
+    // Cap stays sold out since the first check.
+    const capAgain = await db.competitorProduct.findFirstOrThrow({ where: { competitorId: id, productId: "2" } });
+    expect(capAgain.soldOutAt).toEqual(cap.soldOutAt);
+
+    const stock = await soldOutProducts(SHOP);
+    expect(stock.totals).toEqual({ soldOut: 2, youSell: 0 });
+    expect(stock.competitors[0]).toMatchObject({ soldOut: 2, productCount: 2 });
+
+    pages.products = [product(1, "Jacket", "100.00", true), product(2, "Cap", "20.00", false)];
+    await checkCompetitor(id, fetcher);
+    const events = await db.competitorEvent.findMany({
+      where: { competitorId: id, kind: { in: ["sold_out", "restocked"] } },
+      orderBy: { createdAt: "asc" },
+    });
+    expect(events.map((e) => e.message)).toEqual(["“Jacket” sold out", "“Jacket” is back in stock"]);
+    const jacket = await db.competitorProduct.findFirstOrThrow({ where: { competitorId: id, productId: "1" } });
+    expect(jacket).toMatchObject({ available: true, soldOutAt: null });
+    const snaps = await db.competitorSnapshot.findMany({ where: { competitorId: id }, orderBy: { takenAt: "asc" } });
+    expect(snaps.map((s) => s.soldOutCount)).toEqual([1, 2, 1]);
   });
 
   it("refuses bad addresses, duplicates and going over the limit", async () => {

@@ -4,7 +4,7 @@ import type { SeenProduct } from "./products";
 
 export type Change = { kind: string; message: string };
 
-export type KnownProduct = Pick<SeenProduct, "productId" | "title" | "priceCents">;
+export type KnownProduct = Pick<SeenProduct, "productId" | "title" | "priceCents"> & { available?: boolean | null };
 
 const MAX_PER_KIND = 25;
 
@@ -32,6 +32,8 @@ export function diffProducts(before: KnownProduct[], after: SeenProduct[], curre
   const launches: string[] = [];
   const up: string[] = [];
   const down: string[] = [];
+  const soldOut: string[] = [];
+  const restocked: string[] = [];
   for (const p of after) {
     const prev = old.get(p.productId);
     if (!prev) {
@@ -40,6 +42,10 @@ export function diffProducts(before: KnownProduct[], after: SeenProduct[], curre
       const line = `“${p.title}” went from ${formatPrice(prev.priceCents, currency)} to ${formatPrice(p.priceCents, currency)}`;
       (p.priceCents > prev.priceCents ? up : down).push(line);
     }
+    // Only once stock was read before: products tracked before stock was
+    // read have none, and shouldn't all alert at once.
+    if (prev && prev.available === true && !p.available) soldOut.push(`“${p.title}” sold out`);
+    if (prev && prev.available === false && p.available) restocked.push(`“${p.title}” is back in stock`);
   }
   const removed = before.filter((p) => !seen.has(p.productId)).map((p) => `Took down “${p.title}”`);
   return [
@@ -47,6 +53,8 @@ export function diffProducts(before: KnownProduct[], after: SeenProduct[], curre
     ...capped("price_down", down, (n) => `…and cut the price of ${n} more products`),
     ...capped("price_up", up, (n) => `…and raised the price of ${n} more products`),
     ...capped("removed", removed, (n) => `…and took down ${n} more products`),
+    ...capped("sold_out", soldOut, (n) => `…and ${n} more products sold out`),
+    ...capped("restocked", restocked, (n) => `…and ${n} more products came back in stock`),
   ];
 }
 
