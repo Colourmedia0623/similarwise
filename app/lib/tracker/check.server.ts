@@ -138,7 +138,7 @@ export async function checkCompetitor(id: string, fetcher: Fetcher = fetchPublic
             publishedAt: p.publishedAt,
             available: p.available,
             // Keeps when it first sold out while it stays sold out.
-            soldOutAt: p.available ? null : prev && !prev.available ? (prev.soldOutAt ?? now) : now,
+            soldOutAt: p.available ? null : prev?.available === false ? (prev.soldOutAt ?? now) : now,
             lastSeenAt: now,
             removedAt: null,
           };

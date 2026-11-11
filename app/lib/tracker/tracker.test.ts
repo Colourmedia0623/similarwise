@@ -128,8 +128,14 @@ describe("diffProducts", () => {
       { productId: "1", title: "Jacket", priceCents: 10000, available: true },
       { productId: "2", title: "Cap", priceCents: 2000, available: false },
       { productId: "3", title: "Gloves", priceCents: 1500, available: false },
+      { productId: "4", title: "Scarf", priceCents: 900, available: null }, // Stock never read
     ];
-    const after = [seen("1", "Jacket", 10000, false), seen("2", "Cap", 2000, true), seen("3", "Gloves", 1500, false)];
+    const after = [
+      seen("1", "Jacket", 10000, false),
+      seen("2", "Cap", 2000, true),
+      seen("3", "Gloves", 1500, false),
+      seen("4", "Scarf", 900, false),
+    ];
     expect(diffProducts(before, after, "GBP")).toEqual([
       { kind: "sold_out", message: "“Jacket” sold out" },
       { kind: "restocked", message: "“Cap” is back in stock" },

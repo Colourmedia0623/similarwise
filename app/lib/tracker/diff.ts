@@ -4,7 +4,7 @@ import type { SeenProduct } from "./products";
 
 export type Change = { kind: string; message: string };
 
-export type KnownProduct = Pick<SeenProduct, "productId" | "title" | "priceCents"> & { available?: boolean };
+export type KnownProduct = Pick<SeenProduct, "productId" | "title" | "priceCents"> & { available?: boolean | null };
 
 const MAX_PER_KIND = 25;
 
@@ -42,7 +42,9 @@ export function diffProducts(before: KnownProduct[], after: SeenProduct[], curre
       const line = `“${p.title}” went from ${formatPrice(prev.priceCents, currency)} to ${formatPrice(p.priceCents, currency)}`;
       (p.priceCents > prev.priceCents ? up : down).push(line);
     }
-    if (prev && prev.available !== false && !p.available) soldOut.push(`“${p.title}” sold out`);
+    // Only once stock was read before: products tracked before stock was
+    // read have none, and shouldn't all alert at once.
+    if (prev && prev.available === true && !p.available) soldOut.push(`“${p.title}” sold out`);
     if (prev && prev.available === false && p.available) restocked.push(`“${p.title}” is back in stock`);
   }
   const removed = before.filter((p) => !seen.has(p.productId)).map((p) => `Took down “${p.title}”`);

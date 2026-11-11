@@ -186,7 +186,7 @@ export async function priceComparison(shop: string) {
         gap: comparable ? priceGap(p.priceCents, cp.priceCents) : null,
         confirmed: m.confirmed,
         removed: cp.removedAt != null,
-        soldOut: !cp.available,
+        soldOut: cp.available === false,
       };
     });
     return { id: p.id, title: p.title, priceCents: p.priceCents, currency: p.currency, cells };
