@@ -102,8 +102,8 @@ describe("tracking a competitor", () => {
     expect(capAgain.soldOutAt).toEqual(cap.soldOutAt);
 
     const stock = await soldOutProducts(SHOP);
-    expect(stock.totals).toEqual({ soldOut: 2, youSell: 0 });
-    expect(stock.competitors[0]).toMatchObject({ soldOut: 2, productCount: 2 });
+    expect(stock.totals).toEqual({ soldOut: 2, partly: 0, youSell: 0 });
+    expect(stock.competitors[0]).toMatchObject({ soldOut: 2, partly: 0, productCount: 2 });
 
     pages.products = [product(1, "Jacket", "100.00", true), product(2, "Cap", "20.00", false)];
     await checkCompetitor(id, fetcher);
@@ -116,6 +116,24 @@ describe("tracking a competitor", () => {
     expect(jacket).toMatchObject({ available: true, soldOutAt: null });
     const snaps = await db.competitorSnapshot.findMany({ where: { competitorId: id }, orderBy: { takenAt: "asc" } });
     expect(snaps.map((s) => s.soldOutCount)).toEqual([1, 2, 1]);
+  });
+
+  it("lists products with some sizes sold out", async () => {
+    const shoe = {
+      id: 7,
+      handle: "runner",
+      title: "Runner",
+      variants: [
+        { title: "UK 8", price: "90.00", available: true },
+        { title: "UK 9", price: "90.00", available: false },
+        { title: "UK 10", price: "90.00", available: false },
+      ],
+    };
+    const fetcher = store({ home: home(), products: [shoe, product(1, "Jacket", "100.00")] });
+    await addCompetitor(SHOP, "rival.com", fetcher);
+    const stock = await soldOutProducts(SHOP);
+    expect(stock.totals).toEqual({ soldOut: 0, partly: 1, youSell: 0 });
+    expect(stock.rows[0]).toMatchObject({ title: "Runner", soldOut: false, variantCount: 3, soldOutOptions: ["UK 9", "UK 10"] });
   });
 
   it("refuses bad addresses, duplicates and going over the limit", async () => {

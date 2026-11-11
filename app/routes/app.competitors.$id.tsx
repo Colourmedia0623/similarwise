@@ -19,7 +19,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const c = await db.competitor.findFirst({ where: { id: params.id, shop: session.shop } });
   if (!c) throw new Response("Not found", { status: 404 });
-  const [events, newest, snapshots, onSale, keywords, traffic, soldOut, soldOutCount] = await Promise.all([
+  const [events, newest, snapshots, onSale, keywords, traffic, soldOut, soldOutCount, partlyCount] = await Promise.all([
     db.competitorEvent.findMany({ where: { competitorId: c.id }, orderBy: { createdAt: "desc" }, take: 50 }),
     db.competitorProduct.findMany({
       where: { competitorId: c.id, removedAt: null },
@@ -36,6 +36,9 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       take: 25,
     }),
     db.competitorProduct.count({ where: { competitorId: c.id, removedAt: null, available: false } }),
+    db.competitorProduct.count({
+      where: { competitorId: c.id, removedAt: null, available: { not: false }, soldOutOptions: { not: "[]" } },
+    }),
   ]);
   return {
     competitor: {
@@ -51,6 +54,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       avgPriceCents: c.avgPriceCents,
       onSale,
       soldOut: soldOutCount,
+      partly: partlyCount,
       lastCheckedAt: c.lastCheckedAt?.toISOString() ?? null,
       lastError: c.lastError,
     },
@@ -151,6 +155,7 @@ export default function Competitor() {
           <Stat label="Average price" value={price(c.avgPriceCents)} />
           <Stat label="On sale" value={c.isShopify ? c.onSale.toLocaleString() : "–"} />
           <Stat label="Sold out" value={c.isShopify ? c.soldOut.toLocaleString() : "–"} />
+          <Stat label="Some sizes out" value={c.isShopify ? c.partly.toLocaleString() : "–"} />
         </s-grid>
         <s-box paddingBlockStart="base">
           <s-text color="subdued">Last checked {timeAgo(c.lastCheckedAt)}. Checked again every day.</s-text>
@@ -225,7 +230,14 @@ export default function Competitor() {
       {c.isShopify && (
         <s-section heading={`Sold out now${c.soldOut ? ` (${c.soldOut.toLocaleString()})` : ""}`}>
           {soldOut.length === 0 ? (
-            <s-paragraph>Everything they sell is in stock.</s-paragraph>
+            <s-paragraph>
+              Nothing sold out completely.{" "}
+              {c.partly > 0 && (
+                <s-link href={`/app/stock?competitor=${c.id}`}>
+                  {c.partly.toLocaleString()} products have some sizes or options out
+                </s-link>
+              )}
+            </s-paragraph>
           ) : (
             <s-stack gap="base">
               <s-table>
@@ -250,8 +262,10 @@ export default function Competitor() {
                   ))}
                 </s-table-body>
               </s-table>
-              {c.soldOut > soldOut.length && (
-                <s-link href={`/app/stock?competitor=${c.id}`}>See all {c.soldOut.toLocaleString()} sold out</s-link>
+              {(c.soldOut > soldOut.length || c.partly > 0) && (
+                <s-link href={`/app/stock?competitor=${c.id}`}>
+                  See everything showing out of stock, including {c.partly.toLocaleString()} with some sizes out
+                </s-link>
               )}
             </s-stack>
           )}

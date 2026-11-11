@@ -9,9 +9,11 @@ export type SeenProduct = {
   compareAtCents: number | null;
   publishedAt: Date | null;
   available: boolean; // False when every variant is sold out
+  variantCount: number;
+  soldOutOptions: string[]; // Names of the variants sold out, e.g. "UK 9 / Black"
 };
 
-type RawVariant = { price?: string | number | null; compare_at_price?: string | number | null; available?: boolean };
+type RawVariant = { title?: string; price?: string | number | null; compare_at_price?: string | number | null; available?: boolean };
 type RawProduct = {
   id?: number | string;
   handle?: string;
@@ -42,6 +44,10 @@ export function parseProducts(json: unknown): SeenProduct[] {
     // Stores that hide stock leave `available` out: count those as in stock.
     const variants = p.variants ?? [];
     const available = !variants.length || variants.some((v) => v?.available !== false);
+    const soldOutOptions = variants
+      .filter((v) => v?.available === false)
+      .map((v, i) => (v.title && v.title !== "Default Title" ? String(v.title).slice(0, 60) : `Option ${i + 1}`))
+      .slice(0, MAX_OPTIONS);
     const published = p.published_at ? new Date(p.published_at) : null;
     out.push({
       productId: String(p.id),
@@ -52,10 +58,13 @@ export function parseProducts(json: unknown): SeenProduct[] {
       compareAtCents: highestCompare != null && highestCompare > price ? highestCompare : null,
       publishedAt: published && !Number.isNaN(published.getTime()) ? published : null,
       available,
+      variantCount: variants.length,
+      soldOutOptions,
     });
   }
   return out;
 }
 
 export const PAGE_LIMIT = 250;
+const MAX_OPTIONS = 50;
 export const MAX_PAGES = 20; // Up to 5,000 products per store.
