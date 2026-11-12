@@ -19,7 +19,7 @@ export const adNetworkOn = (n: AdNetwork) =>
   n === "meta" ? !!(process.env.META_APP_ID && process.env.META_APP_SECRET) : !!(process.env.TIKTOK_ADS_APP_ID && process.env.TIKTOK_ADS_SECRET);
 
 // Until Meta or TikTok grant the ads permissions, only people added to the
-// apps can sign in, so the Connect buttons show only on Colourmedia's own
+// apps can sign in, so the Connect buttons show only on Colourmedia's own and free
 // stores. SOCIAL_APPROVED lists the approved ones, e.g. "meta-ads,tiktok-ads".
 export const adNetworkApproved = (n: AdNetwork) =>
   (process.env.SOCIAL_APPROVED ?? "")

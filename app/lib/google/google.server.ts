@@ -33,7 +33,7 @@ export const adsOn = () => googleOn() && !!process.env.GOOGLE_ADS_DEVELOPER_TOKE
 
 // Until Google has verified SimilarWise's sign-in, only the test users added
 // to its Google Cloud project can sign in, so the Connect button is shown only
-// to Colourmedia's own stores. GOOGLE_APPROVED=true opens it to everyone.
+// to Colourmedia's own and free stores. GOOGLE_APPROVED=true opens it to everyone.
 export const googleApproved = () => process.env.GOOGLE_APPROVED === "true";
 
 export const googleCallbackUrl = () => `${process.env.SHOPIFY_APP_URL || ""}/google/callback`;

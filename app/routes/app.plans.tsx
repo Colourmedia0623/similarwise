@@ -22,7 +22,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     current: sub ? { ...parsePlanKey(sub.name), id: sub.id, trialDays: sub.trialDays } : null,
     need: PLANS.find((p) => p.tier === need)?.name ?? null,
     // Until Meta and TikTok approve the app, other stores can't connect social accounts yet.
-    socialSoon: !owner && !(providerApproved("meta") && providerApproved("tiktok")),
+    socialSoon: !free && !(providerApproved("meta") && providerApproved("tiktok")),
   };
 };
 
