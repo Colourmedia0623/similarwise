@@ -43,7 +43,12 @@ jobs:
           META_CONFIG_ID: ${{ secrets.META_CONFIG_ID }}
           TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
           TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
-          # "meta,tiktok" once each network has approved the app; until then only our own stores can connect.
+          # Managing the merchant's own paid social ads. Meta reuses the app above with its
+          # own Login for Business configuration; TikTok needs a TikTok for Business app.
+          META_ADS_CONFIG_ID: ${{ secrets.META_ADS_CONFIG_ID }}
+          TIKTOK_ADS_APP_ID: ${{ secrets.TIKTOK_ADS_APP_ID }}
+          TIKTOK_ADS_SECRET: ${{ secrets.TIKTOK_ADS_SECRET }}
+          # "meta,tiktok,meta-ads,tiktok-ads" once each network has approved the app; until then only our own stores can connect.
           SOCIAL_APPROVED: ${{ vars.SOCIAL_APPROVED }}
           # The merchant's own Google Analytics and Google Ads figures; off until
           # the client pair is set, and Ads also needs the developer token.
@@ -75,6 +80,9 @@ jobs:
             echo "META_CONFIG_ID=$META_CONFIG_ID"
             echo "TIKTOK_CLIENT_KEY=$TIKTOK_CLIENT_KEY"
             echo "TIKTOK_CLIENT_SECRET=$TIKTOK_CLIENT_SECRET"
+            echo "META_ADS_CONFIG_ID=$META_ADS_CONFIG_ID"
+            echo "TIKTOK_ADS_APP_ID=$TIKTOK_ADS_APP_ID"
+            echo "TIKTOK_ADS_SECRET=$TIKTOK_ADS_SECRET"
             echo "SOCIAL_APPROVED=$SOCIAL_APPROVED"
             echo "GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID"
             echo "GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET"
