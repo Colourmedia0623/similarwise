@@ -599,3 +599,41 @@ model GoogleConnection {
   runningAt    DateTime?
   createdAt    DateTime  @default(now())
 }
+
+// A Meta ad account or TikTok advertiser the merchant runs paid social ads
+// from (lib/paidsocial): its campaigns' spend, budgets and on/off switches.
+model AdAccount {
+  id             String    @id @default(cuid())
+  shop           String
+  network        String    // meta | tiktok
+  accountId      String    // Meta "act_123" or TikTok advertiser id
+  name           String
+  currency       String
+  token          String    // Encrypted access token
+  tokenExpiresAt DateTime? // Meta user tokens last about 60 days; TikTok's don't run out
+  monthlyLimit   Float?    // The most the merchant wants spent in a calendar month, in the account's currency
+  limitPause     Boolean   @default(false) // Pause running campaigns once the limit is reached
+  limitNotified  String?   // The month and level already emailed, e.g. "2026-11:80" or "2026-11:100"
+  monthSpend     Float?    // Spend so far this month, read daily
+  monthSpendAt   DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@unique([shop, network, accountId])
+}
+
+// A change made to a paid social campaign from SimilarWise, by the merchant
+// or by their monthly spend limit.
+model AdChange {
+  id           String   @id @default(cuid())
+  shop         String
+  adAccountId  String   // AdAccount.id
+  campaignId   String
+  campaignName String
+  kind         String   // pause | resume | budget
+  before       String?
+  after        String?
+  by           String   // you | limit
+  createdAt    DateTime @default(now())
+
+  @@index([shop, createdAt])
+}
