@@ -6,7 +6,7 @@ import db from "../db.server";
 import { authenticate } from "../shopify.server";
 import { NETWORK_NAME } from "../lib/social/networks";
 import { authorizeUrl, providerApproved, providerOn, type Provider } from "../lib/social/networks.server";
-import { isOwnerShop } from "../lib/waitlist.server";
+import { isFreeShop } from "../lib/waitlist.server";
 import { signState } from "../lib/social/seal.server";
 import { disconnectAccount, setSocialAuto, socialAccounts } from "../lib/social/social.server";
 
@@ -18,7 +18,7 @@ const SIGN_IN_FOR = 30 * 60_000;
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
-  const open = (p: Provider) => providerOn(p) && (providerApproved(p) || isOwnerShop(shop));
+  const open = (p: Provider) => providerOn(p) && (providerApproved(p) || isFreeShop(shop));
   const link = (p: Provider) => (open(p) ? authorizeUrl(p, signState({ shop, network: p, exp: Date.now() + SIGN_IN_FOR })) : null);
   const [accounts, settings] = await Promise.all([socialAccounts(shop), db.shopSettings.findUnique({ where: { shop } })]);
   return { accounts, auto: settings?.socialAuto ?? false, meta: link("meta"), tiktok: link("tiktok") };

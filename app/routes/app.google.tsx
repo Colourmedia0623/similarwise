@@ -6,7 +6,7 @@ import db from "../db.server";
 import { authenticate } from "../shopify.server";
 import { formatPrice } from "../lib/format";
 import { signState } from "../lib/social/seal.server";
-import { isOwnerShop } from "../lib/waitlist.server";
+import { isFreeShop } from "../lib/waitlist.server";
 import { formatCustomerId, type AdsTotals, type Totals } from "../lib/google/google";
 import {
   adsOn,
@@ -29,7 +29,7 @@ const SIGN_IN_FOR = 30 * 60_000;
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
-  const open = googleOn() && (googleApproved() || isOwnerShop(shop));
+  const open = googleOn() && (googleApproved() || isFreeShop(shop));
   const connect = open ? googleAuthorizeUrl(signState({ shop, network: "google", exp: Date.now() + SIGN_IN_FOR })) : null;
   const overview = await googleOverview(shop);
   const choosing = !!overview && (new URL(request.url).searchParams.has("choose") || (!overview.gaProperty && !overview.adsCustomer));

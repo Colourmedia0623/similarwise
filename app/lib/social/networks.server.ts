@@ -21,7 +21,7 @@ export const providerOn = (p: Provider) =>
   p === "meta" ? !!(process.env.META_APP_ID && process.env.META_APP_SECRET) : !!(process.env.TIKTOK_CLIENT_KEY && process.env.TIKTOK_CLIENT_SECRET);
 
 // Until Meta or TikTok approves SimilarWise, only people added to its app
-// can sign in, so the Connect button is shown only to Colourmedia's own
+// can sign in, so the Connect button is shown only to Colourmedia's own and free
 // stores. SOCIAL_APPROVED lists the approved ones, e.g. "meta,tiktok".
 export const providerApproved = (p: Provider) => (process.env.SOCIAL_APPROVED ?? "").split(",").map((s) => s.trim()).includes(p);
 

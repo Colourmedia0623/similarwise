@@ -3,7 +3,7 @@ import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "re
 import { useFetcher, useLoaderData, useNavigate, useRevalidator } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
-import { isOwnerShop } from "../lib/waitlist.server";
+import { isFreeShop } from "../lib/waitlist.server";
 import { signState } from "../lib/social/seal.server";
 import { timeAgo } from "../lib/format";
 import { adAuthorizeUrl, adNetworkApproved, adNetworkOn } from "../lib/paidsocial/networks.server";
@@ -21,7 +21,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const shop = session.shop;
   const period = parsePeriod(new URL(request.url).searchParams.get("period"));
   const link = (n: AdNetwork) =>
-    adNetworkOn(n) && (adNetworkApproved(n) || isOwnerShop(shop)) ? adAuthorizeUrl(n, signState({ shop, network: `${n}-ads`, exp: Date.now() + SIGN_IN_FOR })) : null;
+    adNetworkOn(n) && (adNetworkApproved(n) || isFreeShop(shop)) ? adAuthorizeUrl(n, signState({ shop, network: `${n}-ads`, exp: Date.now() + SIGN_IN_FOR })) : null;
   const [accounts, changes] = await Promise.all([paidOverview(shop, period), recentAdChanges(shop)]);
   return { period, accounts, changes, meta: link("meta"), tiktok: link("tiktok") };
 };

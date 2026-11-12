@@ -9,8 +9,10 @@ const OWNER_SHOPS = (process.env.OWNER_SHOPS ?? "gift-boxes-3000.myshopify.com,c
 
 export const isOwnerShop = (shop: string) => OWNER_SHOPS.includes(shop);
 
-// Stores given every page free, without the owner-only extras (the waitlist,
-// and connecting networks before they've approved the app).
+// Stores given every page free, without the waitlist. Like Colourmedia's own
+// stores they can press Connect before Meta, TikTok and Google approve the
+// app; signing in then works once the store's owner is added as a tester on
+// that network's app.
 const FREE_SHOPS = (process.env.FREE_SHOPS ?? "x0eri3-qj.myshopify.com")
   .split(",")
   .map((s) => s.trim())
