@@ -4,7 +4,7 @@ import { Form, useLoaderData, useNavigation } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { PLANS, PLAN_KEYS, TRIAL_DAYS, parsePlanKey, planKey, type Cycle, type Tier } from "../lib/billing";
-import { isOwnerShop } from "../lib/waitlist.server";
+import { isFreeShop, isOwnerShop } from "../lib/waitlist.server";
 import { providerApproved } from "../lib/social/networks.server";
 
 // Choosing, changing or cancelling a plan. Charges go through Shopify.
@@ -12,11 +12,13 @@ import { providerApproved } from "../lib/social/networks.server";
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session, billing } = await authenticate.admin(request);
   const owner = isOwnerShop(session.shop);
-  const { appSubscriptions } = owner ? { appSubscriptions: [] } : await billing.check({ plans: PLAN_KEYS, isTest: true });
+  const free = isFreeShop(session.shop);
+  const { appSubscriptions } = free ? { appSubscriptions: [] } : await billing.check({ plans: PLAN_KEYS, isTest: true });
   const sub = appSubscriptions[0];
   const need = new URL(request.url).searchParams.get("need");
   return {
     owner,
+    free,
     current: sub ? { ...parsePlanKey(sub.name), id: sub.id, trialDays: sub.trialDays } : null,
     need: PLANS.find((p) => p.tier === need)?.name ?? null,
     // Until Meta and TikTok approve the app, other stores can't connect social accounts yet.
@@ -49,14 +51,18 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function Plans() {
-  const { owner, current, need, socialSoon } = useLoaderData<typeof loader>();
+  const { owner, free, current, need, socialSoon } = useLoaderData<typeof loader>();
   const [cycle, setCycle] = useState<Cycle>(current?.cycle ?? "yearly");
   const busy = useNavigation().state !== "idle";
 
   return (
     <s-page heading="Plans">
-      {owner && <s-banner tone="info">This is a Colourmedia store, so every feature is already on and nothing is charged.</s-banner>}
-      {need && !owner && (
+      {free && (
+        <s-banner tone="info">
+          {owner ? "This is a Colourmedia store, so every feature is already on and nothing is charged." : "This store has free access to SimilarWise, so every feature is already on and nothing is charged."}
+        </s-banner>
+      )}
+      {need && !free && (
         <s-banner tone="warning">{current ? `That page is part of the ${need} plan. Upgrade to open it.` : `Choose a plan to start your ${TRIAL_DAYS}-day free trial.`}</s-banner>
       )}
 
@@ -92,7 +98,7 @@ export default function Plans() {
                   <s-list-item key={i}>{socialSoon && i.startsWith("Sharing to") ? `${i} (coming soon)` : i}</s-list-item>
                 ))}
               </s-unordered-list>
-              {!owner && (
+              {!free && (
                 <Form method="post">
                   <input type="hidden" name="tier" value={p.tier} />
                   <input type="hidden" name="cycle" value={cycle} />

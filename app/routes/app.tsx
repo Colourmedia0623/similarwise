@@ -9,7 +9,7 @@ import { authenticate } from "../shopify.server";
 import { detectShopMarket } from "../lib/traffic/refresh.server";
 import { detectShopDomain } from "../lib/traffic/gap.server";
 import { detectAlertEmail } from "../lib/email/alerts.server";
-import { isOwnerShop } from "../lib/waitlist.server";
+import { isFreeShop, isOwnerShop } from "../lib/waitlist.server";
 import { PLAN_KEYS, covers, pageTier, parsePlanKey, type Tier } from "../lib/billing";
 
 const RANK: Tier[] = ["watch", "grow", "advertise"];
@@ -17,8 +17,8 @@ const RANK: Tier[] = ["watch", "grow", "advertise"];
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session, billing, redirect } = await authenticate.admin(request);
   const owner = isOwnerShop(session.shop);
-  // Colourmedia's own stores use everything for free. Everyone else needs a plan that covers the page.
-  if (!owner) {
+  // Colourmedia's own stores, and the stores given free access, use everything for free. Everyone else needs a plan that covers the page.
+  if (!isFreeShop(session.shop)) {
     const { appSubscriptions } = await billing.check({ plans: PLAN_KEYS, isTest: true });
     const tiers = appSubscriptions.map((s) => parsePlanKey(s.name)?.tier).filter((t): t is Tier => t != null);
     const tier = RANK.filter((t) => tiers.includes(t)).pop();
