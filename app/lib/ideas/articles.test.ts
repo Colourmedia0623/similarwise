@@ -48,10 +48,28 @@ describe("blog articles", () => {
     expect(await sendArticle(SHOP, id, false, graphql)).toEqual({ ok: true });
     const sent = calls[1].variables as { article: Record<string, unknown>; blog?: unknown };
     expect(sent.blog).toEqual({ title: "News" });
-    expect(sent.article).toMatchObject({ title: "Gift box ideas for every occasion", isPublished: false, tags: ["Gifts"] });
+    expect(sent.article).toMatchObject({ title: "Gift box ideas for every occasion", isPublished: false, tags: ["Gifts"], author: { name: "articles" } });
     const row = await db.blogArticle.findUniqueOrThrow({ where: { id } });
     expect(row).toMatchObject({ status: "draft", url: "https://www.mine.com/blogs/news/gift-box-ideas", error: null });
     expect(await sendArticle(SHOP, id, true, graphql)).toEqual({ error: "That article is already on your blog." });
+  });
+
+  it("names the author set on the post, else the one in settings, else the store", async () => {
+    const make = (author: string | null) =>
+      db.blogArticle.create({ data: { shop: SHOP, keyword: "k", title: "T", summary: "", bodyHtml: "<p>x</p>", metaTitle: "T", metaDescription: "", author } });
+    const sentAs = async (id: string) => {
+      let name: unknown;
+      await sendArticle(SHOP, id, true, async (query, variables) => {
+        if (query.includes("blogs(")) return { data: { shop: { name: "Gift Boxes Ltd", primaryDomain: { url: "https://mine.com" } }, blogs: { nodes: [{ id: "gid://shopify/Blog/1" }] } } };
+        name = (variables as { article: { author: { name: string } } }).article.author.name;
+        return { data: { articleCreate: { article: { id: `gid://shopify/Article/${id}`, handle: "t", blog: { handle: "news" } }, userErrors: [] } } };
+      });
+      return name;
+    };
+    expect(await sentAs((await make(null)).id)).toBe("Gift Boxes Ltd");
+    await db.shopSettings.create({ data: { shop: SHOP, blogAuthor: "Jane Smith" } });
+    expect(await sentAs((await make(null)).id)).toBe("Jane Smith");
+    expect(await sentAs((await make(" Sam Lee ")).id)).toBe("Sam Lee");
   });
 
   it("explains a missing permission", async () => {
@@ -73,6 +91,10 @@ describe("blog articles", () => {
     expect(await editArticle(SHOP, a.id, edit, graphql)).toEqual({ ok: true });
     expect(await db.blogArticle.findUniqueOrThrow({ where: { id: a.id } })).toMatchObject({ title: "New title", metaTitle: "New title", tags: '["a","b"]', bodyHtml: `<p>${"New words. ".repeat(10)}</p>` });
     expect(calls[0].variables).toMatchObject({ id: "gid://shopify/Article/5", article: { title: "New title", tags: ["a", "b"] } });
+    expect((calls[0].variables as { article: Record<string, unknown> }).article.author).toBeUndefined();
+    expect(await editArticle(SHOP, a.id, { ...edit, author: "  Jane Smith " }, graphql)).toEqual({ ok: true });
+    expect((await db.blogArticle.findUniqueOrThrow({ where: { id: a.id } })).author).toBe("Jane Smith");
+    expect(calls[1].variables).toMatchObject({ article: { author: { name: "Jane Smith" } } });
     expect(await editArticle(SHOP, a.id, { ...edit, bodyHtml: "<p>hi</p>" }, graphql)).toEqual({ error: "The article needs some writing in it." });
   });
 });

@@ -71,7 +71,7 @@ export default function App() {
         <s-link href="/app/google">Google Analytics and Ads</s-link>
         <s-link href="/app/ads">Ads</s-link>
         <s-link href="/app/ad-ideas">Ad ideas</s-link>
-        <s-link href="/app/settings">Email alerts</s-link>
+        <s-link href="/app/settings">Settings</s-link>
         <s-link href="/app/plans">Plans</s-link>
         {owner && <s-link href="/app/waitlist">Waitlist</s-link>}
       </s-app-nav>

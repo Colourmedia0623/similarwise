@@ -6,8 +6,10 @@ import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { TOPICS, alertEmail, digestEmail, parseTopics, type Topic } from "../lib/email/alerts.server";
 import { mailer } from "../lib/email/send.server";
+import { AUTHOR_MAX } from "../lib/ideas/articles.server";
 
-// Where the app's emails go, and which ones the merchant wants.
+// Where the app's emails go, which ones the merchant wants, and who blog
+// posts are written by.
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -19,6 +21,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     digestOn: s?.digestOn ?? true,
     topics: parseTopics(s?.alertTopics ?? JSON.stringify(TOPICS.map((t) => t.key))),
     allTopics: TOPICS.map((t) => ({ key: t.key, label: t.label })),
+    blogAuthor: s?.blogAuthor ?? "",
   };
 };
 
@@ -26,6 +29,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const form = await request.formData();
   const shop = session.shop;
+  if (form.get("intent") === "author") {
+    const blogAuthor = String(form.get("blogAuthor") ?? "").trim().slice(0, AUTHOR_MAX) || null;
+    await db.shopSettings.upsert({ where: { shop }, create: { shop, blogAuthor }, update: { blogAuthor } });
+    return { ok: true as const, intent: "author" as const };
+  }
   if (form.get("intent") === "test") {
     const send = mailer();
     const s = await db.shopSettings.findUnique({ where: { shop } });
@@ -66,6 +74,8 @@ export default function Settings() {
   const loaded = useLoaderData<typeof loader>();
   const save = useFetcher<typeof action>();
   const test = useFetcher<typeof action>();
+  const author = useFetcher<typeof action>();
+  const [blogAuthor, setBlogAuthor] = useState(loaded.blogAuthor);
   const [email, setEmail] = useState(loaded.email);
   const [alertsOn, setAlertsOn] = useState(loaded.alertsOn);
   const [digestOn, setDigestOn] = useState(loaded.digestOn);
@@ -83,14 +93,14 @@ export default function Settings() {
   };
 
   return (
-    <s-page heading="Email alerts">
+    <s-page heading="Settings">
       {!loaded.emailOn && <s-banner tone="info">Emails aren&apos;t switched on for this app yet. Your choices are saved for when they are.</s-banner>}
       {saveError && <s-banner tone="critical">{saveError}</s-banner>}
       {save.state === "idle" && save.data && "ok" in save.data && <s-banner tone="success">Saved.</s-banner>}
       {testResult && "error" in testResult && <s-banner tone="critical">{testResult.error}</s-banner>}
       {testResult && "sent" in testResult && <s-banner tone="success">Test email sent to {testResult.sent}.</s-banner>}
 
-      <s-section heading="Where to send them">
+      <s-section heading="Email alerts: where to send them">
         <s-email-field label="Email address" value={email} onInput={(e) => setEmail(e.currentTarget.value)} />
       </s-section>
 
@@ -139,6 +149,24 @@ export default function Settings() {
               Send a test email
             </s-button>
           )}
+        </s-stack>
+      </s-section>
+
+      <s-section heading="Blog posts">
+        <s-stack gap="base">
+          <s-text-field
+            label="Author"
+            value={blogAuthor}
+            placeholder="Your store's name"
+            details="The name shown as the writer of the blog posts this app adds, for example Jane Smith. You can change it on any one post. Leave empty to use your store's name."
+            onInput={(e) => setBlogAuthor(e.currentTarget.value)}
+          />
+          <s-stack direction="inline" gap="small" alignItems="center">
+            <s-button loading={author.state !== "idle"} onClick={() => author.submit({ intent: "author", blogAuthor }, { method: "post" })}>
+              Save author
+            </s-button>
+            {author.state === "idle" && author.data && "ok" in author.data && <s-text color="subdued">Saved. New posts use this name, and posts already on your blog take it next time they&apos;re saved.</s-text>}
+          </s-stack>
         </s-stack>
       </s-section>
     </s-page>
