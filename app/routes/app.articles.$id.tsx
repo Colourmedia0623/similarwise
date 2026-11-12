@@ -3,6 +3,7 @@ import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "re
 import { Link, redirect, useFetcher, useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
+import db from "../db.server";
 import { compact } from "../lib/format";
 import { atOrigin, blogArticle, deleteArticle, editArticle, sendArticle, storeOrigin, updateOnShopify } from "../lib/ideas/articles.server";
 import { makeArticleImage, uploadArticleImage } from "../lib/ideas/images.server";
@@ -20,14 +21,15 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
   const graphql: Graphql = async (query, variables) => (await admin.graphql(query, { variables })).json();
   await checkTikTokPosts(session.shop, params.id ?? "");
-  const [article, origin, accounts, shares] = await Promise.all([
+  const [article, origin, accounts, shares, settings] = await Promise.all([
     blogArticle(session.shop, params.id ?? ""),
     storeOrigin(graphql),
     socialAccounts(session.shop),
     articleShares(session.shop, params.id ?? ""),
+    db.shopSettings.findUnique({ where: { shop: session.shop }, select: { blogAuthor: true } }),
   ]);
   if (!article) throw redirect("/app/articles");
-  return { article: { ...article, url: atOrigin(article.url, origin) }, imagesOn: Boolean(process.env.OPENAI_API_KEY), accounts, shares };
+  return { article: { ...article, url: atOrigin(article.url, origin) }, defaultAuthor: settings?.blogAuthor ?? "", imagesOn: Boolean(process.env.OPENAI_API_KEY), accounts, shares };
 };
 
 export const action = async ({ request, params }: ActionFunctionArgs) => {
@@ -86,6 +88,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
       metaTitle: text("metaTitle"),
       metaDescription: text("metaDescription"),
       tags: text("tags").split(","),
+      author: text("author"),
     },
     graphql,
   );
@@ -118,7 +121,7 @@ const TOOLS: { label: string; title: string; run: () => void }[] = [
 ];
 
 export default function ArticleEditor() {
-  const { article: a, imagesOn } = useLoaderData<typeof loader>();
+  const { article: a, defaultAuthor, imagesOn } = useLoaderData<typeof loader>();
   const save = useFetcher<typeof action>();
   const picture = useFetcher<typeof action>();
   const body = useRef<HTMLDivElement>(null);
@@ -129,6 +132,7 @@ export default function ArticleEditor() {
     metaTitle: a.metaTitle,
     metaDescription: a.metaDescription,
     tags: a.tags.join(", "),
+    author: a.author ?? "",
   });
   const [dirty, setDirty] = useState(false);
   const set = (k: keyof typeof fields) => (e: Event) => {
@@ -218,6 +222,17 @@ export default function ArticleEditor() {
           <s-stack gap="base">
             <s-text-field label="Title" value={fields.title} onInput={set("title")} />
             <s-text-area label="Summary for the blog listing" value={fields.summary} rows={2} onInput={set("summary")} />
+            <s-text-field
+              label="Author"
+              value={fields.author}
+              placeholder={defaultAuthor || "Your store's name"}
+              details={
+                defaultAuthor
+                  ? `Leave empty to use ${defaultAuthor}, the author set in Settings.`
+                  : "The person shown as writing this post. Leave empty to use your store's name, or set a name for every post in Settings."
+              }
+              onInput={set("author")}
+            />
             <div>
               <div className="sw-toolbar">
                 {TOOLS.map((t) => (

@@ -184,6 +184,9 @@ model ShopSettings {
   // Content calendar (lib/ideas/calendar): planned posts go on the blog published, or as hidden drafts.
   calendarPublish Boolean @default(true)
 
+  // Blog articles (lib/ideas/articles): the name shown as the author of each post, unless the post names its own.
+  blogAuthor String?
+
   // AI mentions (lib/ai/mentions): the shop's questions asked of AI assistants weekly.
   aiCheckedAt DateTime? // The last finished check
   aiRunningAt DateTime? // Set while a check runs
@@ -421,6 +424,7 @@ model BlogArticle {
   sentAt          DateTime?
   imageAlt        String?   // Set once an image is made (ArticleImage)
   imageError      String?
+  author          String?   // Shown as the post's author; the shop's blogAuthor when empty
 
   @@index([shop])
 }

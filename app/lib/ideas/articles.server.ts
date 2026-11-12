@@ -124,7 +124,7 @@ export async function writeTopic(
 
 const BLOGS = `#graphql
   query Blogs {
-    shop { primaryDomain { url } }
+    shop { name primaryDomain { url } }
     blogs(first: 10) { nodes { id handle title } }
   }`;
 
@@ -145,6 +145,15 @@ const denied = (message: string) =>
   /access denied|write_content|scope/i.test(message)
     ? "SimilarWise needs permission to add blog posts. Close and reopen the app to approve it, then try again."
     : `Shopify didn't accept the article: ${message}`;
+
+// The name shown as a post's author: the one set on the article, else the
+// shop's default from Settings. Null when neither is set.
+export const AUTHOR_MAX = 100;
+export async function articleAuthor(shop: string, a: { author: string | null }) {
+  if (a.author?.trim()) return a.author.trim();
+  const s = await db.shopSettings.findUnique({ where: { shop }, select: { blogAuthor: true } });
+  return s?.blogAuthor?.trim() || null;
+}
 
 // The picture sent with an article: the one made for it, or else the photo
 // of the first of the shop's products it links to.
@@ -169,12 +178,14 @@ export async function sendArticle(shop: string, id: string, publish: boolean, gr
   if (a.shopifyId) return { error: "That article is already on your blog." };
   try {
     const blogs = (await graphql(BLOGS)) as {
-      data?: { shop?: { primaryDomain?: { url: string } }; blogs?: { nodes: { id: string }[] } };
+      data?: { shop?: { name?: string; primaryDomain?: { url: string } }; blogs?: { nodes: { id: string }[] } };
       errors?: { message: string }[];
     };
     if (blogs.errors?.length) throw new Error(blogs.errors[0].message);
     const blogId = blogs.data?.blogs?.nodes[0]?.id;
     const picture = await articlePicture(shop, a);
+    // With no name set, the store's own name rather than the app's.
+    const author = (await articleAuthor(shop, a)) ?? blogs.data?.shop?.name ?? shop.replace(/\.myshopify\.com$/, "");
     const res = (await graphql(CREATE, {
       article: {
         ...(blogId ? { blogId } : {}),
@@ -182,7 +193,7 @@ export async function sendArticle(shop: string, id: string, publish: boolean, gr
         body: a.bodyHtml,
         summary: a.summary,
         tags: JSON.parse(a.tags) as string[],
-        author: { name: "SimilarWise" },
+        author: { name: author },
         isPublished: publish,
         ...(picture ? { image: { url: picture.url, altText: picture.altText } } : {}),
         ...(publish ? { publishDate: now.toISOString() } : {}),
@@ -225,7 +236,7 @@ const UPDATE = `#graphql
     }
   }`;
 
-export type ArticleEdit = { title: string; summary: string; bodyHtml: string; metaTitle: string; metaDescription: string; tags: string[] };
+export type ArticleEdit = { title: string; summary: string; bodyHtml: string; metaTitle: string; metaDescription: string; tags: string[]; author?: string };
 
 // Saves the merchant's changes, and copies them to the blog post when the
 // article is already on Shopify.
@@ -245,6 +256,7 @@ export async function editArticle(shop: string, id: string, edit: ArticleEdit, g
       metaTitle: edit.metaTitle.trim().slice(0, 120) || title.slice(0, 70),
       metaDescription: edit.metaDescription.trim().slice(0, 320),
       tags: JSON.stringify(edit.tags.map((t) => t.trim().slice(0, 40)).filter(Boolean).slice(0, 6)),
+      ...(edit.author !== undefined ? { author: edit.author.trim().slice(0, AUTHOR_MAX) || null } : {}),
     },
   });
   return a.shopifyId ? updateOnShopify(shop, id, graphql) : { ok: true as const };
@@ -255,7 +267,7 @@ export async function updateOnShopify(shop: string, id: string, graphql: Graphql
   const a = await db.blogArticle.findFirst({ where: { id, shop } });
   if (!a?.shopifyId) return { ok: true as const };
   try {
-    const picture = await articlePicture(shop, a);
+    const [picture, author] = await Promise.all([articlePicture(shop, a), articleAuthor(shop, a)]);
     const res = (await graphql(UPDATE, {
       id: a.shopifyId,
       article: {
@@ -263,6 +275,8 @@ export async function updateOnShopify(shop: string, id: string, graphql: Graphql
         body: a.bodyHtml,
         summary: a.summary,
         tags: JSON.parse(a.tags) as string[],
+        // Left as it is on the blog when no name is set here.
+        ...(author ? { author: { name: author } } : {}),
         ...(picture ? { image: { url: picture.url, altText: picture.altText } } : {}),
         metafields: [
           { namespace: "global", key: "title_tag", type: "single_line_text_field", value: a.metaTitle },
