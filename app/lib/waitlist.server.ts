@@ -9,6 +9,15 @@ const OWNER_SHOPS = (process.env.OWNER_SHOPS ?? "gift-boxes-3000.myshopify.com,c
 
 export const isOwnerShop = (shop: string) => OWNER_SHOPS.includes(shop);
 
+// Stores given every page free, without the owner-only extras (the waitlist,
+// and connecting networks before they've approved the app).
+const FREE_SHOPS = (process.env.FREE_SHOPS ?? "x0eri3-qj.myshopify.com")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+export const isFreeShop = (shop: string) => isOwnerShop(shop) || FREE_SHOPS.includes(shop);
+
 // One row per email: signing up again only updates the store.
 export async function saveSignup(s: Signup) {
   await db.waitlistEntry.upsert({ where: { email: s.email }, create: s, update: { store: s.store ?? undefined } });
