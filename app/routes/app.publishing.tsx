@@ -3006,7 +3006,7 @@ const CSS = `
 .pc-bars { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px 0; padding-bottom: 6px; border-bottom: 1px solid #ececec; }
 .pc-past { background: #fbfbfb; }
 .pc-drop { background: #eef3ff; outline: 2px dashed #4f7cff; outline-offset: -4px; }
-.pc-card { display: flex; flex-direction: column; gap: 6px; width: 100%; padding: 8px; border: 1px solid #e1e1e1; border-radius: 10px; background: #fff; color: #303030; font: inherit; text-align: left; text-decoration: none; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,.05); min-width: 0; }
+.pc-card { display: flex; flex-direction: column; gap: 6px; box-sizing: border-box; width: 100%; padding: 8px; border: 1px solid #e1e1e1; border-radius: 10px; background: #fff; color: #303030; font: inherit; text-align: left; text-decoration: none; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,.05); min-width: 0; }
 .pc-card:hover { border-color: #b5b5b5; box-shadow: 0 2px 6px rgba(0,0,0,.08); }
 .pc-card[draggable="true"] { cursor: grab; }
 .pc-card-draft { border-style: dashed; background: #fcfcfc; }
