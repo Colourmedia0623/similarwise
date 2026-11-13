@@ -2042,7 +2042,7 @@ const CSS = `
 .pc-detail-text { white-space: pre-line; font-size: 14px; line-height: 1.5; }
 .pc-results { margin: 0; padding: 0; list-style: none; }
 .pc-results li { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
-.pc-results li span { flex: 1; display: flex; flex-direction: column; }
+.pc-results li > span:not(.pc-net) { flex: 1; display: flex; flex-direction: column; }
 .pc-results em { font-style: normal; color: #616161; font-size: 12px; }
 .pc-bad { color: #c4291c !important; }
 .pc-composer-body { display: grid; grid-template-columns: minmax(0, 1fr) 340px; }

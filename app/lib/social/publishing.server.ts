@@ -61,13 +61,15 @@ export async function calendarData(shop: string, now = new Date()) {
     }),
   ]);
   const accountName = new Map(accounts.map((a) => [a.id, a.name]));
+  // An account disconnected (or connected again) since the post went out.
+  const gone = (network: string) => `${NETWORK_NAME[network as Network] ?? "Social"} account, no longer connected`;
   const results = (scheduleId: string) =>
     shares
       .filter((s) => s.scheduleId === scheduleId)
       .map((s) => ({
         id: s.id,
         network: s.network as Network,
-        account: accountName.get(s.accountId) ?? "Disconnected account",
+        account: accountName.get(s.accountId) ?? gone(s.network),
         accountId: s.accountId,
         status: s.status,
         url: s.url,
@@ -119,7 +121,7 @@ export async function calendarData(shop: string, now = new Date()) {
       results: group.map((s) => ({
         id: s.id,
         network: s.network as Network,
-        account: accountName.get(s.accountId) ?? "Disconnected account",
+        account: accountName.get(s.accountId) ?? gone(s.network),
         status: s.status,
         url: s.url,
         error: s.error,
