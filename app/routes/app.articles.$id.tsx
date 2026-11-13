@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "react-router";
 import { Link, redirect, useFetcher, useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
@@ -11,6 +11,7 @@ import type { Graphql } from "../lib/prices/prices.server";
 import { STATUS, TONE } from "../lib/ideas/article-status";
 import { articleShares, checkTikTokPosts, shareArticle, socialAccounts, tiktokAccount, writeCaptions } from "../lib/social/social.server";
 import type { TikTokChoices } from "../lib/social/networks.server";
+import { TikTokPost } from "../components/TikTokPost";
 import { NETWORK_NAME, type Network } from "../lib/social/networks";
 
 // One blog article: read and change its words, Google listing and picture,
@@ -431,122 +432,7 @@ function Share({ published, picture }: { published: boolean; picture: string | n
   );
 }
 
-// What TikTok's rules ask for before each post: the account it goes to,
-// who can see it (no default), comments off until turned on, whether it
-// promotes a brand, a preview, and TikTok's own terms. Nothing here is
-// chosen for the merchant.
-const PRIVACY: Record<string, string> = {
-  PUBLIC_TO_EVERYONE: "Everyone",
-  MUTUAL_FOLLOW_FRIENDS: "Friends",
-  FOLLOWER_OF_CREATOR: "Followers",
-  SELF_ONLY: "Only me",
-};
-const MUSIC = "https://www.tiktok.com/legal/page/global/music-usage-confirmation/en";
-const BRANDED = "https://www.tiktok.com/legal/page/global/bc-policy/en";
-
-function TikTokPost({ accountId, picture, caption, onChange }: { accountId: string; picture: string | null; caption: string; onChange: (c: TikTokChoices | null) => void }) {
-  const info = useFetcher<typeof action>();
-  const [privacy, setPrivacy] = useState("");
-  const [allowComments, setAllowComments] = useState(false);
-  const [disclose, setDisclose] = useState(false);
-  const [yourBrand, setYourBrand] = useState(false);
-  const [brandedContent, setBrandedContent] = useState(false);
-  useEffect(() => {
-    info.submit({ intent: "tiktok", accountId }, { method: "post" });
-    // Read once when the account is picked.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accountId]);
-  const data = info.state === "idle" ? info.data : undefined;
-  const creator = data && "creator" in data ? data.creator : null;
-  const error = data && "error" in data ? data.error : null;
-  const brandMissing = disclose && !yourBrand && !brandedContent;
-  const privateBranded = brandedContent && privacy === "SELF_ONLY";
-  const ready = !!creator && !!privacy && !brandMissing && !privateBranded;
-  useEffect(() => {
-    onChange(ready ? { privacy, allowComments: allowComments && !creator?.commentDisabled, yourBrand: disclose && yourBrand, brandedContent: disclose && brandedContent } : null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, privacy, allowComments, disclose, yourBrand, brandedContent]);
-
-  if (error) return <s-banner tone="critical">{error}</s-banner>;
-  if (!creator) return <s-text color="subdued">Checking your TikTok account…</s-text>;
-  const label = brandedContent ? "Paid partnership" : yourBrand ? "Promotional content" : null;
-  return (
-    <s-box padding="base" border="base" borderRadius="base">
-      <s-stack gap="base">
-        <s-stack direction="inline" gap="small" alignItems="center">
-          {creator.avatar && <img className="sw-avatar" src={creator.avatar} alt="" />}
-          <s-text type="strong">Posting to TikTok as {creator.nickname || creator.username}</s-text>
-          {creator.username && <s-text color="subdued">@{creator.username}</s-text>}
-        </s-stack>
-        {picture && (
-          <s-stack direction="inline" gap="base">
-            <img className="sw-tiktok-preview" src={picture} alt="What the TikTok post will show" />
-            <s-paragraph>{caption || "Write a caption above."}</s-paragraph>
-          </s-stack>
-        )}
-        <s-select label="Who can see this post" value={privacy} onChange={(e) => setPrivacy(e.currentTarget.value)}>
-          <s-option value="">Choose who can see it</s-option>
-          {creator.privacyOptions.map((o) => (
-            <s-option key={o} value={o} disabled={brandedContent && o === "SELF_ONLY"}>
-              {PRIVACY[o] ?? o}
-            </s-option>
-          ))}
-        </s-select>
-        {privateBranded && <s-text tone="critical">Branded content can&apos;t be private. Choose who can see it.</s-text>}
-        <s-checkbox
-          label="Allow comments"
-          checked={allowComments && !creator.commentDisabled}
-          disabled={creator.commentDisabled}
-          details={creator.commentDisabled ? "Comments are turned off in your TikTok settings." : undefined}
-          onChange={(e) => setAllowComments(e.currentTarget.checked)}
-        />
-        <s-switch
-          label="Disclose commercial content"
-          checked={disclose}
-          details="Turn on if this post promotes your shop, a product, or a brand that paid you."
-          onChange={(e) => setDisclose(e.currentTarget.checked)}
-        />
-        {disclose && (
-          <s-stack gap="small">
-            <s-checkbox
-              label="Your brand"
-              details="You're promoting yourself or your own business."
-              checked={yourBrand}
-              onChange={(e) => setYourBrand(e.currentTarget.checked)}
-            />
-            <s-checkbox
-              label="Branded content"
-              details="You're promoting another brand or a third party."
-              checked={brandedContent}
-              onChange={(e) => setBrandedContent(e.currentTarget.checked)}
-            />
-            {brandMissing && <s-text tone="critical">Choose whether you&apos;re promoting your brand, another brand, or both.</s-text>}
-            {label && <s-text color="subdued">Your photo will be labelled &quot;{label}&quot;.</s-text>}
-          </s-stack>
-        )}
-        <s-text color="subdued">
-          By posting, you agree to TikTok&apos;s{" "}
-          {brandedContent && (
-            <>
-              <s-link href={BRANDED} target="_blank">
-                Branded Content Policy
-              </s-link>{" "}
-              and{" "}
-            </>
-          )}
-          <s-link href={MUSIC} target="_blank">
-            Music Usage Confirmation
-          </s-link>
-          .
-        </s-text>
-      </s-stack>
-    </s-box>
-  );
-}
-
 const CSS = `
-.sw-avatar { width: 32px; height: 32px; border-radius: 50%; }
-.sw-tiktok-preview { width: 120px; aspect-ratio: 3 / 4; object-fit: cover; border-radius: 8px; }
 .sw-picture { display: block; width: 100%; max-width: 720px; aspect-ratio: 3 / 2; object-fit: cover; border-radius: 10px; }
 .sw-toolbar { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px; border: 1px solid #d4d4d4; border-bottom: 0; border-radius: 8px 8px 0 0; background: #f7f7f7; }
 .sw-toolbar button { font: inherit; font-size: 13px; padding: 4px 10px; border: 1px solid #d4d4d4; border-radius: 6px; background: #fff; cursor: pointer; }

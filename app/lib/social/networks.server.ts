@@ -120,6 +120,7 @@ export async function connectTikTok(code: string, f: Fetch = fetch, now = new Da
 
 export const refreshTikTok = (refreshToken: string, f: Fetch = fetch, now = new Date()) => tiktokToken(f, { grant_type: "refresh_token", refresh_token: refreshToken }, now);
 
+// link may be empty: a social calendar post needn't link anywhere.
 export type Post = { caption: string; title: string; link: string; imageUrl: string };
 export type Posted = { remoteId: string; url: string | null; processing?: boolean };
 
@@ -129,11 +130,12 @@ export type Posted = { remoteId: string; url: string | null; processing?: boolea
 // picture it falls back to a link post.
 export async function postFacebook(pageId: string, token: string, post: Post, f: Fetch = fetch): Promise<Posted> {
   if (post.imageUrl) {
-    const res = await graph<{ id: string; post_id?: string }>(f, `/${pageId}/photos`, { url: post.imageUrl, caption: `${post.caption}\n\n${post.link}`, access_token: token }, "POST");
+    const caption = post.link ? `${post.caption}\n\n${post.link}` : post.caption;
+    const res = await graph<{ id: string; post_id?: string }>(f, `/${pageId}/photos`, { url: post.imageUrl, caption, access_token: token }, "POST");
     const id = res.post_id ?? res.id;
     return { remoteId: id, url: `https://www.facebook.com/${id}` };
   }
-  const res = await graph<{ id: string }>(f, `/${pageId}/feed`, { message: post.caption, link: post.link, access_token: token }, "POST");
+  const res = await graph<{ id: string }>(f, `/${pageId}/feed`, { message: post.caption, ...(post.link ? { link: post.link } : {}), access_token: token }, "POST");
   return { remoteId: res.id, url: `https://www.facebook.com/${res.id}` };
 }
 
