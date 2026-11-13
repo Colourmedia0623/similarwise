@@ -5,7 +5,7 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { NETWORK_NAME, type Network, type PostStats } from "../lib/social/networks";
 import type { TikTokChoices } from "../lib/social/networks.server";
-import { checkTikTokPosts, followerHistory, refreshStats, tiktokAccount } from "../lib/social/social.server";
+import { checkTikTokPosts, followerHistory, refreshStats, relinkPosts, tiktokAccount } from "../lib/social/social.server";
 import {
   archiveCampaign,
   blogPlan,
@@ -52,6 +52,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     .catch(() => null);
   const tz = validZone(res?.data?.shop?.ianaTimezone);
   await checkTikTokPosts(shop, null).catch((err) => console.error("Couldn't check TikTok posts", shop, err));
+  await relinkPosts(shop).catch((err) => console.error("Couldn't relink posts", shop, err));
   const now = new Date();
   const today = zoned(now, tz).day;
   const [data, blog, canvaUser, followers] = await Promise.all([

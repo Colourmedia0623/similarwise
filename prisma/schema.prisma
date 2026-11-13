@@ -571,6 +571,7 @@ model SocialPost {
   articleId  String?   // Shared from a blog article
   scheduleId String?   // ScheduledPost.id, from the social calendar
   accountId  String    // SocialAccount.id
+  accountRef String?   // The network's id for the account, to find it again after it's reconnected
   network   String
   caption   String
   status    String    // posted | failed | processing

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import sharp from "sharp";
 import db from "../../db.server";
 import { connectPinterest, type Fetch } from "./networks.server";
-import { articleShares, createPinterestBoard, followerHistory, recordFollowers, refreshStats, saveAccounts, shopPinterestPin, socialAccounts } from "./social.server";
+import { articleShares, createPinterestBoard, disconnectAccount, followerHistory, recordFollowers, refreshStats, saveAccounts, shopPinterestPin, socialAccounts } from "./social.server";
 import {
   calendarData,
   deleteCampaign,
@@ -321,6 +321,25 @@ describe("social calendar", () => {
     expect(await refreshStats({ f, now: new Date(NOW.getTime() + 20 * 60_000), shop: SHOP })).toBe(0);
     expect(calls.length).toBe(made);
     expect(await refreshStats({ f, now: new Date(NOW.getTime() + 61 * 60_000), shop: SHOP })).toBe(3);
+  });
+
+  it("keeps posts with their account when it's disconnected and connected again", async () => {
+    const ids = await accounts();
+    const img = await picture();
+    await savePost(SHOP, input({ accountIds: [ids.facebook, ids.instagram], imageIds: [img.imageId] }), { now: NOW });
+    const calls: Call[] = [];
+    await sendDuePosts({ f: fakeFetch([[/p1\/photos/, { id: "ph1", post_id: "p1_1" }], [/ig1\/media_publish/, { id: "m1" }], [/ig1\/media/, { id: "c1" }], [/\/m1\?/, { permalink: "https://instagram.com/p/x" }]], calls), now: new Date("2026-11-14T09:00:00Z") });
+    const later = await savePost(SHOP, input({ accountIds: [ids.facebook], day: "2026-11-20" }), { now: NOW });
+    // Posts sent before account references were kept.
+    await db.socialPost.updateMany({ where: { shop: SHOP }, data: { accountRef: null } });
+    await disconnectAccount(SHOP, ids.facebook);
+    await disconnectAccount(SHOP, ids.instagram);
+    let data = await calendarData(SHOP, NOW);
+    expect(data.posts.find((p) => p.status === "sent")!.results.map((r) => r.account)).toEqual(["Facebook account, no longer connected", "Instagram account, no longer connected"]);
+    const fresh = await accounts();
+    data = await calendarData(SHOP, NOW);
+    expect(data.posts.find((p) => p.status === "sent")!.results.map((r) => r.account)).toEqual(["Candle Co", "@candleco"]);
+    expect(data.posts.find((p) => "id" in later && p.id === later.id)!.accountIds).toEqual([fresh.facebook]);
   });
 
   it("records follower counts once a day for the report", async () => {
