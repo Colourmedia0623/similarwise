@@ -112,6 +112,9 @@ export async function keywordGap(shop: string) {
         row = { keyword: g.keyword, searchVolume: g.searchVolume, cpcCents: g.cpcCents, yourPosition: null, competitors: [] };
         byKeyword.set(key, row);
       }
+      // Competitors added in the same instant come back in any order, so show
+      // the lower-case spelling whenever one of them used it.
+      if (g.keyword === key) row.keyword = g.keyword;
       row.searchVolume = Math.max(row.searchVolume ?? 0, g.searchVolume ?? 0) || row.searchVolume;
       if (better(g.yourPosition, row.yourPosition)) row.yourPosition = g.yourPosition;
       if (!row.competitors.some((x) => x.id === c.id))
