@@ -5,7 +5,7 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { NETWORK_NAME, type Network, type PostStats } from "../lib/social/networks";
 import type { TikTokChoices } from "../lib/social/networks.server";
-import { checkTikTokPosts, refreshStats, tiktokAccount } from "../lib/social/social.server";
+import { checkTikTokPosts, followerHistory, refreshStats, tiktokAccount } from "../lib/social/social.server";
 import {
   archiveCampaign,
   blogPlan,
@@ -54,10 +54,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   await checkTikTokPosts(shop, null).catch((err) => console.error("Couldn't check TikTok posts", shop, err));
   const now = new Date();
   const today = zoned(now, tz).day;
-  const [data, blog, canvaUser] = await Promise.all([calendarData(shop, now), blogPlan(shop, addDays(today, -120)), canvaOn() ? canvaAccount(shop) : null]);
+  const [data, blog, canvaUser, followers] = await Promise.all([
+    calendarData(shop, now),
+    blogPlan(shop, addDays(today, -120)),
+    canvaOn() ? canvaAccount(shop) : null,
+    followerHistory(shop, now),
+  ]);
   return {
     ...data,
     blog,
+    followers,
     canva: canvaOn()
       ? { connected: !!canvaUser, connect: canvaAuthorizeUrl(shop), sizes: Object.entries(CANVA_SIZES).map(([key, v]) => ({ key, label: v.label })) }
       : null,
@@ -156,7 +162,7 @@ type Answer = {
   captions?: Record<string, string>;
 };
 
-type Section = "calendar" | "queue" | "drafts" | "failed" | "sent" | "campaigns";
+type Section = "calendar" | "queue" | "drafts" | "failed" | "sent" | "reports" | "campaigns";
 type Mode = "week" | "month" | "list";
 
 // What sits on a day of the calendar: a post from here, an article shared
@@ -243,6 +249,7 @@ const Glyph = ({ d, size = 14 }: { d: string; size?: number }) => (
   </svg>
 );
 const G = {
+  chart: "M3 3h2v12h12v2H3V3Zm4 7h2v4H7v-4Zm4-4h2v8h-2V6Zm4 2h2v6h-2V8Z",
   heart: "M10 17.5 8.9 16.5C4.6 12.6 2 10.3 2 7.4 2 5 3.9 3 6.3 3c1.4 0 2.7.6 3.7 1.7C11 3.6 12.3 3 13.7 3 16.1 3 18 5 18 7.4c0 2.9-2.6 5.2-6.9 9.1L10 17.5Z",
   eye: "M10 4c4.2 0 7.3 3.4 8.5 6-1.2 2.6-4.3 6-8.5 6S2.7 12.6 1.5 10C2.7 7.4 5.8 4 10 4Zm0 2c-2.8 0-5.1 2-6.3 4 1.2 2 3.5 4 6.3 4s5.1-2 6.3-4c-1.2-2-3.5-4-6.3-4Zm0 1.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5Z",
   copy: "M7 2h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2v-2h2V4H7v2H5V4a2 2 0 0 1 2-2ZM4 7h9a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Zm0 2v7h9V9H4Z",
@@ -378,6 +385,7 @@ export default function Publishing() {
       count: counts.failed,
     },
     { key: "sent", label: "Sent", icon: G.tick },
+    { key: "reports", label: "Reports", icon: G.chart },
     {
       key: "campaigns",
       label: "Campaigns",
@@ -497,6 +505,9 @@ export default function Publishing() {
               onOpen={setDetail}
               now={data.now}
             />
+          )}
+          {section === "reports" && (
+            <Reports posts={posts.filter((p) => p.status === "sent" || p.status === "partial")} shares={data.articleShares} followers={data.followers} tz={tz} today={today} onOpen={setDetail} />
           )}
           {section === "campaigns" && (
             <Campaigns
@@ -1235,7 +1246,7 @@ function SentList({
           <h2>Sent</h2>
           <p className="pc-muted">Everything that went out in the last four months, from here and from your blog articles. Likes and reach update every hour.</p>
         </div>
-        <div className="pc-seg">
+        <div className="pc-toggle">
           <button type="button" className={view === "cards" ? "on" : ""} onClick={() => setView("cards")}>
             Cards
           </button>
@@ -1376,6 +1387,479 @@ function SentTotals({ cards, now }: { cards: { at: string; stats: PostStats | nu
       </div>
     </div>
   );
+}
+
+// --- Reports -----------------------------------------------------------------
+
+// Chart colours for each network: a colour-blind-safe set, in a fixed order,
+// separate from the brand colours on the network marks.
+const CHART_COLOR: Record<Network, string> = {
+  facebook: "#2a78d6",
+  instagram: "#eb6834",
+  pinterest: "#1baf7a",
+  tiktok: "#eda100",
+};
+const PERIODS = [7, 30, 60] as const;
+
+type ReportPost = {
+  key: string;
+  day: string;
+  network: Network;
+  account: string;
+  text: string;
+  image: string | null | undefined;
+  stats: PostStats | null | undefined;
+  open: () => void;
+};
+
+const total = (list: (number | undefined)[]) => {
+  const vals = list.filter((v): v is number => typeof v === "number");
+  return vals.length ? vals.reduce((a, b) => a + b, 0) : undefined;
+};
+const rate = (eng: number | undefined, reach: number | undefined) => (eng !== undefined && reach ? (eng / reach) * 100 : undefined);
+const pct = (n: number | undefined) => (n === undefined ? "–" : `${n.toFixed(1)}%`);
+const tagsIn = (text: string) => [...new Set((text.match(/#[\p{L}\p{N}_]+/gu) ?? []).map((t) => t.toLowerCase()))];
+
+function summary(list: ReportPost[]) {
+  const stats = list.map((p) => p.stats).filter((s): s is PostStats => !!s);
+  const reach = total(stats.map((s) => s.reach));
+  const eng = total(stats.map(engagement));
+  return { posts: list.length, reach, eng, rate: rate(eng, reach), clicks: total(stats.map((s) => s.clicks)) };
+}
+
+function Change({ now, before }: { now: number | undefined; before: number | undefined }) {
+  if (now === undefined || !before) return <small className="pc-change">No earlier figures</small>;
+  const c = ((now - before) / before) * 100;
+  const up = c >= 0;
+  return (
+    <small className={`pc-change ${up ? "pc-change-up" : "pc-change-down"}`}>
+      {up ? "▲" : "▼"} {Math.abs(c).toFixed(0)}% <span>vs previous period</span>
+    </small>
+  );
+}
+
+function Reports({
+  posts,
+  shares,
+  followers,
+  tz,
+  today,
+  onOpen,
+}: {
+  posts: Post[];
+  shares: Share[];
+  followers: Data["followers"];
+  tz: string;
+  today: string;
+  onOpen: (d: { post?: Post; share?: Share }) => void;
+}) {
+  const [period, setPeriod] = useState<(typeof PERIODS)[number]>(30);
+  const [table, setTable] = useState(false);
+  const all: ReportPost[] = [
+    ...posts.flatMap((p) =>
+      p.results
+        .filter((x) => x.status !== "failed")
+        .map((x) => ({
+          key: `${p.id}:${x.id}`,
+          day: zoned(new Date(p.sentAt ?? p.at ?? p.updatedAt), tz).day,
+          network: x.network,
+          account: x.account,
+          text: p.captions[x.network] || p.caption || Object.values(p.captions)[0] || "",
+          image: p.image,
+          stats: x.stats,
+          open: () => onOpen({ post: p }),
+        })),
+    ),
+    ...shares.flatMap((s) =>
+      s.results
+        .filter((x) => x.status !== "failed")
+        .map((x) => ({
+          key: `${s.id}:${x.id}`,
+          day: zoned(new Date(s.at), tz).day,
+          network: x.network,
+          account: x.account,
+          text: s.title,
+          image: s.image,
+          stats: x.stats,
+          open: () => onOpen({ share: s }),
+        })),
+    ),
+  ];
+  const start = addDays(today, -(period - 1));
+  const prevStart = addDays(start, -period);
+  const current = all.filter((p) => p.day >= start && p.day <= today);
+  const previous = all.filter((p) => p.day >= prevStart && p.day < start);
+  const now = summary(current);
+  const before = summary(previous);
+  const days = Array.from({ length: period }, (_, i) => addDays(start, i));
+  const nets = NETWORKS.filter((n) => current.some((p) => p.network === n && p.stats));
+  const byNet = nets.map((n) => ({ n, ...summary(current.filter((p) => p.network === n)) }));
+  const top = [...current].filter((p) => p.stats).sort((a, b) => (engagement(b.stats!) ?? 0) - (engagement(a.stats!) ?? 0)).slice(0, 5);
+  const tags = new Map<string, ReportPost[]>();
+  for (const p of current) for (const t of tagsIn(p.text)) tags.set(t, [...(tags.get(t) ?? []), p]);
+  const tagRows = [...tags.entries()]
+    .map(([tag, list]) => ({ tag, ...summary(list) }))
+    .sort((a, b) => (b.eng ?? 0) - (a.eng ?? 0) || b.posts - a.posts)
+    .slice(0, 10);
+
+  return (
+    <div className="pc-panel pc-reports">
+      <div className="pc-sent-head">
+        <div>
+          <h2>Reports</h2>
+          <p className="pc-muted">How your posts did across every channel, against the period before. Figures update every hour.</p>
+        </div>
+        <div className="pc-toggle" role="group" aria-label="Period">
+          {PERIODS.map((d) => (
+            <button key={d} type="button" className={period === d ? "on" : ""} onClick={() => setPeriod(d)}>
+              {d} days
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="pc-tiles">
+        {[
+          { label: "Posts", value: fmt(now.posts), n: now.posts, b: before.posts },
+          { label: "Reach", value: fmt(now.reach), n: now.reach, b: before.reach },
+          { label: "Engagements", value: fmt(now.eng), n: now.eng, b: before.eng },
+          { label: "Engagement rate", value: pct(now.rate), n: now.rate, b: before.rate },
+          { label: "Clicks", value: fmt(now.clicks), n: now.clicks, b: before.clicks },
+        ].map((t) => (
+          <div key={t.label}>
+            <span>{t.label}</span>
+            <strong>{t.value}</strong>
+            <Change now={t.n} before={t.b} />
+          </div>
+        ))}
+      </div>
+
+      <section className="pc-report">
+        <div className="pc-report-head">
+          <h3>Engagements by channel</h3>
+          <div className="pc-toggle" role="group" aria-label="Show as">
+            <button type="button" className={!table ? "on" : ""} onClick={() => setTable(false)}>
+              Chart
+            </button>
+            <button type="button" className={table ? "on" : ""} onClick={() => setTable(true)}>
+              Table
+            </button>
+          </div>
+        </div>
+        {current.length === 0 ? (
+          <div className="pc-empty">Nothing went out in the last {period} days.</div>
+        ) : table ? (
+          <NetTable rows={byNet} />
+        ) : (
+          <>
+            <NetLegend nets={nets} />
+            <EngagementBars days={days} posts={current} nets={nets} />
+          </>
+        )}
+      </section>
+
+      <section className="pc-report">
+        <div className="pc-report-head">
+          <h3>Followers</h3>
+        </div>
+        <FollowerLines followers={followers} days={days} />
+      </section>
+
+      <div className="pc-report-pair">
+        <section className="pc-report">
+          <div className="pc-report-head">
+            <h3>Top posts</h3>
+          </div>
+          {top.length === 0 ? (
+            <div className="pc-empty">No figures for these posts yet.</div>
+          ) : (
+            top.map((p) => (
+              <button key={p.key} type="button" className="pc-top" onClick={p.open}>
+                {p.image ? <img src={p.image} alt="" /> : <span className="pc-top-noimg" />}
+                <span className="pc-top-main">
+                  <span className="pc-top-who">
+                    <NetIcon n={p.network} size={14} /> {p.account} · {dayLabel(p.day, { day: "numeric", month: "short" })}
+                  </span>
+                  <span className="pc-top-text">{p.text}</span>
+                </span>
+                <span className="pc-top-num">
+                  <strong>{fmt(engagement(p.stats!))}</strong>
+                  <small>engagements</small>
+                </span>
+              </button>
+            ))
+          )}
+        </section>
+        <section className="pc-report">
+          <div className="pc-report-head">
+            <h3>Hashtags</h3>
+          </div>
+          {tagRows.length === 0 ? (
+            <div className="pc-empty">None of these posts used a hashtag.</div>
+          ) : (
+            <table className="pc-table">
+              <thead>
+                <tr>
+                  <th>Hashtag</th>
+                  <th>Posts</th>
+                  <th>Reach</th>
+                  <th>Engagements</th>
+                  <th>Rate</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tagRows.map((r) => (
+                  <tr key={r.tag}>
+                    <td>{r.tag}</td>
+                    <td>{fmt(r.posts)}</td>
+                    <td>{fmt(r.reach)}</td>
+                    <td>{fmt(r.eng)}</td>
+                    <td>{pct(r.rate)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function NetLegend({ nets }: { nets: Network[] }) {
+  return (
+    <div className="pc-legend">
+      {nets.map((n) => (
+        <span key={n}>
+          <i style={{ background: CHART_COLOR[n] }} />
+          {NETWORK_NAME[n]}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function NetTable({ rows }: { rows: ({ n: Network } & ReturnType<typeof summary>)[] }) {
+  return (
+    <table className="pc-table">
+      <thead>
+        <tr>
+          <th>Channel</th>
+          <th>Posts</th>
+          <th>Reach</th>
+          <th>Engagements</th>
+          <th>Rate</th>
+          <th>Clicks</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr key={r.n}>
+            <td>
+              <NetIcon n={r.n} size={14} /> {NETWORK_NAME[r.n]}
+            </td>
+            <td>{fmt(r.posts)}</td>
+            <td>{fmt(r.reach)}</td>
+            <td>{fmt(r.eng)}</td>
+            <td>{pct(r.rate)}</td>
+            <td>{fmt(r.clicks)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+// A round number at or above n for the top of an axis.
+function niceMax(n: number) {
+  if (n <= 4) return 4;
+  const step = 10 ** Math.floor(Math.log10(n));
+  return Math.ceil(n / step) * step;
+}
+
+const W = 960;
+const H = 200;
+const PAD = { l: 40, r: 8, t: 8, b: 22 };
+
+function Axis({ max, days, x }: { max: number; days: string[]; x: (i: number) => number }) {
+  const every = Math.ceil(days.length / 7);
+  return (
+    <>
+      {[0, 0.5, 1].map((f) => {
+        const y = PAD.t + (H - PAD.t - PAD.b) * (1 - f);
+        return (
+          <g key={f}>
+            <line x1={PAD.l} x2={W - PAD.r} y1={y} y2={y} stroke="#ebebeb" />
+            <text x={PAD.l - 6} y={y + 4} textAnchor="end" className="pc-axis">
+              {fmt(Math.round(max * f))}
+            </text>
+          </g>
+        );
+      })}
+      {days.map((d, i) =>
+        i % every === 0 ? (
+          <text key={d} x={x(i)} y={H - 6} textAnchor="middle" className="pc-axis">
+            {dayLabel(d, { day: "numeric", month: "short" })}
+          </text>
+        ) : null,
+      )}
+    </>
+  );
+}
+
+function EngagementBars({ days, posts, nets }: { days: string[]; posts: ReportPost[]; nets: Network[] }) {
+  const [hover, setHover] = useState<number | null>(null);
+  const grid = days.map((d) => {
+    const on = posts.filter((p) => p.day === d);
+    return { day: d, posts: on.length, by: nets.map((n) => ({ n, v: total(on.filter((p) => p.network === n && p.stats).map((p) => engagement(p.stats!))) ?? 0 })) };
+  });
+  const max = niceMax(Math.max(...grid.map((g) => g.by.reduce((a, b) => a + b.v, 0))));
+  const band = (W - PAD.l - PAD.r) / days.length;
+  const bar = Math.max(3, Math.min(24, band - 4));
+  const x = (i: number) => PAD.l + band * i + band / 2;
+  const y = (v: number) => ((H - PAD.t - PAD.b) * v) / max;
+  const h = hover === null ? null : grid[hover];
+  return (
+    <div className="pc-chart">
+      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Engagements each day by channel" onMouseLeave={() => setHover(null)}>
+        <Axis max={max} days={days} x={x} />
+        {grid.map((g, i) => {
+          let top = H - PAD.b;
+          const segs = g.by.filter((s) => s.v > 0);
+          return (
+            <g key={g.day} onMouseEnter={() => setHover(i)}>
+              <rect x={PAD.l + band * i} y={PAD.t} width={band} height={H - PAD.t - PAD.b} fill={hover === i ? "#f4f4f4" : "transparent"} />
+              {segs.map((s, j) => {
+                const hh = Math.max(1, y(s.v) - (j < segs.length - 1 ? 2 : 0));
+                top -= y(s.v);
+                const last = j === segs.length - 1;
+                return (
+                  <path
+                    key={s.n}
+                    fill={CHART_COLOR[s.n]}
+                    d={
+                      last
+                        ? `M${x(i) - bar / 2},${top + hh} v${-(hh - Math.min(4, hh))} q0,-${Math.min(4, hh)} ${Math.min(4, bar / 2)},-${Math.min(4, hh)} h${bar - 2 * Math.min(4, bar / 2)} q${Math.min(4, bar / 2)},0 ${Math.min(4, bar / 2)},${Math.min(4, hh)} v${hh - Math.min(4, hh)} Z`
+                        : `M${x(i) - bar / 2},${top + y(s.v)} v${-hh} h${bar} v${hh} Z`
+                    }
+                  />
+                );
+              })}
+            </g>
+          );
+        })}
+      </svg>
+      {h && hover !== null && (
+        <div className="pc-tip" style={{ left: `${(x(hover) / W) * 100}%` }}>
+          <strong>{dayLabel(h.day, { weekday: "short", day: "numeric", month: "short" })}</strong>
+          {h.by.map((s) => (
+            <div key={s.n}>
+              <i style={{ background: CHART_COLOR[s.n] }} />
+              {NETWORK_NAME[s.n]}
+              <b>{fmt(s.v)}</b>
+            </div>
+          ))}
+          <small>
+            {h.posts} {h.posts === 1 ? "post" : "posts"}
+          </small>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FollowerLines({ followers, days }: { followers: Data["followers"]; days: string[] }) {
+  const [hover, setHover] = useState<number | null>(null);
+  const lines = followers
+    .map((a) => ({ ...a, points: a.points.filter((p) => p.day >= days[0] && p.day <= days[days.length - 1]) }))
+    .filter((a) => a.points.length);
+  if (!lines.length)
+    return (
+      <div className="pc-empty">
+        Follower counts are recorded once a day from now on, so this chart fills in over the coming days. Facebook Pages, Instagram and Pinterest accounts are counted.
+      </div>
+    );
+  const values = lines.flatMap((a) => a.points.map((p) => p.followers));
+  const lo = Math.min(...values);
+  const hi = Math.max(...values);
+  const span = Math.max(4, niceMax(hi - lo || 1));
+  const base = Math.max(0, lo - Math.round(span * 0.1));
+  const max = base + span;
+  const step = (W - PAD.l - PAD.r) / Math.max(1, days.length - 1);
+  const x = (i: number) => PAD.l + step * i;
+  const y = (v: number) => PAD.t + (H - PAD.t - PAD.b) * (1 - (v - base) / (max - base));
+  const at = (d: string) => days.indexOf(d);
+  return (
+    <>
+      <div className="pc-legend">
+        {lines.map((a) => (
+          <span key={a.accountId}>
+            <i style={{ background: CHART_COLOR[a.network] }} />
+            {a.name} ({NETWORK_NAME[a.network]}) · {fmt(a.points[a.points.length - 1].followers)}
+            {a.points.length > 1 && <Growth n={a.points[a.points.length - 1].followers - a.points[0].followers} />}
+          </span>
+        ))}
+      </div>
+      <div className="pc-chart">
+        <svg
+          viewBox={`0 0 ${W} ${H}`}
+          role="img"
+          aria-label="Followers each day"
+          onMouseMove={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            const i = Math.round((((e.clientX - r.left) / r.width) * W - PAD.l) / step);
+            setHover(Math.max(0, Math.min(days.length - 1, i)));
+          }}
+          onMouseLeave={() => setHover(null)}
+        >
+          {[0, 0.5, 1].map((f) => {
+            const v = base + (max - base) * f;
+            return (
+              <g key={f}>
+                <line x1={PAD.l} x2={W - PAD.r} y1={y(v)} y2={y(v)} stroke="#ebebeb" />
+                <text x={PAD.l - 6} y={y(v) + 4} textAnchor="end" className="pc-axis">
+                  {fmt(Math.round(v))}
+                </text>
+              </g>
+            );
+          })}
+          {days.map((d, i) =>
+            i % Math.ceil(days.length / 7) === 0 ? (
+              <text key={d} x={x(i)} y={H - 6} textAnchor="middle" className="pc-axis">
+                {dayLabel(d, { day: "numeric", month: "short" })}
+              </text>
+            ) : null,
+          )}
+          {hover !== null && <line x1={x(hover)} x2={x(hover)} y1={PAD.t} y2={H - PAD.b} stroke="#8a8a8a" />}
+          {lines.map((a) => (
+            <g key={a.accountId}>
+              <polyline fill="none" stroke={CHART_COLOR[a.network]} strokeWidth="2" strokeLinejoin="round" points={a.points.map((p) => `${x(at(p.day))},${y(p.followers)}`).join(" ")} />
+              {a.points.length === 1 && <circle cx={x(at(a.points[0].day))} cy={y(a.points[0].followers)} r="4" fill={CHART_COLOR[a.network]} stroke="#fff" strokeWidth="2" />}
+            </g>
+          ))}
+        </svg>
+        {hover !== null && (
+          <div className="pc-tip" style={{ left: `${(x(hover) / W) * 100}%` }}>
+            <strong>{dayLabel(days[hover], { weekday: "short", day: "numeric", month: "short" })}</strong>
+            {lines.map((a) => {
+              const p = a.points.find((q) => q.day === days[hover]);
+              return (
+                <div key={a.accountId}>
+                  <i style={{ background: CHART_COLOR[a.network] }} />
+                  {a.name}
+                  <b>{p ? fmt(p.followers) : "–"}</b>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+function Growth({ n }: { n: number }) {
+  return <small className={`pc-change ${n >= 0 ? "pc-change-up" : "pc-change-down"}`}>{n >= 0 ? `+${fmt(n)}` : fmt(n)}</small>;
 }
 
 // A post that went out: where it went, links to each, and what to do next.
@@ -2655,9 +3139,44 @@ const CSS = `
 .pc-canva-designs span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pc-canva-designs small { color: #8a8a8a; }
 .pc-sent-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.pc-seg { display: inline-flex; border: 1px solid #d4d4d4; border-radius: 8px; overflow: hidden; flex-shrink: 0; }
-.pc-seg button { padding: 5px 12px; border: 0; background: #fff; font: inherit; font-size: 13px; cursor: pointer; }
-.pc-seg button.on { background: #303030; color: #fff; }
+.pc-toggle { display: inline-flex; border: 1px solid #d4d4d4; border-radius: 8px; overflow: hidden; flex-shrink: 0; }
+.pc-toggle button { padding: 5px 12px; border: 0; background: #fff; font: inherit; font-size: 13px; cursor: pointer; }
+.pc-toggle button.on { background: #303030; color: #fff; }
+.pc-tiles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin: 12px 0 16px; }
+.pc-tiles > div { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border: 1px solid #e3e3e3; border-radius: 12px; background: #fff; }
+.pc-tiles span { color: #616161; font-size: 12px; }
+.pc-tiles strong { font-size: 22px; }
+.pc-change { font-size: 12px; color: #8a8a8a; }
+.pc-change span { color: #8a8a8a; }
+.pc-change-up { color: #0c7a43; }
+.pc-change-down { color: #c4290e; }
+.pc-report { border: 1px solid #e3e3e3; border-radius: 12px; background: #fff; padding: 14px 16px; margin-bottom: 12px; min-width: 0; }
+.pc-report-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.pc-report-head h3 { margin: 0; font-size: 14px; }
+.pc-report-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.pc-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: #303030; margin-bottom: 6px; }
+.pc-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.pc-legend i, .pc-tip i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
+.pc-chart { position: relative; }
+.pc-chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.pc-axis { font-size: 11px; fill: #8a8a8a; }
+.pc-tip { position: absolute; top: 0; transform: translateX(-50%); min-width: 150px; padding: 8px 10px; border-radius: 8px; background: #fff; box-shadow: 0 4px 16px rgba(0,0,0,.16); font-size: 12px; pointer-events: none; z-index: 2; }
+.pc-tip div { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.pc-tip b { margin-left: auto; padding-left: 12px; }
+.pc-tip small { display: block; margin-top: 4px; color: #616161; }
+.pc-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.pc-table th { text-align: right; font-weight: 500; color: #616161; font-size: 12px; padding: 6px 8px; border-bottom: 1px solid #e3e3e3; }
+.pc-table td { text-align: right; padding: 7px 8px; border-bottom: 1px solid #f1f1f1; font-variant-numeric: tabular-nums; }
+.pc-table th:first-child, .pc-table td:first-child { text-align: left; }
+.pc-table td:first-child { display: flex; align-items: center; gap: 6px; }
+.pc-top { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 0; border: 0; border-bottom: 1px solid #f1f1f1; background: none; font: inherit; text-align: left; cursor: pointer; }
+.pc-top img, .pc-top-noimg { width: 44px; height: 44px; border-radius: 8px; object-fit: cover; background: #f1f1f1; flex-shrink: 0; }
+.pc-top-main { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.pc-top-who { display: flex; align-items: center; gap: 4px; font-size: 12px; color: #616161; }
+.pc-top-text { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pc-top-num { display: flex; flex-direction: column; align-items: flex-end; }
+.pc-top-num small { color: #616161; font-size: 11px; }
+@media (max-width: 900px) { .pc-tiles { grid-template-columns: repeat(2, 1fr); } .pc-report-pair { grid-template-columns: 1fr; } }
 .pc-totals { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0; }
 .pc-totals div { display: flex; flex-direction: column; padding: 12px 14px; border: 1px solid #e3e3e3; border-radius: 12px; background: #fff; }
 .pc-totals strong { font-size: 20px; }

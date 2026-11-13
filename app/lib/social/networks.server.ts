@@ -41,13 +41,16 @@ export const providerApproved = (p: Provider) => (process.env.SOCIAL_APPROVED ??
 export const callbackUrl = (p: Provider) => `${process.env.SHOPIFY_APP_URL || ""}/social/callback/${p}`;
 
 const META_SCOPES = ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "business_management", "instagram_basic", "instagram_content_publish"];
+// Reach and saves on posts: asked for, but sign-in still works without them,
+// and the figures that need them are left out.
+const META_INSIGHT_SCOPES = ["read_insights", "instagram_manage_insights"];
 const TIKTOK_SCOPES = ["user.info.basic", "video.publish"];
 const PINTEREST_SCOPES = ["user_accounts:read", "boards:read", "boards:write", "pins:read", "pins:write"];
 
 export function authorizeUrl(p: Provider, state: string) {
   if (p === "meta") {
     const config = process.env.META_CONFIG_ID;
-    const ask: Record<string, string> = config ? { config_id: config, override_default_response_type: "true" } : { scope: META_SCOPES.join(",") };
+    const ask: Record<string, string> = config ? { config_id: config, override_default_response_type: "true" } : { scope: [...META_SCOPES, ...META_INSIGHT_SCOPES].join(",") };
     const q = new URLSearchParams({ client_id: process.env.META_APP_ID ?? "", redirect_uri: callbackUrl(p), state, ...ask, response_type: "code" });
     return `https://www.facebook.com/v23.0/dialog/oauth?${q}`;
   }
@@ -437,5 +440,17 @@ export async function postStats(network: Network, remoteId: string, token: strin
     const clicks = (num(m.PIN_CLICK) ?? 0) + (num(m.OUTBOUND_CLICK) ?? 0);
     return { reach: num(m.IMPRESSION), saves: num(m.SAVE), clicks };
   }
+  return null;
+}
+
+// How many people follow the account now: the Page, the Instagram account
+// or the Pinterest board. TikTok's count needs a scope SimilarWise doesn't ask for.
+export async function followerCount(network: Network, accountId: string, token: string, f: Fetch = fetch): Promise<number | null> {
+  if (network === "facebook") {
+    const p = await graph<{ followers_count?: number; fan_count?: number }>(f, `/${accountId}`, { fields: "followers_count,fan_count", access_token: token });
+    return num(p.followers_count) ?? num(p.fan_count) ?? null;
+  }
+  if (network === "instagram") return num((await graph<{ followers_count?: number }>(f, `/${accountId}`, { fields: "followers_count", access_token: token })).followers_count) ?? null;
+  if (network === "pinterest") return num((await pinterest<{ follower_count?: number }>(f, token, `/boards/${encodeURIComponent(accountId)}`)).follower_count) ?? null;
   return null;
 }

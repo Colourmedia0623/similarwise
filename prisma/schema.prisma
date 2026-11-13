@@ -551,6 +551,19 @@ model CanvaReturn {
   @@index([shop, createdAt])
 }
 
+// A social account's follower count, recorded once a day for the follower
+// growth report. The networks don't give history, so it starts when recorded.
+model SocialFollowers {
+  id        String   @id @default(cuid())
+  shop      String
+  accountId String   // SocialAccount.id
+  day       String   // YYYY-MM-DD, UTC
+  followers Int
+
+  @@unique([accountId, day])
+  @@index([shop, day])
+}
+
 // An article, or a post from the social calendar, sent to one social account.
 model SocialPost {
   id         String    @id @default(cuid())
