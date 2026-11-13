@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "react-router";
+import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs, ShouldRevalidateFunction } from "react-router";
 import { Link, useFetcher, useFetchers, useLoaderData, useRevalidator } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
@@ -23,7 +23,17 @@ import {
   writeSocialCaptions,
 } from "../lib/social/publishing.server";
 import { CAMPAIGN_COLORS, LIMITS, MAX_PICTURES } from "../lib/social/publishing";
-import { CANVA_SIZES, canvaAccount, canvaAuthorizeUrl, canvaOn, importCanvaDesign, newCanvaDesign, recentCanvaDesigns, type CanvaDesign } from "../lib/social/canva.server";
+import {
+  CANVA_SIZES,
+  canvaAccount,
+  canvaAuthorizeUrl,
+  canvaOn,
+  importCanvaDesign,
+  newCanvaDesign,
+  recentCanvaDesigns,
+  takeCanvaReturn,
+  type CanvaDesign,
+} from "../lib/social/canva.server";
 import { addDays, dayLabel, timeLabel, validZone, weekStart, zoned } from "../lib/social/when";
 import { TikTokPost } from "../components/TikTokPost";
 
@@ -56,6 +66,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     ai: !!process.env.ANTHROPIC_API_KEY,
   };
 };
+
+// Canva's requests change nothing on the calendar, so the page isn't reloaded
+// after them; the composer checks every few seconds for a returned design.
+export const shouldRevalidate: ShouldRevalidateFunction = ({ formData, defaultShouldRevalidate }) =>
+  String(formData?.get("intent") ?? "").startsWith("canva-") ? false : defaultShouldRevalidate;
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -90,6 +105,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       ...(await movePost(shop, id, text("day"), text("time"), text("tz"))),
     };
   if (intent === "canva-new") return { intent, ...(await newCanvaDesign(shop, text("size"), text("title"))) };
+  if (intent === "canva-returned") return { intent, ...(await takeCanvaReturn(shop, text("token"))) };
   if (intent === "canva-designs") return { intent, ...(await recentCanvaDesigns(shop)) };
   if (intent === "canva-import") return { intent, ...(await importCanvaDesign(shop, text("designId"), Math.min(MAX_PICTURES, Number(text("max")) || MAX_PICTURES))) };
   if (intent === "duplicate") return { intent, ...(await duplicatePost(shop, id)) };
@@ -132,6 +148,7 @@ type Answer = {
   failed?: number;
   images?: { id: string; url: string }[];
   editUrl?: string;
+  token?: string;
   designs?: CanvaDesign[];
   more?: boolean;
   captions?: Record<string, string>;
@@ -1500,6 +1517,10 @@ function CanvaTools({
   const [open, setOpen] = useState<"sizes" | "designs" | null>(null);
   const [designed, setDesigned] = useState(false);
   const tab = useRef<Window | null>(null);
+  // Designs started here, waiting for Canva's return button.
+  const [waiting, setWaiting] = useState<string[]>([]);
+  const poll = useFetcher<Answer>();
+  const [arrived, setArrived] = useState<string | null>(null);
 
   // Connecting happens in another tab; pick it up on coming back.
   useEffect(() => {
@@ -1512,14 +1533,50 @@ function CanvaTools({
   // The design's tab is opened on the click, so it isn't blocked, and sent
   // to the design once Canva has made it.
   const made = make.state === "idle" ? make.data : undefined;
+  const [seenMade, setSeenMade] = useState(made);
+  if (made !== seenMade) {
+    setSeenMade(made);
+    if (made?.editUrl) {
+      setDesigned(true);
+      if (made.token) setWaiting((w) => [...w, made.token!]);
+    }
+  }
   useEffect(() => {
     if (!made) return;
-    if (made.editUrl && tab.current) {
-      tab.current.location.href = made.editUrl;
-      setDesigned(true);
-    } else tab.current?.close();
+    if (made.editUrl && tab.current) tab.current.location.href = made.editUrl;
+    else tab.current?.close();
     tab.current = null;
   }, [made]);
+
+  const pollState = poll.state;
+  const pollSubmit = poll.submit;
+  useEffect(() => {
+    if (!waiting.length) return;
+    const check = () => {
+      if (pollState === "idle") pollSubmit({ intent: "canva-returned", token: waiting[0] }, { method: "post" });
+    };
+    const t = setInterval(check, 4000);
+    const back = () => document.visibilityState === "visible" && check();
+    document.addEventListener("visibilitychange", back);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", back);
+    };
+  }, [waiting, pollState, pollSubmit]);
+
+  const returned = poll.state === "idle" ? poll.data : undefined;
+  const [seenReturn, setSeenReturn] = useState(returned);
+  if (returned !== seenReturn) {
+    setSeenReturn(returned);
+    const token = poll.formData?.get("token") ?? waiting[0];
+    if (returned && returned.status !== "waiting") {
+      setWaiting((w) => w.filter((x) => x !== token));
+      if (returned.images?.length) {
+        onImages(returned.images);
+        setArrived(`Your Canva design is in: ${returned.images.length} ${returned.images.length === 1 ? "picture" : "pictures"} added.`);
+      } else if (returned.error) setArrived(returned.error);
+    }
+  }
 
   const brought = bring.state === "idle" ? bring.data : undefined;
   const [seen, setSeen] = useState(brought);
@@ -1559,7 +1616,12 @@ function CanvaTools({
         >
           Add from Canva
         </button>
-        {designed && open === null && <small className="pc-muted">Finished in Canva? Press Add from Canva to bring it in.</small>}
+        {arrived ? (
+          <small className="pc-muted">{arrived}</small>
+        ) : (
+          designed &&
+          open === null && <small className="pc-muted">When you&apos;ve finished, press Back to SimilarWise at the top of Canva, or Add from Canva here.</small>
+        )}
       </div>
       {open === "sizes" && (
         <div className="pc-canva-sizes">

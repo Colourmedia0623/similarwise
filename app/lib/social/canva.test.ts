@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import sharp from "sharp";
 import db from "../../db.server";
-import { canvaAccount, canvaAuthorizeUrl, connectCanva, importCanvaDesign, newCanvaDesign, recentCanvaDesigns } from "./canva.server";
+import { generateKeyPairSync, sign } from "node:crypto";
+import { canvaAccount, canvaAuthorizeUrl, connectCanva, finishCanvaReturn, importCanvaDesign, newCanvaDesign, recentCanvaDesigns, takeCanvaReturn } from "./canva.server";
 import type { Fetch } from "./networks.server";
 import { pkceChallenge, pkceVerifier, unseal } from "./seal.server";
 
@@ -26,6 +27,7 @@ describe("Canva", () => {
     process.env.CANVA_CLIENT_SECRET = "canva-secret";
     await db.canvaConnection.deleteMany({ where: { shop: SHOP } });
     await db.socialImage.deleteMany({ where: { shop: SHOP } });
+    await db.canvaReturn.deleteMany({ where: { shop: SHOP } });
   });
 
   async function connect() {
@@ -68,7 +70,7 @@ describe("Canva", () => {
       calls,
     );
     const later = new Date(NOW.getTime() + 4 * 3600_000);
-    expect(await newCanvaDesign(SHOP, "portrait", "Autumn candles", { f, now: later })).toEqual({ editUrl: "https://www.canva.com/design/D1/edit" });
+    expect(await newCanvaDesign(SHOP, "portrait", "Autumn candles", { f, now: later })).toMatchObject({ editUrl: expect.stringMatching(/^https:\/\/www\.canva\.com\/design\/D1\/edit\?correlation_state=/) });
     expect(new URLSearchParams(calls[0].body).get("refresh_token")).toBe("r1");
     expect(JSON.parse(calls[1].body)).toEqual({ design_type: { type: "custom", width: 1080, height: 1350 }, title: "Autumn candles" });
     expect(calls[1].auth).toBe("Bearer t2");
@@ -97,5 +99,41 @@ describe("Canva", () => {
     expect(JSON.parse(calls.find((c) => /\/exports$/.test(c.url))!.body)).toEqual({ design_id: "D1", format: { type: "png" } });
     expect(await db.socialImage.count({ where: { shop: SHOP } })).toBe(2);
     expect(await importCanvaDesign(SHOP, "../x", 2, { f, now: NOW })).toEqual({ error: "Choose a design." });
+  });
+
+  it("brings a design back with Canva's return button, for the post that started it", async () => {
+    await connect();
+    const { publicKey, privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const kid = `k${Date.now()}`;
+    const jwk = { ...publicKey.export({ format: "jwk" }), kid };
+    const jwt = (claims: object, key = privateKey) => {
+      const b = (o: object) => Buffer.from(JSON.stringify(o)).toString("base64url");
+      const body = `${b({ alg: "RS256", kid })}.${b(claims)}`;
+      return `${body}.${sign("RSA-SHA256", Buffer.from(body), key).toString("base64url")}`;
+    };
+    const png = new Uint8Array(await sharp({ create: { width: 200, height: 300, channels: 3, background: "#123456" } }).png().toBuffer());
+    const f = fakeFetch(
+      [
+        [/\/designs$/, () => ({ design: { id: "D7", urls: { edit_url: "https://www.canva.com/design/D7/edit?ui=1" } } })],
+        [/connect\/keys/, () => ({ keys: [jwk] })],
+        [/\/exports$/, () => ({ job: { id: "E7", status: "success", urls: ["https://x/1.png", "https://x/2.png"] } })],
+        [/https:\/\/x\//, () => png],
+      ],
+      [],
+    );
+    const made = (await newCanvaDesign(SHOP, "square", "Gifts", { f, now: NOW })) as { editUrl: string; token: string };
+    expect(new URL(made.editUrl).searchParams.get("correlation_state")).toBe(made.token);
+    expect(made.token.length).toBeLessThanOrEqual(50);
+    expect(await takeCanvaReturn(SHOP, made.token)).toEqual({ status: "waiting" });
+    // A forged return is turned away.
+    const forged = jwt({ correlation_state: made.token, design_id: "D7", exp: NOW.getTime() / 1000 + 600 }, generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey);
+    expect(await finishCanvaReturn(forged, { f, now: NOW })).toMatchObject({ error: expect.stringMatching(/isn't valid/) });
+    const real = jwt({ correlation_state: made.token, design_id: "D7", aud: "canva-id", exp: NOW.getTime() / 1000 + 600 });
+    expect(await finishCanvaReturn(real, { f, now: NOW, pause: async () => {} })).toEqual({ ok: true, pages: 2 });
+    expect(await takeCanvaReturn("other.myshopify.com", made.token)).toEqual({ status: "gone" });
+    const taken = await takeCanvaReturn(SHOP, made.token);
+    expect(taken.status).toBe("ready");
+    expect("images" in taken && taken.images).toHaveLength(2);
+    expect(await takeCanvaReturn(SHOP, made.token)).toEqual({ status: "gone" });
   });
 });
