@@ -138,6 +138,7 @@ describe("social sharing", () => {
     expect(photo.get("url")).toMatch(new RegExp(`/images/${a.id}\\.jpg\\?v=${NOW.getTime()}$`));
     expect(new URLSearchParams(calls.find((c) => /ig1\/media$/.test(c.url))!.body).get("image_url")).toMatch(new RegExp(`/images/${a.id}\\.jpg\\?v=${NOW.getTime()}$`));
     const init = JSON.parse(calls.find((c) => c.url.includes("content/init"))!.body);
+    expect(init.source_info.photo_images[0]).toMatch(new RegExp(`/images/${a.id}\\.jpg\\?v=${NOW.getTime()}&for=tiktok$`));
     expect(init).toMatchObject({ media_type: "PHOTO", post_info: { privacy_level: "SELF_ONLY", disable_comment: true, brand_organic_toggle: true, brand_content_toggle: false } });
     expect(calls.find((c) => c.url.includes("content/init"))!.auth).toBe("Bearer fresh");
     const posts = await db.socialPost.findMany({ where: { shop: SHOP }, orderBy: { network: "asc" } });

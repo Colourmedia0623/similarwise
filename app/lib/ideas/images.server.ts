@@ -82,6 +82,22 @@ export function imagePrompt(a: { title: string; keyword: string; summary: string
 
 export const imageUrl = (articleId: string) => `${process.env.SHOPIFY_APP_URL || ""}/images/${articleId}.jpg`;
 
+// TikTok refuses photos bigger than 1080 pixels on a side
+// (picture_size_check_failed), and only takes JPEG or WebP. Product photos
+// and made pictures are usually bigger, so TikTok gets a smaller JPEG copy,
+// asked for with ?for=tiktok.
+export const TIKTOK_MAX = 1080;
+
+export async function tiktokCopy(data: Uint8Array) {
+  const { default: sharp } = await import("sharp");
+  return sharp(data)
+    .rotate()
+    .resize({ width: TIKTOK_MAX, height: TIKTOK_MAX, fit: "inside", withoutEnlargement: true })
+    .flatten({ background: "#ffffff" })
+    .jpeg({ quality: 85 })
+    .toBuffer();
+}
+
 // Makes (or remakes) the picture for an article. Failures are kept on the
 // article, which can still be sent without one.
 export async function makeArticleImage(shop: string, articleId: string, make: MakeImage | null = imageClient()) {

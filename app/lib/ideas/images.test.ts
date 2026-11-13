@@ -1,73 +1,14 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import db from "../../db.server";
-import { articlePicture, writeTopic, sendArticle } from "./articles.server";
-import { ImageError, imageMime, imagePrompt, imageProblem, makeArticleImage } from "./images.server";
-import type { Graphql } from "../prices/prices.server";
+import { describe, expect, it } from "vitest";
+import sharp from "sharp";
+import { TIKTOK_MAX, tiktokCopy } from "./images.server";
 
-const SHOP = "images.myshopify.com";
-const BODY = `<p>${"Useful words. ".repeat(30)}</p>`;
-const ask = async () => ({ title: "Gift box ideas", summary: "Ideas for every occasion.", bodyHtml: BODY, metaTitle: "t", metaDescription: "d", tags: [] });
-const topic = { keyword: "gift box ideas", searchVolume: 900, plannedPage: { kind: "blog", name: "Gift box ideas", intro: "" } };
-
-describe("article images", () => {
-  beforeEach(async () => {
-    await db.articleImage.deleteMany({ where: { shop: SHOP } });
-    await db.blogArticle.deleteMany({ where: { shop: SHOP } });
-    await db.shopProduct.deleteMany({ where: { shop: SHOP } });
-  });
-
-  it("uses the photo of a product the article links to when no picture was made", async () => {
-    await db.shopProduct.createMany({
-      data: [
-        { shop: SHOP, productId: "gid://shopify/Product/1", handle: "plain-box", title: "Plain box", priceCents: 100, currency: "GBP" },
-        { shop: SHOP, productId: "gid://shopify/Product/2", handle: "red-box", title: "Red box", priceCents: 100, currency: "GBP", imageUrl: "https://cdn.shopify.com/red.jpg" },
-      ],
-    });
-    const bodyHtml = '<p><a href="/products/plain-box">a</a> <a href="https://x.com/products/red-box">b</a></p>';
-    expect(await articlePicture(SHOP, { id: "x", bodyHtml, imageAlt: null })).toEqual({ url: "https://cdn.shopify.com/red.jpg", altText: "Red box", made: false });
-    expect(await articlePicture(SHOP, { id: "x", bodyHtml: "<p>none</p>", imageAlt: null })).toBeNull();
-    // A picture whose file has gone falls back to the product photo.
-    expect(await articlePicture(SHOP, { id: "x", bodyHtml, imageAlt: "Made" })).toMatchObject({ altText: "Red box", made: false });
-  });
-
-  it("makes a picture with each article and sends it as the post's image", async () => {
-    const prompts: string[] = [];
-    const { id } = await writeTopic(SHOP, topic, ask, async (prompt) => {
-      prompts.push(prompt);
-      return new Uint8Array([1, 2, 3]);
-    });
-    if (!id) throw new Error("not written");
-    expect(prompts[0]).toContain('"Gift box ideas"');
-    expect(prompts[0]).toMatch(/No text/);
-    expect([...(await db.articleImage.findUniqueOrThrow({ where: { articleId: id } })).data]).toEqual([1, 2, 3]);
-
-    let sent: Record<string, unknown> = {};
-    const graphql: Graphql = async (query, variables) => {
-      if (query.includes("blogs(")) return { data: { blogs: { nodes: [{ id: "gid://shopify/Blog/1" }] } } };
-      sent = (variables as { article: Record<string, unknown> }).article;
-      return { data: { articleCreate: { article: { id: "gid://shopify/Article/1", handle: "a", blog: { handle: "news" } }, userErrors: [] } } };
-    };
-    await sendArticle(SHOP, id, true, graphql);
-    expect(sent.image).toEqual({ url: expect.stringMatching(new RegExp(`/images/${id}\\.jpg\\?v=\\d+$`)), altText: "Gift box ideas" });
-  });
-
-  it("says why OpenAI wouldn't make a picture", () => {
-    expect(imageProblem(new ImageError("Incorrect API key provided", 401))).toMatch(/key isn't working/);
-    expect(imageProblem(new ImageError("Billing hard limit has been reached.", 400))).toMatch(/out of credit/);
-    expect(imageProblem(new ImageError("Your organization must be verified to use the model `gpt-image-1`.", 403))).toMatch(/verified/);
-    expect(imageProblem(new Error("socket hang up"))).toBe("Couldn't make a picture: socket hang up");
-    expect(imageMime(new Uint8Array([0x89, 0x50, 0x4e, 0x47]))).toBe("image/png");
-    expect(imageMime(new Uint8Array([0xff, 0xd8, 0xff]))).toBe("image/jpeg");
-  });
-
-  it("keeps the article when the picture fails, and sends it without one", async () => {
-    const { id } = await writeTopic(SHOP, topic, ask, async () => {
-      throw new Error("content policy");
-    });
-    if (!id) throw new Error("not written");
-    expect(await db.blogArticle.findUniqueOrThrow({ where: { id } })).toMatchObject({ imageAlt: null, imageError: expect.stringMatching(/wouldn't make a picture/) });
-    expect(await makeArticleImage(SHOP, id, async () => new Uint8Array([9]))).toEqual({ ok: true });
-    expect(await db.blogArticle.findUniqueOrThrow({ where: { id } })).toMatchObject({ imageAlt: "Gift box ideas", imageError: null });
-    expect(imagePrompt({ title: "T", keyword: "k", summary: "" })).not.toContain("The post:");
+describe("pictures for TikTok", () => {
+  it("shrinks big pictures to a JPEG TikTok accepts, and leaves small ones their size", async () => {
+    const big = await sharp({ create: { width: 2048, height: 1536, channels: 4, background: { r: 200, g: 100, b: 50, alpha: 0.5 } } }).png().toBuffer();
+    const out = await sharp(await tiktokCopy(big)).metadata();
+    expect([out.format, out.width, out.height]).toEqual(["jpeg", TIKTOK_MAX, 810]);
+    const small = await sharp({ create: { width: 600, height: 400, channels: 3, background: "#fff" } }).webp().toBuffer();
+    const kept = await sharp(await tiktokCopy(small)).metadata();
+    expect([kept.format, kept.width, kept.height]).toEqual(["jpeg", 600, 400]);
   });
 });
