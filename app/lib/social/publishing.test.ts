@@ -184,6 +184,23 @@ describe("social calendar", () => {
     expect((await calendarData(SHOP, NOW)).posts[0].results[0]).toMatchObject({ status: "posted", url: "https://www.pinterest.com/pin/991/" });
   });
 
+  it("makes a first Pinterest board when the account has none", async () => {
+    process.env.PINTEREST_APP_ID = "pin-app";
+    process.env.PINTEREST_APP_SECRET = "pin-secret";
+    const calls: Call[] = [];
+    const f = fakeFetch(
+      [
+        [/oauth\/token/, { access_token: "pin-token", refresh_token: "pin-refresh", expires_in: 3600 }],
+        [/user_account/, { username: "x9", business_name: "Colourmedia" }],
+        [/boards\?/, { items: [], bookmark: null }],
+        [/\/boards$/, { id: "b9", name: "Colourmedia products" }],
+      ],
+      calls,
+    );
+    expect((await connectPinterest("code1", f, NOW)).map((b) => [b.accountId, b.name])).toEqual([["b9", "x9: Colourmedia products"]]);
+    expect(JSON.parse(calls.find((c) => /\/boards$/.test(c.url))!.body)).toEqual({ name: "Colourmedia products", privacy: "PUBLIC" });
+  });
+
   it("pads tall pictures for Instagram", async () => {
     const tall = await sharp({ create: { width: 400, height: 1000, channels: 3, background: "#000" } })
       .jpeg()
