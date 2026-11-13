@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "react-router";
 import { useFetcher, useLoaderData, useRevalidator } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
@@ -8,7 +8,7 @@ import { NETWORK_NAME } from "../lib/social/networks";
 import { authorizeUrl, providerApproved, providerOn, type Provider } from "../lib/social/networks.server";
 import { isFreeShop } from "../lib/waitlist.server";
 import { signState } from "../lib/social/seal.server";
-import { disconnectAccount, setSocialAuto, socialAccounts } from "../lib/social/social.server";
+import { createPinterestBoard, disconnectAccount, setSocialAuto, socialAccounts } from "../lib/social/social.server";
 
 // Social accounts: the Facebook Pages, Instagram business accounts, TikTok
 // accounts and Pinterest boards that posts and blog articles can be shared to.
@@ -30,6 +30,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const intent = form.get("intent");
   if (intent === "auto") await setSocialAuto(session.shop, form.get("on") === "true");
   if (intent === "disconnect") await disconnectAccount(session.shop, String(form.get("id") ?? ""));
+  if (intent === "board") return { intent, ...(await createPinterestBoard(session.shop, String(form.get("name") ?? ""))) };
   return { ok: true };
 };
 
@@ -100,6 +101,7 @@ export default function Social() {
                 </s-button>
               </s-stack>
             ))}
+            {accounts.some((a) => a.network === "pinterest") && <NewBoard />}
             <s-checkbox
               label="Share each content calendar article when it goes out"
               details="Posts to your Facebook and Instagram accounts above, with captions written for each. TikTok posts are always sent by you from the article's page, as TikTok asks."
@@ -110,6 +112,34 @@ export default function Social() {
         )}
       </s-section>
     </s-page>
+  );
+}
+
+// Names and makes a new Pinterest board, which then shows above as an account to post to.
+function NewBoard() {
+  const make = useFetcher<typeof action>();
+  const [name, setName] = useState("");
+  const data = make.state === "idle" ? (make.data as { error?: string; name?: string } | undefined) : undefined;
+  const [made, setMade] = useState<string | null>(null);
+  if (data?.name && data.name !== made) {
+    setMade(data.name);
+    setName("");
+  }
+  return (
+    <s-box padding="base" border="base" borderRadius="base">
+      <s-stack gap="small">
+        <s-text type="strong">New Pinterest board</s-text>
+        <s-stack direction="inline" gap="small" alignItems="end">
+          <s-text-field label="Board name" value={name} placeholder="Autumn candles" maxLength={50} onInput={(e) => setName(e.currentTarget.value)} />
+          <s-button loading={make.state !== "idle"} disabled={!name.trim()} onClick={() => make.submit({ intent: "board", name }, { method: "post" })}>
+            Create board
+          </s-button>
+        </s-stack>
+        <s-text color="subdued">Made as a public board on your Pinterest account, ready to pin to from the social calendar.</s-text>
+        {data?.error && <s-banner tone="warning">{data.error}</s-banner>}
+        {made && !data?.error && <s-banner tone="success">Made the board “{made}”.</s-banner>}
+      </s-stack>
+    </s-box>
   );
 }
 

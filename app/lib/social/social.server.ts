@@ -6,6 +6,7 @@ import {
   NETWORK_NAME,
   postFacebook,
   postInstagram,
+  makePinterestBoard,
   postPinterest,
   postTikTok,
   refreshPinterest,
@@ -40,6 +41,31 @@ export async function socialAccounts(shop: string) {
 
 export async function disconnectAccount(shop: string, id: string) {
   await db.socialAccount.deleteMany({ where: { id, shop } });
+}
+
+// A board the merchant names in SimilarWise, made on their connected
+// Pinterest account and added as an account to post to.
+export async function createPinterestBoard(shop: string, rawName: string, { f = fetch, now = new Date() }: { f?: Fetch; now?: Date } = {}) {
+  const name = rawName.trim().slice(0, 50);
+  if (!name) return { error: "Give the board a name." };
+  const account = await db.socialAccount.findFirst({ where: { shop, network: "pinterest" }, orderBy: { createdAt: "asc" } });
+  if (!account) return { error: "Connect Pinterest first." };
+  try {
+    const token = await liveToken(account, f, now);
+    const board = await makePinterestBoard(token, name, f);
+    const fresh = await db.socialAccount.findUniqueOrThrow({ where: { id: account.id } });
+    const owner = account.name.includes(": ") ? `${account.name.split(": ")[0]}: ` : "";
+    await db.socialAccount.upsert({
+      where: { shop_network_accountId: { shop, network: "pinterest", accountId: board.id } },
+      update: { name: `${owner}${board.name || name}`.slice(0, 200) },
+      create: { shop, network: "pinterest", accountId: board.id, name: `${owner}${board.name || name}`.slice(0, 200), token: fresh.token, refreshToken: fresh.refreshToken, tokenExpiresAt: fresh.tokenExpiresAt },
+    });
+    return { ok: true as const, name: board.name || name };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (/scope|permission|authoriz|forbidden/i.test(message)) return { error: "Connect Pinterest again to let SimilarWise make boards, then try again." };
+    return { error: `Pinterest said: ${message}` };
+  }
 }
 
 export async function setSocialAuto(shop: string, on: boolean) {

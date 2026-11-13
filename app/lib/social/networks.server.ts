@@ -311,7 +311,7 @@ export async function connectPinterest(code: string, f: Fetch = fetch, now = new
   // make one until there's a pin, so the first board is made here.
   if (!boards.length) {
     const name = `${(user.business_name || user.username || "Shop").slice(0, 40)} products`;
-    const made = await pinterest<{ id: string; name: string }>(f, t.token, "/boards", { name, privacy: "PUBLIC" }).catch((err) => {
+    const made = await makePinterestBoard(t.token, name, f).catch((err) => {
       throw new Error(`Your Pinterest account has no boards yet, and SimilarWise couldn't make one (${err instanceof Error ? err.message : String(err)}). Make a board on Pinterest, then connect again.`);
     });
     boards.push({ id: made.id, name: made.name || name });
@@ -324,6 +324,11 @@ export async function connectPinterest(code: string, f: Fetch = fetch, now = new
     refreshToken: t.refreshToken,
     expiresAt: t.expiresAt,
   }));
+}
+
+// A new public board on the merchant's Pinterest account.
+export async function makePinterestBoard(token: string, name: string, f: Fetch = fetch) {
+  return pinterest<{ id: string; name: string }>(f, token, "/boards", { name, privacy: "PUBLIC" });
 }
 
 // A pin on the board: the picture, the first line of the caption as its
