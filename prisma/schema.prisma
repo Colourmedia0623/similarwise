@@ -526,6 +526,17 @@ model SocialAccount {
   @@unique([shop, network, accountId])
 }
 
+// The merchant's Canva account, for designing a post's pictures in Canva
+// and bringing them back (lib/social/canva.server).
+model CanvaConnection {
+  shop           String    @id
+  name           String
+  token          String    // Encrypted access token, lasts 4 hours
+  refreshToken   String    // Encrypted; Canva gives a new one each refresh
+  tokenExpiresAt DateTime
+  createdAt      DateTime  @default(now())
+}
+
 // An article, or a post from the social calendar, sent to one social account.
 model SocialPost {
   id         String    @id @default(cuid())
@@ -554,7 +565,8 @@ model ScheduledPost {
   captions    String    @default("{}") // JSON: a different caption per network
   accountIds  String    @default("[]") // JSON: SocialAccount ids
   tiktok      String?   // JSON: TikTok choices for each TikTok account
-  imageId     String?   // SocialImage.id
+  imageId     String?   // SocialImage.id of the first picture
+  imageIds    String    @default("[]") // JSON: every picture in order, for a carousel
   link        String?
   campaignId  String?
   status      String    // draft | scheduled | sending | sent | partial | failed

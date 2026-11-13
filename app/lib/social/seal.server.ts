@@ -44,3 +44,8 @@ export function readState(token: string, now = Date.now()): State | null {
     return null;
   }
 }
+
+// The PKCE verifier for a sign-in, worked out again from its state at the
+// callback, so nothing has to be stored in between. Canva requires PKCE.
+export const pkceVerifier = (state: string) => createHmac("sha256", secret()).update(`pkce:${state}`).digest("base64url");
+export const pkceChallenge = (verifier: string) => createHash("sha256").update(verifier).digest("base64url");

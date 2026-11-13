@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "react-router";
-import { Link, useFetcher, useFetchers, useLoaderData } from "react-router";
+import { Link, useFetcher, useFetchers, useLoaderData, useRevalidator } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { NETWORK_NAME, type Network } from "../lib/social/networks";
@@ -22,7 +22,8 @@ import {
   uploadSocialImage,
   writeSocialCaptions,
 } from "../lib/social/publishing.server";
-import { CAMPAIGN_COLORS, LIMITS } from "../lib/social/publishing";
+import { CAMPAIGN_COLORS, LIMITS, MAX_PICTURES } from "../lib/social/publishing";
+import { CANVA_SIZES, canvaAccount, canvaAuthorizeUrl, canvaOn, importCanvaDesign, newCanvaDesign, recentCanvaDesigns, type CanvaDesign } from "../lib/social/canva.server";
 import { addDays, dayLabel, timeLabel, validZone, weekStart, zoned } from "../lib/social/when";
 import { TikTokPost } from "../components/TikTokPost";
 
@@ -42,10 +43,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   await checkTikTokPosts(shop, null).catch((err) => console.error("Couldn't check TikTok posts", shop, err));
   const now = new Date();
   const today = zoned(now, tz).day;
-  const [data, blog] = await Promise.all([calendarData(shop, now), blogPlan(shop, addDays(today, -120))]);
+  const [data, blog, canvaUser] = await Promise.all([calendarData(shop, now), blogPlan(shop, addDays(today, -120)), canvaOn() ? canvaAccount(shop) : null]);
   return {
     ...data,
     blog,
+    canva: canvaOn()
+      ? { connected: !!canvaUser, connect: canvaAuthorizeUrl(shop), sizes: Object.entries(CANVA_SIZES).map(([key, v]) => ({ key, label: v.label })) }
+      : null,
     tz,
     today,
     now: now.toISOString(),
@@ -62,9 +66,16 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const id = text("id");
   if (intent === "save") return { intent, ...(await savePost(shop, readPostInput(form))) };
   if (intent === "upload") {
-    const file = form.get("file");
-    if (!(file instanceof File)) return { intent, error: "Choose a picture." };
-    return { intent, ...(await uploadSocialImage(shop, file)) };
+    const files = form.getAll("file").filter((f): f is File => f instanceof File);
+    if (!files.length) return { intent, error: "Choose a picture." };
+    const images: { id: string; url: string }[] = [];
+    let error: string | undefined;
+    for (const file of files.slice(0, MAX_PICTURES)) {
+      const up = await uploadSocialImage(shop, file);
+      if ("imageId" in up && up.imageId) images.push({ id: up.imageId, url: up.url });
+      else error = up.error;
+    }
+    return { intent, images, error };
   }
   if (intent === "ai")
     return {
@@ -78,6 +89,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       id,
       ...(await movePost(shop, id, text("day"), text("time"), text("tz"))),
     };
+  if (intent === "canva-new") return { intent, ...(await newCanvaDesign(shop, text("size"), text("title"))) };
+  if (intent === "canva-designs") return { intent, ...(await recentCanvaDesigns(shop)) };
+  if (intent === "canva-import") return { intent, ...(await importCanvaDesign(shop, text("designId"), Math.min(MAX_PICTURES, Number(text("max")) || MAX_PICTURES))) };
   if (intent === "duplicate") return { intent, ...(await duplicatePost(shop, id)) };
   if (intent === "delete") return { intent, id, ...(await deleteSocialPost(shop, id)) };
   if (intent === "retry") return { intent, id, ...(await retryPost(shop, id)) };
@@ -116,8 +130,10 @@ type Answer = {
   status?: string;
   posted?: number;
   failed?: number;
-  imageId?: string;
-  url?: string;
+  images?: { id: string; url: string }[];
+  editUrl?: string;
+  designs?: CanvaDesign[];
+  more?: boolean;
   captions?: Record<string, string>;
 };
 
@@ -1464,6 +1480,137 @@ const QUICK_TIMES = [
   { label: "Evening", time: "18:30" },
 ];
 
+// Designing pictures in Canva: start a design at a post's size, which opens
+// in a new tab, then bring a design's pages back as the post's pictures.
+function CanvaTools({
+  canva,
+  room,
+  title,
+  onImages,
+}: {
+  canva: { connected: boolean; connect: string; sizes: { key: string; label: string }[] };
+  room: number;
+  title: string;
+  onImages: (images: { id: string; url: string }[]) => void;
+}) {
+  const make = useFetcher<Answer>();
+  const list = useFetcher<Answer>();
+  const bring = useFetcher<Answer>();
+  const revalidator = useRevalidator();
+  const [open, setOpen] = useState<"sizes" | "designs" | null>(null);
+  const [designed, setDesigned] = useState(false);
+  const tab = useRef<Window | null>(null);
+
+  // Connecting happens in another tab; pick it up on coming back.
+  useEffect(() => {
+    if (canva.connected) return;
+    const back = () => document.visibilityState === "visible" && revalidator.revalidate();
+    document.addEventListener("visibilitychange", back);
+    return () => document.removeEventListener("visibilitychange", back);
+  }, [canva.connected, revalidator]);
+
+  // The design's tab is opened on the click, so it isn't blocked, and sent
+  // to the design once Canva has made it.
+  const made = make.state === "idle" ? make.data : undefined;
+  useEffect(() => {
+    if (!made) return;
+    if (made.editUrl && tab.current) {
+      tab.current.location.href = made.editUrl;
+      setDesigned(true);
+    } else tab.current?.close();
+    tab.current = null;
+  }, [made]);
+
+  const brought = bring.state === "idle" ? bring.data : undefined;
+  const [seen, setSeen] = useState(brought);
+  if (brought !== seen) {
+    setSeen(brought);
+    if (brought?.images?.length) {
+      onImages(brought.images);
+      setOpen(null);
+    }
+  }
+
+  if (!canva.connected)
+    return (
+      <div className="pc-canva">
+        <a className="pc-btn" href={canva.connect} target="_blank" rel="noreferrer">
+          <CanvaMark /> Connect Canva
+        </a>
+        <small className="pc-muted">to design this post&apos;s pictures in Canva.</small>
+      </div>
+    );
+  const error = (make.state === "idle" && make.data?.error) || (list.state === "idle" && list.data?.error) || (bring.state === "idle" && bring.data?.error);
+  return (
+    <div className="pc-canva-box">
+      <div className="pc-canva">
+        <button type="button" className="pc-btn" aria-expanded={open === "sizes"} onClick={() => setOpen(open === "sizes" ? null : "sizes")}>
+          <CanvaMark /> Design in Canva
+        </button>
+        <button
+          type="button"
+          className="pc-btn"
+          disabled={room <= 0}
+          aria-expanded={open === "designs"}
+          onClick={() => {
+            setOpen(open === "designs" ? null : "designs");
+            if (open !== "designs") list.submit({ intent: "canva-designs" }, { method: "post" });
+          }}
+        >
+          Add from Canva
+        </button>
+        {designed && open === null && <small className="pc-muted">Finished in Canva? Press Add from Canva to bring it in.</small>}
+      </div>
+      {open === "sizes" && (
+        <div className="pc-canva-sizes">
+          {canva.sizes.map((s) => (
+            <button
+              key={s.key}
+              type="button"
+              disabled={make.state !== "idle"}
+              onClick={() => {
+                tab.current = window.open("", "_blank");
+                make.submit({ intent: "canva-new", size: s.key, title }, { method: "post" });
+                setOpen(null);
+              }}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      )}
+      {open === "designs" && (
+        <div className="pc-canva-designs">
+          {bring.state !== "idle" ? (
+            <p className="pc-muted">Bringing in your design… Canva takes a few seconds for each page.</p>
+          ) : list.state !== "idle" ? (
+            <p className="pc-muted">Looking at your Canva designs…</p>
+          ) : list.data?.designs?.length === 0 ? (
+            <p className="pc-muted">No designs in your Canva account yet. Press Design in Canva to start one.</p>
+          ) : (
+            list.data?.designs?.map((d) => (
+              <button key={d.id} type="button" onClick={() => bring.submit({ intent: "canva-import", designId: d.id, max: String(room) }, { method: "post" })}>
+                {d.thumbnail ? <img src={d.thumbnail} alt="" /> : <span className="pc-canva-blank" />}
+                <span>{d.title}</span>
+                {d.pages && d.pages > 1 && <small>{d.pages} pages</small>}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+      {brought?.more && <small className="pc-muted">The design has more pages than the post has room for, so only the first ones came in.</small>}
+      {error && <s-text tone="critical">{error}</s-text>}
+    </div>
+  );
+}
+
+const CanvaMark = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" style={{ verticalAlign: "-2px" }}>
+    <circle cx="12" cy="12" r="12" fill="#7d2ae8" />
+    <path d="M15.6 15.2c-.9 1.1-2.1 1.8-3.4 1.8-2.3 0-3.7-2-3.3-4.6.4-2.8 2.6-4.9 4.8-4.9 1 0 1.7.5 1.6 1.4 0 .7-.6 1.3-1 1.3-.3 0-.3-.2-.3-.5.1-.5-.1-.9-.6-.9-1.1 0-2.4 1.6-2.6 3.5-.2 1.6.5 2.8 1.8 2.8 1 0 1.9-.6 2.6-1.4z" fill="#fff" />
+  </svg>
+);
+
 // A month to pick the day from. It opens in the composer itself rather than
 // as a pop-up, which the bottom of the Shopify admin window cut off.
 function DayPicker({ value, today, onPick }: { value: string; today: string; onPick: (day: string) => void }) {
@@ -1541,7 +1688,9 @@ function Composer({
   const [caption, setCaption] = useState(post?.caption ?? "");
   const [captions, setCaptions] = useState<Partial<Record<Network, string>>>(post?.captions ?? {});
   const [tab, setTab] = useState<"all" | Network>("all");
-  const [image, setImage] = useState<{ id: string; url: string } | null>(post?.imageId && post.image ? { id: post.imageId, url: post.image } : null);
+  const [images, setImages] = useState<{ id: string; url: string }[]>(post?.images ?? []);
+  const image = images[0] ?? null;
+  const [dragged, setDragged] = useState<number | null>(null);
   const [link, setLink] = useState(post?.link ?? "");
   const [campaignId, setCampaignId] = useState(post?.campaignId ?? "");
   const [when, setWhen] = useState({
@@ -1568,7 +1717,7 @@ function Composer({
   const [seenUpload, setSeenUpload] = useState(uploaded);
   if (uploaded !== seenUpload) {
     setSeenUpload(uploaded);
-    if (uploaded?.imageId && uploaded.url) setImage({ id: uploaded.imageId, url: uploaded.url });
+    if (uploaded?.images?.length) setImages((now) => [...now, ...uploaded.images!].slice(0, MAX_PICTURES));
   }
   const written = ai.state === "idle" ? ai.data?.captions : undefined;
   const [seenWritten, setSeenWritten] = useState(written);
@@ -1619,7 +1768,7 @@ function Composer({
         captions: JSON.stringify(Object.fromEntries(networks.map((n) => [n, captions[n] ?? ""]))),
         accountIds: JSON.stringify(picked),
         tiktok: JSON.stringify(Object.fromEntries(Object.entries(tiktok).filter(([id, c]) => c && picked.includes(id)))),
-        imageId: image?.id ?? "",
+        imageIds: JSON.stringify(images.map((i) => i.id)),
         link,
         campaignId,
         day: when.day,
@@ -1628,11 +1777,12 @@ function Composer({
       },
       { method: "post" },
     );
-  const sendFile = (file: File | undefined) => {
-    if (!file) return;
+  const sendFiles = (list: FileList | null | undefined) => {
+    const files = [...(list ?? [])].slice(0, MAX_PICTURES - images.length);
+    if (!files.length) return;
     const fd = new FormData();
     fd.set("intent", "upload");
-    fd.set("file", file);
+    for (const file of files) fd.append("file", file);
     upload.submit(fd, { method: "post", encType: "multipart/form-data" });
   };
   const busy = (mode: string) => save.state !== "idle" && save.formData?.get("mode") === mode;
@@ -1747,20 +1897,48 @@ function Composer({
             </section>
 
             <section>
-              <span className="pc-label">Picture</span>
-              {image ? (
-                <div className="pc-image">
-                  <img src={image.url} alt="" />
-                  <div>
-                    <button type="button" className="pc-btn" onClick={() => fileRef.current?.click()}>
-                      Replace
+              <span className="pc-label">
+                Pictures{images.length > 1 && <small className="pc-muted"> · carousel of {images.length}, drag to reorder</small>}
+              </span>
+              {images.length > 0 && (
+                <div className="pc-pics">
+                  {images.map((img, i) => (
+                    <div
+                      key={img.id}
+                      className={`pc-pic${dragged === i ? " pc-pic-dragging" : ""}`}
+                      draggable
+                      onDragStart={(e) => {
+                        setDragged(i);
+                        e.dataTransfer.effectAllowed = "move";
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        if (dragged === null || dragged === i) return;
+                        setImages((now) => {
+                          const next = [...now];
+                          const [moved] = next.splice(dragged, 1);
+                          next.splice(i, 0, moved);
+                          return next;
+                        });
+                        setDragged(i);
+                      }}
+                      onDragEnd={() => setDragged(null)}
+                    >
+                      <img src={img.url} alt="" draggable={false} />
+                      <span className="pc-pic-n">{i + 1}</span>
+                      <button type="button" className="pc-pic-x" aria-label={`Remove picture ${i + 1}`} onClick={() => setImages((now) => now.filter((x) => x.id !== img.id))}>
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                  {images.length < MAX_PICTURES && (
+                    <button type="button" className="pc-pic pc-pic-add" onClick={() => fileRef.current?.click()} disabled={upload.state !== "idle"}>
+                      {upload.state !== "idle" ? "Uploading…" : "+ Add"}
                     </button>
-                    <button type="button" className="pc-btn pc-btn-danger" onClick={() => setImage(null)}>
-                      Remove
-                    </button>
-                  </div>
+                  )}
                 </div>
-              ) : (
+              )}
+              {images.length === 0 && (
                 <button
                   type="button"
                   className={`pc-drop-zone${dragging ? " pc-dragging" : ""}`}
@@ -1773,14 +1951,35 @@ function Composer({
                   onDrop={(e) => {
                     e.preventDefault();
                     setDragging(false);
-                    sendFile(e.dataTransfer.files[0]);
+                    sendFiles(e.dataTransfer.files);
                   }}
                 >
-                  {upload.state !== "idle" ? "Uploading…" : "Drop a picture here, or choose one"}
-                  <small>JPG, PNG or WebP. Instagram and TikTok need one.</small>
+                  {upload.state !== "idle" ? "Uploading…" : "Drop pictures here, or choose them"}
+                  <small>JPG, PNG or WebP. Instagram, Pinterest and TikTok need one. Add up to {MAX_PICTURES} for a carousel.</small>
                 </button>
               )}
-              <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => sendFile(e.currentTarget.files?.[0])} />
+              {images.length > 5 && pickedAccounts.some((a) => a.network === "pinterest") && (
+                <small className="pc-muted">Pinterest carousels take up to 5 pictures, so the pin gets the first 5.</small>
+              )}
+              {data.canva && (
+                <CanvaTools
+                  canva={data.canva}
+                  room={MAX_PICTURES - images.length}
+                  title={caption.split("\n")[0].slice(0, 80)}
+                  onImages={(more) => setImages((now) => [...now, ...more].slice(0, MAX_PICTURES))}
+                />
+              )}
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                multiple
+                hidden
+                onChange={(e) => {
+                  sendFiles(e.currentTarget.files);
+                  e.currentTarget.value = "";
+                }}
+              />
               {upload.state === "idle" && upload.data?.error && <s-text tone="critical">{upload.data.error}</s-text>}
             </section>
 
@@ -1869,7 +2068,7 @@ function Composer({
                 n={shownPreview}
                 name={pickedAccounts.find((a) => a.network === shownPreview)?.name ?? ""}
                 caption={captionFor(shownPreview)}
-                image={image?.url ?? null}
+                images={images.map((i) => i.url)}
                 link={shownPreview === "facebook" ? link : ""}
               />
             ) : (
@@ -1907,7 +2106,35 @@ function Composer({
 }
 
 // Roughly how the post will look on each network.
-function Preview({ n, name, caption, image, link }: { n: Network; name: string; caption: string; image: string | null; link: string }) {
+function Preview({ n, name, caption, images, link }: { n: Network; name: string; caption: string; images: string[]; link: string }) {
+  const [shown, setShown] = useState(0);
+  const pics = n === "pinterest" ? images.slice(0, 5) : n === "instagram" ? images.slice(0, 10) : images;
+  const at = Math.min(shown, Math.max(pics.length - 1, 0));
+  const image = pics[at] ?? null;
+  // Arrows and dots to look through a carousel, over the picture.
+  const swipe =
+    pics.length > 1 ? (
+      <>
+        {at > 0 && (
+          <button type="button" className="pc-car-prev" aria-label="Previous picture" onClick={() => setShown(at - 1)}>
+            ‹
+          </button>
+        )}
+        {at < pics.length - 1 && (
+          <button type="button" className="pc-car-next" aria-label="Next picture" onClick={() => setShown(at + 1)}>
+            ›
+          </button>
+        )}
+        <span className="pc-car-count">
+          {at + 1}/{pics.length}
+        </span>
+        <span className="pc-car-dots">
+          {pics.map((_, i) => (
+            <i key={i} className={i === at ? "on" : ""} />
+          ))}
+        </span>
+      </>
+    ) : null;
   const text = caption.split(/(#[\p{L}\p{N}_]+)/gu).map((part, i) => (part.startsWith("#") ? <b key={i}>{part}</b> : part));
   const avatar = (
     <span className="pc-avatar" style={{ background: NET_COLOR[n] }}>
@@ -1917,7 +2144,10 @@ function Preview({ n, name, caption, image, link }: { n: Network; name: string; 
   if (n === "pinterest") {
     return (
       <div className="pc-pv pc-pv-pin">
-        {image ? <img src={image} alt="" /> : <div className="pc-pv-noimg">Add a picture</div>}
+        <div className="pc-car">
+          {image ? <img src={image} alt="" /> : <div className="pc-pv-noimg">Add a picture</div>}
+          {swipe}
+        </div>
         <strong>{caption.split("\n")[0].slice(0, 100) || "Pin title"}</strong>
         <p>{text.length ? text : "Your description"}</p>
         <span className="pc-pv-pin-board">
@@ -1929,7 +2159,10 @@ function Preview({ n, name, caption, image, link }: { n: Network; name: string; 
   if (n === "tiktok") {
     return (
       <div className="pc-pv pc-pv-tiktok">
-        {image ? <img src={image} alt="" /> : <div className="pc-pv-noimg">Add a picture</div>}
+        <div className="pc-car">
+          {image ? <img src={image} alt="" /> : <div className="pc-pv-noimg">Add a picture</div>}
+          {swipe}
+        </div>
         <div className="pc-pv-tt-text">
           <strong>{name}</strong>
           <p>{text.length ? text : "Your caption"}</p>
@@ -1944,7 +2177,10 @@ function Preview({ n, name, caption, image, link }: { n: Network; name: string; 
           {avatar}
           <strong>{name.replace(/^@/, "")}</strong>
         </div>
-        {image ? <img className="pc-pv-square" src={image} alt="" /> : <div className="pc-pv-noimg pc-pv-square">Add a picture</div>}
+        <div className="pc-car">
+          {image ? <img className="pc-pv-square" src={image} alt="" /> : <div className="pc-pv-noimg pc-pv-square">Add a picture</div>}
+          {swipe}
+        </div>
         <p className="pc-pv-text">
           <strong>{name.replace(/^@/, "")}</strong> {text.length ? text : "Your caption"}
         </p>
@@ -1977,7 +2213,18 @@ function Preview({ n, name, caption, image, link }: { n: Network; name: string; 
           </>
         )}
       </p>
-      {image && <img className="pc-pv-wide" src={image} alt="" />}
+      {pics.length > 1 ? (
+        <div className={`pc-fb-grid pc-fb-${Math.min(pics.length, 4)}`}>
+          {pics.slice(0, 4).map((src, i) => (
+            <span key={i}>
+              <img src={src} alt="" />
+              {i === 3 && pics.length > 4 && <b>+{pics.length - 4}</b>}
+            </span>
+          ))}
+        </div>
+      ) : (
+        image && <img className="pc-pv-wide" src={image} alt="" />
+      )}
       {!image && host && <div className="pc-pv-link">{host.toUpperCase()}</div>}
     </div>
   );
@@ -2156,6 +2403,40 @@ const CSS = `
 .pc-count { margin-left: auto; font-size: 12px; color: #8a8a8a; }
 .pc-brief { margin-top: 10px; padding: 12px; border-radius: 10px; background: #f6f3ff; display: flex; flex-direction: column; gap: 8px; }
 .pc-image { display: flex; gap: 12px; align-items: flex-end; }
+.pc-canva-box { margin-top: 8px; }
+.pc-canva { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.pc-canva a.pc-btn { text-decoration: none; color: inherit; }
+.pc-canva-sizes { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.pc-canva-sizes button { padding: 5px 10px; border: 1px solid #d4d4d4; border-radius: 14px; background: #fff; font: inherit; font-size: 12px; cursor: pointer; }
+.pc-canva-sizes button:hover { border-color: #7d2ae8; color: #7d2ae8; }
+.pc-canva-designs { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; margin-top: 8px; max-height: 280px; overflow-y: auto; }
+.pc-canva-designs p { grid-column: 1 / -1; margin: 4px 0; }
+.pc-canva-designs button { display: flex; flex-direction: column; gap: 4px; padding: 6px; border: 1px solid #e3e3e3; border-radius: 10px; background: #fff; font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+.pc-canva-designs button:hover { border-color: #7d2ae8; }
+.pc-canva-designs img, .pc-canva-blank { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 6px; background: #f1f1f1; display: block; }
+.pc-canva-designs span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pc-canva-designs small { color: #8a8a8a; }
+.pc-pics { display: flex; flex-wrap: wrap; gap: 8px; }
+.pc-pic { position: relative; width: 92px; height: 92px; border-radius: 10px; overflow: hidden; cursor: grab; background: #f1f1f1; }
+.pc-pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pc-pic-dragging { opacity: .4; }
+.pc-pic-n { position: absolute; left: 5px; top: 5px; min-width: 18px; padding: 1px 5px; border-radius: 9px; background: rgba(0,0,0,.6); color: #fff; font-size: 11px; text-align: center; }
+.pc-pic-x { position: absolute; right: 4px; top: 4px; width: 22px; height: 22px; border: 0; border-radius: 50%; background: rgba(0,0,0,.6); color: #fff; font-size: 15px; line-height: 1; cursor: pointer; }
+.pc-pic-add { border: 1.5px dashed #c4c4c4; background: #fafafa; color: #616161; font: inherit; font-size: 13px; cursor: pointer; }
+.pc-pic-add:hover { border-color: #8a8a8a; }
+.pc-car { position: relative; }
+.pc-car-prev, .pc-car-next { position: absolute; top: 50%; transform: translateY(-50%); width: 26px; height: 26px; border: 0; border-radius: 50%; background: rgba(255,255,255,.9); box-shadow: 0 1px 4px rgba(0,0,0,.25); font-size: 17px; line-height: 1; cursor: pointer; }
+.pc-car-prev { left: 8px; }
+.pc-car-next { right: 8px; }
+.pc-car-count { position: absolute; right: 8px; top: 8px; padding: 2px 8px; border-radius: 10px; background: rgba(0,0,0,.6); color: #fff; font-size: 11px; }
+.pc-car-dots { position: absolute; left: 0; right: 0; bottom: 8px; display: flex; justify-content: center; gap: 4px; }
+.pc-car-dots i { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,.55); }
+.pc-car-dots i.on { background: #fff; }
+.pc-fb-grid { display: grid; gap: 2px; grid-template-columns: 1fr 1fr; }
+.pc-fb-grid span { position: relative; aspect-ratio: 1; overflow: hidden; }
+.pc-fb-grid img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pc-fb-grid b { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.45); color: #fff; font-size: 22px; }
+.pc-fb-3 span:first-child { grid-column: 1 / -1; aspect-ratio: 2; }
 .pc-image img { width: 160px; max-height: 160px; object-fit: cover; border-radius: 10px; }
 .pc-image div { display: flex; gap: 6px; }
 .pc-drop-zone { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; padding: 22px; border: 2px dashed #d4d4d4; border-radius: 12px; background: #fafafa; font: inherit; font-size: 13px; color: #4a4a4a; cursor: pointer; }
