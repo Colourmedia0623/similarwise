@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "react-router";
 import { useFetcher, useLoaderData, useNavigate, useRevalidator } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
@@ -7,7 +7,19 @@ import { isFreeShop } from "../lib/waitlist.server";
 import { signState } from "../lib/social/seal.server";
 import { timeAgo } from "../lib/format";
 import { adAuthorizeUrl, adNetworkApproved, adNetworkOn } from "../lib/paidsocial/networks.server";
-import { disconnectAdAccount, paidOverview, recentAdChanges, setCampaignBudget, setCampaignOn, setSpendLimit, type AccountView } from "../lib/paidsocial/paid.server";
+import {
+  adSchedules,
+  cancelAdSchedule,
+  disconnectAdAccount,
+  paidOverview,
+  recentAdChanges,
+  scheduleAdChange,
+  setCampaignBudget,
+  setCampaignOn,
+  setSpendLimit,
+  type AccountView,
+  type AdScheduleView,
+} from "../lib/paidsocial/paid.server";
 import { AD_NETWORK_NAME, PERIODS, formatMoney, parsePeriod, type AdNetwork, type Metrics } from "../lib/paidsocial/paid";
 
 // Paid social ads: the merchant's own Facebook, Instagram and TikTok
@@ -22,8 +34,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const period = parsePeriod(new URL(request.url).searchParams.get("period"));
   const link = (n: AdNetwork) =>
     adNetworkOn(n) && (adNetworkApproved(n) || isFreeShop(shop)) ? adAuthorizeUrl(n, signState({ shop, network: `${n}-ads`, exp: Date.now() + SIGN_IN_FOR })) : null;
-  const [accounts, changes] = await Promise.all([paidOverview(shop, period), recentAdChanges(shop)]);
-  return { period, accounts, changes, meta: link("meta"), tiktok: link("tiktok") };
+  const [accounts, changes, schedules] = await Promise.all([paidOverview(shop, period), recentAdChanges(shop), adSchedules(shop)]);
+  return { period, accounts, changes, schedules, meta: link("meta"), tiktok: link("tiktok") };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -39,6 +51,16 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const raw = String(form.get("amount") ?? "").trim();
     return setSpendLimit(shop, account, raw ? Number(raw) : null, form.get("pause") === "true");
   }
+  if (intent === "schedule")
+    return scheduleAdChange(shop, {
+      account,
+      campaign,
+      campaignName: String(form.get("campaignName") ?? ""),
+      kind: String(form.get("kind") ?? ""),
+      amount: Number(form.get("amount")),
+      runAt: String(form.get("runAt") ?? ""),
+    });
+  if (intent === "cancel") return cancelAdSchedule(shop, String(form.get("id") ?? ""));
   if (intent === "disconnect") {
     await disconnectAdAccount(shop, account);
     return { ok: true as const };
@@ -90,7 +112,8 @@ export default function PaidSocial() {
         <s-stack gap="base">
           <s-paragraph>
             See what your Facebook, Instagram and TikTok ad campaigns cost and what they bring in, all in one place. Change a campaign&apos;s budget,
-            pause or restart it, and set a monthly limit on each ad account so you&apos;re told before spending runs over. Signing in opens in a new tab.
+            pause or restart it now or at a time you choose, and set a monthly limit on each ad account so you&apos;re told before spending runs over.
+            Signing in opens in a new tab.
           </s-paragraph>
           <s-stack direction="inline" gap="small">
             {d.meta ? (
@@ -124,7 +147,7 @@ export default function PaidSocial() {
       </s-section>
 
       {d.accounts.map((a) => (
-        <Account key={a.id} a={a} />
+        <Account key={a.id} a={a} schedules={d.schedules.filter((x) => x.adAccountId === a.id)} />
       ))}
 
       {d.changes.length > 0 && (
@@ -141,7 +164,7 @@ export default function PaidSocial() {
                 <s-table-row key={c.id}>
                   <s-table-cell>{`${c.campaignName} (${c.account})`}</s-table-cell>
                   <s-table-cell>{c.kind === "budget" ? `Budget ${c.before ? `${c.before} → ` : "→ "}${c.after}` : c.kind === "pause" ? "Paused" : "Switched on"}</s-table-cell>
-                  <s-table-cell>{c.by === "limit" ? "Monthly limit" : "You"}</s-table-cell>
+                  <s-table-cell>{c.by === "limit" ? "Monthly limit" : c.by === "schedule" ? "Scheduled" : "You"}</s-table-cell>
                   <s-table-cell>{timeAgo(c.createdAt)}</s-table-cell>
                 </s-table-row>
               ))}
@@ -153,7 +176,7 @@ export default function PaidSocial() {
   );
 }
 
-function Account({ a }: { a: AccountView }) {
+function Account({ a, schedules }: { a: AccountView; schedules: AdScheduleView[] }) {
   const act = useFetcher<typeof action>();
   const busy = act.state !== "idle";
   return (
@@ -176,6 +199,7 @@ function Account({ a }: { a: AccountView }) {
             <Tiles m={a.totals} currency={a.currency} />
             <SpendLimit a={a} />
             <Campaigns a={a} />
+            <Scheduled a={a} schedules={schedules} />
           </>
         )}
       </s-stack>
@@ -331,6 +355,163 @@ function CampaignRow({ a, c }: { a: AccountView; c: AccountView["campaigns"][num
         </s-button>
       </s-table-cell>
     </s-table-row>
+  );
+}
+
+// Times are shown and chosen in the merchant's own time zone, which only the browser knows.
+const noSubscribe = () => () => {};
+const useTimeZone = () =>
+  useSyncExternalStore(
+    noSubscribe,
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone,
+    () => "UTC",
+  );
+
+const TIMES = Array.from({ length: 48 }, (_, i) => `${String(Math.floor(i / 2)).padStart(2, "0")}:${i % 2 ? "30" : "00"}`);
+
+const whenText = (iso: string, timeZone: string) =>
+  new Date(iso).toLocaleString("en-GB", { timeZone, weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+
+function scheduleText(s: AdScheduleView, currency: string) {
+  return s.kind === "budget" ? `Budget to ${formatMoney(s.amount ?? 0, currency)}` : s.kind === "pause" ? "Pause" : "Switch on";
+}
+
+// Changes booked for later, and a form to book one.
+function Scheduled({ a, schedules }: { a: AccountView; schedules: AdScheduleView[] }) {
+  const zone = useTimeZone();
+  const act = useFetcher<typeof action>();
+  const [adding, setAdding] = useEditor(act);
+  if (!a.campaigns.length) return null;
+  return (
+    <s-stack gap="small">
+      <s-stack direction="inline" gap="base" alignItems="center" justifyContent="space-between">
+        <s-heading>Scheduled changes</s-heading>
+        {!adding && <s-button onClick={() => setAdding(true)}>Schedule a change</s-button>}
+      </s-stack>
+      {adding && <ScheduleForm a={a} act={act} onClose={() => setAdding(false)} />}
+      {schedules.length ? (
+        <s-table>
+          <s-table-header-row>
+            <s-table-header listSlot="primary">Campaign</s-table-header>
+            <s-table-header>Change</s-table-header>
+            <s-table-header>When</s-table-header>
+            <s-table-header />
+          </s-table-header-row>
+          <s-table-body>
+            {schedules.map((s) => (
+              <ScheduleRow key={s.id} s={s} currency={a.currency} zone={zone} />
+            ))}
+          </s-table-body>
+        </s-table>
+      ) : (
+        !adding && <s-text color="subdued">Nothing scheduled. Switch a campaign on or off, or change its budget, at a day and time you choose.</s-text>
+      )}
+    </s-stack>
+  );
+}
+
+function ScheduleRow({ s, currency, zone }: { s: AdScheduleView; currency: string; zone: string }) {
+  const act = useFetcher<typeof action>();
+  const error = act.state === "idle" && act.data && "error" in act.data ? act.data.error : null;
+  return (
+    <s-table-row>
+      <s-table-cell>
+        <s-stack gap="small-200">
+          <s-text>{s.campaignName}</s-text>
+          {s.status === "failed" && <s-text tone="critical">{`Didn't go through: ${s.error ?? "unknown reason"}`}</s-text>}
+          {error && <s-text tone="critical">{error}</s-text>}
+        </s-stack>
+      </s-table-cell>
+      <s-table-cell>{scheduleText(s, currency)}</s-table-cell>
+      <s-table-cell>{whenText(s.runAt, zone)}</s-table-cell>
+      <s-table-cell>
+        {s.status === "pending" && (
+          <s-button variant="tertiary" tone="critical" loading={act.state !== "idle"} onClick={() => act.submit({ intent: "cancel", id: s.id }, { method: "post" })}>
+            Cancel
+          </s-button>
+        )}
+      </s-table-cell>
+    </s-table-row>
+  );
+}
+
+function ScheduleForm({ a, act, onClose }: { a: AccountView; act: ReturnType<typeof useFetcher<typeof action>>; onClose: () => void }) {
+  const [campaign, setCampaign] = useState(a.campaigns[0]?.id ?? "");
+  const [kind, setKind] = useState("resume");
+  const [amount, setAmount] = useState("");
+  // Only ever opened in the browser, so it can start on the merchant's own today, an hour or so ahead.
+  const [day, setDay] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  });
+  const [time, setTime] = useState(() => TIMES[Math.min(47, new Date().getHours() * 2 + 2)]);
+  const c = a.campaigns.find((x) => x.id === campaign);
+  const canBudget = !!c && c.budgetKind !== "none";
+  const error = act.state === "idle" && act.data && "error" in act.data ? act.data.error : null;
+  const save = () =>
+    act.submit(
+      {
+        intent: "schedule",
+        account: a.id,
+        campaign,
+        campaignName: c?.name ?? "",
+        kind,
+        amount,
+        // Read in the browser's own time zone, sent as an exact moment.
+        runAt: day ? new Date(`${day}T${time}`).toISOString() : "",
+      },
+      { method: "post" },
+    );
+  return (
+    <s-box padding="base" borderWidth="base" borderRadius="base">
+      <s-stack gap="base">
+        {error && <s-banner tone="warning">{error}</s-banner>}
+        <s-grid gridTemplateColumns="repeat(auto-fit, minmax(180px, 1fr))" gap="base">
+          <s-select label="Campaign" value={campaign} onChange={(e) => setCampaign(e.currentTarget.value)}>
+            {a.campaigns.map((x) => (
+              <s-option key={x.id} value={x.id}>
+                {x.name}
+              </s-option>
+            ))}
+          </s-select>
+          <s-select label="Change" value={kind} onChange={(e) => setKind(e.currentTarget.value)}>
+            <s-option value="resume">Switch on</s-option>
+            <s-option value="pause">Pause</s-option>
+            <s-option value="budget" disabled={!canBudget}>
+              Change budget
+            </s-option>
+          </s-select>
+          {kind === "budget" && (
+            <s-number-field
+              label={c?.budgetKind === "lifetime" ? "New total budget" : "New daily budget"}
+              prefix={a.currency}
+              min={0}
+              step={1}
+              value={amount}
+              onInput={(e) => setAmount(e.currentTarget.value)}
+            />
+          )}
+          <s-date-field label="Day" value={day} onChange={(e) => setDay(e.currentTarget.value)} />
+          <s-select label="Time" value={time} onChange={(e) => setTime(e.currentTarget.value)}>
+            {TIMES.map((t) => (
+              <s-option key={t} value={t}>
+                {t}
+              </s-option>
+            ))}
+          </s-select>
+        </s-grid>
+        {kind === "budget" && !canBudget && <s-text tone="critical">This campaign&apos;s budget is set per ad set, so it can&apos;t be changed from here.</s-text>}
+        <s-text color="subdued">Runs within a minute of the time, in your computer&apos;s time zone. The usual checks still apply: a budget can&apos;t jump more than five times, and a campaign won&apos;t be switched on once this month&apos;s limit has paused it.</s-text>
+        <s-stack direction="inline" gap="small">
+          <s-button variant="primary" loading={act.state !== "idle"} onClick={save}>
+            Schedule
+          </s-button>
+          <s-button variant="tertiary" onClick={onClose}>
+            Cancel
+          </s-button>
+        </s-stack>
+      </s-stack>
+    </s-box>
   );
 }
 
