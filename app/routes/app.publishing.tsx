@@ -1261,9 +1261,13 @@ function Detail({
                   )}
                 </span>
                 {r.url && (
-                  <a href={r.url} target="_blank" rel="noreferrer">
-                    View
-                  </a>
+                  r.url.startsWith("/") ? (
+                    <Link to={r.url}>View</Link>
+                  ) : (
+                    <a href={r.url} target="_blank" rel="noreferrer">
+                      View
+                    </a>
+                  )
                 )}
               </li>
             ))}

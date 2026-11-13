@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import sharp from "sharp";
 import db from "../../db.server";
 import { connectPinterest, type Fetch } from "./networks.server";
-import { createPinterestBoard, saveAccounts, socialAccounts } from "./social.server";
+import { articleShares, createPinterestBoard, saveAccounts, shopPinterestPin, socialAccounts } from "./social.server";
 import {
   calendarData,
   deleteCampaign,
@@ -229,6 +229,20 @@ describe("social calendar", () => {
     expect(calls.map((c) => new URL(c.url).host)).toEqual(["api.pinterest.com", "api.pinterest.com", "api-sandbox.pinterest.com"]);
     // The sandbox only accepts the app's own sandbox token.
     expect(calls.slice(1).map((c) => c.auth)).toEqual(["Bearer pin-token", "Bearer sandbox-token"]);
+  });
+
+  it("shows sandbox pins in SimilarWise, since pinterest.com doesn't", async () => {
+    process.env.PINTEREST_API = "https://api-sandbox.pinterest.com/v5";
+    await saveAccounts(SHOP, [{ network: "pinterest", accountId: "b1", name: "Colourmedia: Gifts", token: "pin-token", refreshToken: "r", expiresAt: new Date(NOW.getTime() + 86400_000) }]);
+    const [account] = await socialAccounts(SHOP);
+    await db.socialPost.create({ data: { shop: SHOP, articleId: "a1", accountId: account.id, network: "pinterest", caption: "c", status: "posted", remoteId: "p9", url: "https://www.pinterest.com/pin/p9/" } });
+    const f = fakeFetch([[/\/pins\/p9$/, { id: "p9", title: "Gift boxes", description: "Ten ideas", link: "https://shop.test/a", media: { images: { "150x150": { url: "small.jpg", width: 150 }, "600x": { url: "big.jpg", width: 600 } } } }]], []);
+    expect((await articleShares(SHOP, "a1"))[0].url).toBe("/app/pinterest-pin/p9");
+    const found = await shopPinterestPin(SHOP, "p9", { f, now: NOW });
+    expect(found && "pin" in found && found.pin).toMatchObject({ title: "Gift boxes", image: "big.jpg", link: "https://shop.test/a" });
+    expect(await shopPinterestPin("other.myshopify.com", "p9", { f, now: NOW })).toBeNull();
+    delete process.env.PINTEREST_API;
+    expect((await articleShares(SHOP, "a1"))[0].url).toBe("https://www.pinterest.com/pin/p9/");
   });
 
   it("pads tall pictures for Instagram", async () => {

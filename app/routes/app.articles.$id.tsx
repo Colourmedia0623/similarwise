@@ -417,7 +417,7 @@ function Share({ published, picture }: { published: boolean; picture: string | n
                   {NETWORK_NAME[p.network]}: {p.account}, {new Date(p.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
                 </s-text>
                 {p.url && (
-                  <s-link href={p.url} target="_blank">
+                  <s-link href={p.url} target={p.url.startsWith("/") ? undefined : "_blank"}>
                     Open the post
                   </s-link>
                 )}

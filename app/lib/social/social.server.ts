@@ -7,8 +7,10 @@ import {
   postFacebook,
   postInstagram,
   makePinterestBoard,
+  postLink,
   postPinterest,
   postTikTok,
+  readPinterestPin,
   refreshPinterest,
   refreshTikTok,
   tiktokCreator,
@@ -65,6 +67,20 @@ export async function createPinterestBoard(shop: string, rawName: string, { f = 
     const message = err instanceof Error ? err.message : String(err);
     if (/scope|permission|authoriz|forbidden/i.test(message)) return { error: "Connect Pinterest again to let SimilarWise make boards, then try again." };
     return { error: `Pinterest said: ${message}` };
+  }
+}
+
+// A pin this shop posted, read back from Pinterest. Pins in the sandbox
+// aren't on pinterest.com, so this is how the merchant sees them.
+export async function shopPinterestPin(shop: string, remoteId: string, { f = fetch, now = new Date() }: { f?: Fetch; now?: Date } = {}) {
+  const post = await db.socialPost.findFirst({ where: { shop, network: "pinterest", remoteId } });
+  if (!post) return null;
+  const account = await db.socialAccount.findFirst({ where: { shop, id: post.accountId } });
+  if (!account) return { error: "The Pinterest board this went to isn't connected any more." };
+  try {
+    return { pin: await readPinterestPin(remoteId, await liveToken(account, f, now), f), board: account.name, sentAt: post.createdAt };
+  } catch (err) {
+    return { error: `Pinterest said: ${err instanceof Error ? err.message : String(err)}` };
   }
 }
 
@@ -234,7 +250,7 @@ export async function articleShares(shop: string, articleId: string) {
     network: p.network as Network,
     account: name.get(p.accountId) ?? "Disconnected account",
     status: p.status,
-    url: p.url,
+    url: postLink(p),
     error: p.error,
     createdAt: p.createdAt.toISOString(),
   }));
