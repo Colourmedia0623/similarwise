@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import sharp from "sharp";
 import db from "../../db.server";
 import { connectPinterest, type Fetch } from "./networks.server";
-import { articleShares, createPinterestBoard, saveAccounts, shopPinterestPin, socialAccounts } from "./social.server";
+import { articleShares, createPinterestBoard, refreshStats, saveAccounts, shopPinterestPin, socialAccounts } from "./social.server";
 import {
   calendarData,
   deleteCampaign,
@@ -287,6 +287,40 @@ describe("social calendar", () => {
     expect(copied).toHaveLength(3);
     expect(await savePost(SHOP, input({ id: copy.id, mode: "draft", imageIds: copied.slice(0, 1) }), { now: NOW })).toMatchObject({ status: "draft" });
     expect(await db.socialImage.count({ where: { id: { in: copied } } })).toBe(1);
+  });
+
+  it("reads likes, comments and reach for sent posts, and not too often", async () => {
+    const ids = await accounts();
+    await saveAccounts(SHOP, [{ network: "pinterest", accountId: "b1", name: "Gifts", token: "pin-token", refreshToken: "r", expiresAt: new Date(NOW.getTime() + 86400_000) }]);
+    const pin = (await socialAccounts(SHOP)).find((a) => a.network === "pinterest")!.id;
+    const sent = new Date(NOW.getTime() - 3 * 3600_000);
+    for (const [accountId, network, remoteId] of [
+      [ids.facebook, "facebook", "p1_5"],
+      [ids.instagram, "instagram", "m5"],
+      [pin, "pinterest", "pin5"],
+    ])
+      await db.socialPost.create({ data: { shop: SHOP, articleId: "a5", accountId, network, caption: "c", status: "posted", remoteId, createdAt: sent } });
+    const calls: Call[] = [];
+    const f = fakeFetch(
+      [
+        [/p1_5\/insights/, { data: [{ values: [{ value: 420 }] }] }],
+        [/p1_5\?/, { reactions: { summary: { total_count: 12 } }, comments: { summary: { total_count: 3 } }, shares: { count: 2 } }],
+        [/m5\?fields/, { like_count: 30, comments_count: 4 }],
+        // No insights permission for Instagram: reach is left out.
+        [/pins\/pin5\/analytics/, { all: { summary_metrics: { IMPRESSION: 900, SAVE: 7, PIN_CLICK: 5, OUTBOUND_CLICK: 6 } } }],
+      ],
+      calls,
+    );
+    expect(await refreshStats({ f, now: NOW, shop: SHOP })).toBe(3);
+    const shares = await articleShares(SHOP, "a5");
+    const by = Object.fromEntries(shares.map((x) => [x.network, x.stats]));
+    expect(by.facebook).toEqual({ likes: 12, comments: 3, shares: 2, reach: 420 });
+    expect(by.instagram).toEqual({ likes: 30, comments: 4 });
+    expect(by.pinterest).toEqual({ reach: 900, saves: 7, clicks: 11 });
+    const made = calls.length;
+    expect(await refreshStats({ f, now: new Date(NOW.getTime() + 20 * 60_000), shop: SHOP })).toBe(0);
+    expect(calls.length).toBe(made);
+    expect(await refreshStats({ f, now: new Date(NOW.getTime() + 61 * 60_000), shop: SHOP })).toBe(3);
   });
 
   it("pads tall pictures for Instagram", async () => {

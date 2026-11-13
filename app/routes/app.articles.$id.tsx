@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { StatLine } from "../components/PostStats";
 import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "react-router";
 import { Link, redirect, useFetcher, useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
@@ -421,6 +422,7 @@ function Share({ published, picture }: { published: boolean; picture: string | n
                     Open the post
                   </s-link>
                 )}
+                <StatLine stats={p.stats} compact />
                 {p.error && <s-text color="subdued">{p.error}</s-text>}
                 {p.network === "tiktok" && p.status === "processing" && <s-text color="subdued">TikTok is still processing it. Reload this page in a minute.</s-text>}
               </s-stack>
