@@ -211,6 +211,22 @@ describe("social calendar", () => {
     expect((await socialAccounts(SHOP)).map((a) => a.name).sort()).toEqual(["candleco: Autumn", "candleco: Gift ideas"]);
   });
 
+  it("keeps Pinterest boards and pins in the sandbox while the app has trial access", async () => {
+    process.env.PINTEREST_API = "https://api-sandbox.pinterest.com/v5";
+    const calls: Call[] = [];
+    const f = fakeFetch(
+      [
+        [/oauth\/token/, { access_token: "pin-token", refresh_token: "r", expires_in: 3600 }],
+        [/user_account/, { business_name: "Colourmedia" }],
+        [/boards\?/, { items: [{ id: "s1", name: "Sandbox board" }], bookmark: null }],
+      ],
+      calls,
+    );
+    await connectPinterest("code1", f, NOW);
+    delete process.env.PINTEREST_API;
+    expect(calls.map((c) => new URL(c.url).host)).toEqual(["api.pinterest.com", "api.pinterest.com", "api-sandbox.pinterest.com"]);
+  });
+
   it("pads tall pictures for Instagram", async () => {
     const tall = await sharp({ create: { width: 400, height: 1000, channels: 3, background: "#000" } })
       .jpeg()

@@ -8,9 +8,12 @@
 
 export const GRAPH = "https://graph.facebook.com/v23.0";
 const TIKTOK = "https://open.tiktokapis.com/v2";
-// Pinterest's trial access only writes to its sandbox; PINTEREST_API points
-// there until Pinterest grants standard access.
-const PINTEREST = () => process.env.PINTEREST_API || "https://api.pinterest.com/v5";
+// Pinterest's trial access only creates pins in its sandbox, which has its
+// own boards. PINTEREST_API points boards and pins there
+// (https://api-sandbox.pinterest.com/v5) until Pinterest grants standard
+// access; signing in and the account's name always use the live API.
+const PINTEREST_LIVE = "https://api.pinterest.com/v5";
+const PINTEREST = () => process.env.PINTEREST_API || PINTEREST_LIVE;
 
 import type { Network } from "./networks";
 
@@ -272,7 +275,7 @@ type PinterestToken = { access_token?: string; refresh_token?: string; expires_i
 
 async function pinterestToken(f: Fetch, params: Record<string, string>, now: Date) {
   const basic = Buffer.from(`${process.env.PINTEREST_APP_ID ?? ""}:${process.env.PINTEREST_APP_SECRET ?? ""}`).toString("base64");
-  const res = await f(`${PINTEREST()}/oauth/token`, {
+  const res = await f(`${PINTEREST_LIVE}/oauth/token`, {
     method: "POST",
     headers: { authorization: `Basic ${basic}`, "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams(params),
@@ -285,8 +288,8 @@ async function pinterestToken(f: Fetch, params: Record<string, string>, now: Dat
 
 export const refreshPinterest = (refreshToken: string, f: Fetch = fetch, now = new Date()) => pinterestToken(f, { grant_type: "refresh_token", refresh_token: refreshToken }, now);
 
-async function pinterest<T>(f: Fetch, token: string, path: string, body?: object): Promise<T> {
-  const res = await f(`${PINTEREST()}${path}`, {
+async function pinterest<T>(f: Fetch, token: string, path: string, body?: object, base = PINTEREST()): Promise<T> {
+  const res = await f(`${base}${path}`, {
     method: body ? "POST" : "GET",
     headers: { authorization: `Bearer ${token}`, ...(body ? { "content-type": "application/json" } : {}) },
     body: body ? JSON.stringify(body) : undefined,
@@ -299,7 +302,7 @@ async function pinterest<T>(f: Fetch, token: string, path: string, body?: object
 
 export async function connectPinterest(code: string, f: Fetch = fetch, now = new Date()): Promise<Connected[]> {
   const t = await pinterestToken(f, { grant_type: "authorization_code", code, redirect_uri: callbackUrl("pinterest") }, now);
-  const user = await pinterest<{ username?: string; business_name?: string }>(f, t.token, "/user_account").catch(() => ({ username: undefined, business_name: undefined }));
+  const user = await pinterest<{ username?: string; business_name?: string }>(f, t.token, "/user_account", undefined, PINTEREST_LIVE).catch(() => ({ username: undefined, business_name: undefined }));
   const boards: { id: string; name: string }[] = [];
   let bookmark: string | undefined;
   do {
