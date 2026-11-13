@@ -307,6 +307,7 @@ export async function connectPinterest(code: string, f: Fetch = fetch, now = new
     boards.push(...(page.items ?? []));
     bookmark = page.bookmark ?? undefined;
   } while (bookmark && boards.length < 500);
+  const owner = user.business_name || (user.username && !/^[0-9a-z]{20,}$/i.test(user.username) ? user.username : "");
   // A new business account has no boards, and Pinterest hides the button to
   // make one until there's a pin, so the first board is made here.
   if (!boards.length) {
@@ -319,7 +320,9 @@ export async function connectPinterest(code: string, f: Fetch = fetch, now = new
   return boards.map((b) => ({
     network: "pinterest" as const,
     accountId: b.id,
-    name: `${user.username ? `${user.username}: ` : ""}${b.name}`.slice(0, 200),
+    // The business name reads better than the username, which new
+    // business accounts get as a random string.
+    name: `${owner ? `${owner}: ` : ""}${b.name}`.slice(0, 200),
     token: t.token,
     refreshToken: t.refreshToken,
     expiresAt: t.expiresAt,

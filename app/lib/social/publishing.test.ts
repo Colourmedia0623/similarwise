@@ -197,7 +197,7 @@ describe("social calendar", () => {
       ],
       calls,
     );
-    expect((await connectPinterest("code1", f, NOW)).map((b) => [b.accountId, b.name])).toEqual([["b9", "x9: Colourmedia products"]]);
+    expect((await connectPinterest("code1", f, NOW)).map((b) => [b.accountId, b.name])).toEqual([["b9", "Colourmedia: Colourmedia products"]]);
     expect(JSON.parse(calls.find((c) => /\/boards$/.test(c.url))!.body)).toEqual({ name: "Colourmedia products", privacy: "PUBLIC" });
   });
 

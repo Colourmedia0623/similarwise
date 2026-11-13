@@ -104,7 +104,7 @@ export default function Social() {
             {accounts.some((a) => a.network === "pinterest") && <NewBoard />}
             <s-checkbox
               label="Share each content calendar article when it goes out"
-              details="Posts to your Facebook and Instagram accounts above, with captions written for each. TikTok posts are always sent by you from the article's page, as TikTok asks."
+              details="Posts to your Facebook, Instagram and Pinterest accounts above, with captions written for each. TikTok posts are always sent by you from the article's page, as TikTok asks."
               checked={autoOn}
               onChange={(e) => act.submit({ intent: "auto", on: String(e.currentTarget.checked) }, { method: "post" })}
             />
