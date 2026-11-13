@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import sharp from "sharp";
 import db from "../../db.server";
 import { connectPinterest, type Fetch } from "./networks.server";
-import { saveAccounts, socialAccounts } from "./social.server";
+import { createPinterestBoard, saveAccounts, socialAccounts } from "./social.server";
 import {
   calendarData,
   deleteCampaign,
@@ -199,6 +199,16 @@ describe("social calendar", () => {
     );
     expect((await connectPinterest("code1", f, NOW)).map((b) => [b.accountId, b.name])).toEqual([["b9", "x9: Colourmedia products"]]);
     expect(JSON.parse(calls.find((c) => /\/boards$/.test(c.url))!.body)).toEqual({ name: "Colourmedia products", privacy: "PUBLIC" });
+  });
+
+  it("makes a board the merchant names, sharing the Pinterest token", async () => {
+    await saveAccounts(SHOP, [{ network: "pinterest", accountId: "b1", name: "candleco: Autumn", token: "pin-token", refreshToken: "r", expiresAt: new Date(NOW.getTime() + 86400_000) }]);
+    const calls: Call[] = [];
+    const f = fakeFetch([[/\/boards$/, { id: "b2", name: "Gift ideas" }]], calls);
+    expect(await createPinterestBoard(SHOP, "  ", { f, now: NOW })).toEqual({ error: "Give the board a name." });
+    expect(await createPinterestBoard(SHOP, "Gift ideas", { f, now: NOW })).toEqual({ ok: true, name: "Gift ideas" });
+    expect(JSON.parse(calls[0].body)).toEqual({ name: "Gift ideas", privacy: "PUBLIC" });
+    expect((await socialAccounts(SHOP)).map((a) => a.name).sort()).toEqual(["candleco: Autumn", "candleco: Gift ideas"]);
   });
 
   it("pads tall pictures for Instagram", async () => {
