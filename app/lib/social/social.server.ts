@@ -6,7 +6,9 @@ import {
   NETWORK_NAME,
   postFacebook,
   postInstagram,
+  postPinterest,
   postTikTok,
+  refreshPinterest,
   refreshTikTok,
   tiktokCreator,
   tiktokStatus,
@@ -47,14 +49,15 @@ export async function setSocialAuto(shop: string, on: boolean) {
 const SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["facebook", "instagram", "tiktok"],
-  properties: { facebook: { type: "string" }, instagram: { type: "string" }, tiktok: { type: "string" } },
+  required: ["facebook", "instagram", "tiktok", "pinterest"],
+  properties: { facebook: { type: "string" }, instagram: { type: "string" }, tiktok: { type: "string" }, pinterest: { type: "string" } },
 };
 
 const SYSTEM = `You write social media posts for a small online shop, sharing a new article from its blog. You get the article's title, summary and the search it's written for. Write one post per network, in the shop's market spelling, friendly and plain, no hype, no made-up offers or facts beyond the article:
 - facebook: 1 to 3 short sentences that make people want to read the article. The link is added separately, so don't include it. At most 2 hashtags.
 - instagram: a caption of 2 to 4 short lines with a line break between them, ending with "Read the full guide on our blog, link in bio." and then 5 to 8 relevant hashtags on the last line.
 - tiktok: a short, punchy caption under 300 characters ending with 3 to 5 hashtags.
+- pinterest: a pin description of 1 to 3 sentences, under 500 characters, using the words people would search for, with 2 to 4 hashtags at the end.
 No emojis unless they add something; at most two per post.`;
 
 export type Captions = Record<Network, string>;
@@ -65,20 +68,25 @@ export async function writeCaptions(shop: string, articleId: string, ask: AskJso
   if (!a) return { error: "That article isn't there any more." };
   const out = (await ask(SYSTEM, { title: a.title, summary: a.summary, search: a.keyword }, SCHEMA)) as Partial<Record<Network, unknown>> | null;
   const text = (k: Network, max: number) => (typeof out?.[k] === "string" ? (out[k] as string).trim().slice(0, max) : "");
-  const captions = { facebook: text("facebook", 2000), instagram: text("instagram", 2200), tiktok: text("tiktok", 2000) };
-  if (!captions.facebook && !captions.instagram && !captions.tiktok) return { error: "Couldn't write the captions. Try again." };
+  const captions = { facebook: text("facebook", 2000), instagram: text("instagram", 2200), tiktok: text("tiktok", 2000), pinterest: text("pinterest", 800) };
+  if (!captions.facebook && !captions.instagram && !captions.tiktok && !captions.pinterest) return { error: "Couldn't write the captions. Try again." };
   return captions;
 }
 
-// A fresh TikTok token when the old one has run out (they last a day).
-async function liveToken(account: { id: string; network: string; token: string; refreshToken: string | null; tokenExpiresAt: Date | null }, f: Fetch, now: Date) {
-  if (account.network !== "tiktok" || !account.tokenExpiresAt || account.tokenExpiresAt.getTime() > now.getTime() + 60_000) return unseal(account.token);
-  if (!account.refreshToken) throw new Error("Connect TikTok again.");
-  const t = await refreshTikTok(unseal(account.refreshToken), f, now);
-  await db.socialAccount.update({
-    where: { id: account.id },
-    data: { token: seal(t.token), tokenExpiresAt: t.expiresAt, ...(t.refreshToken ? { refreshToken: seal(t.refreshToken) } : {}) },
-  });
+// A fresh TikTok or Pinterest token when the old one has run out (TikTok's
+// last a day, Pinterest's 30 days). Pinterest boards share one token, so all
+// of the merchant's boards get the new one.
+async function liveToken(account: { id: string; shop?: string; network: string; token: string; refreshToken: string | null; tokenExpiresAt: Date | null }, f: Fetch, now: Date) {
+  const refreshes = account.network === "tiktok" || account.network === "pinterest";
+  if (!refreshes || !account.tokenExpiresAt || account.tokenExpiresAt.getTime() > now.getTime() + 60_000) return unseal(account.token);
+  if (!account.refreshToken) throw new Error(`Connect ${NETWORK_NAME[account.network as Network]} again.`);
+  const t = account.network === "pinterest" ? await refreshPinterest(unseal(account.refreshToken), f, now) : await refreshTikTok(unseal(account.refreshToken), f, now);
+  const data = { token: seal(t.token), tokenExpiresAt: t.expiresAt, ...(t.refreshToken ? { refreshToken: seal(t.refreshToken) } : {}) };
+  // Sealing is randomised, so the boards sharing this token are found by opening theirs.
+  const old = unseal(account.refreshToken);
+  const boards = account.network === "pinterest" && account.shop ? await db.socialAccount.findMany({ where: { shop: account.shop, network: "pinterest" } }) : [];
+  const ids = [account.id, ...boards.filter((b) => b.refreshToken && unseal(b.refreshToken) === old).map((b) => b.id)];
+  await db.socialAccount.updateMany({ where: { id: { in: ids } }, data });
   return t.token;
 }
 
@@ -94,13 +102,14 @@ export async function tiktokAccount(shop: string, accountId: string, { f = fetch
   }
 }
 
-type Account = { id: string; network: string; accountId: string; token: string; refreshToken: string | null; tokenExpiresAt: Date | null };
+type Account = { id: string; shop: string; network: string; accountId: string; token: string; refreshToken: string | null; tokenExpiresAt: Date | null };
 
 // One post to one connected account, through that network's API.
 export async function sendTo(account: Account, post: Post, tiktok: TikTokChoices | undefined, f: Fetch, now: Date): Promise<Posted> {
   const token = await liveToken(account, f, now);
   if (account.network === "facebook") return postFacebook(account.accountId, token, post, f);
   if (account.network === "instagram") return postInstagram(account.accountId, token, post, f);
+  if (account.network === "pinterest") return postPinterest(account.accountId, token, post, f);
   if (!tiktok) throw new Error("Choose who can see the TikTok post.");
   return postTikTok(token, post, tiktok, f);
 }

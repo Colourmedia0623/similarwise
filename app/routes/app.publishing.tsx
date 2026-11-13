@@ -152,7 +152,7 @@ type Item =
       blog: Data["blog"][number];
     };
 
-const NETWORKS: Network[] = ["facebook", "instagram", "tiktok"];
+const NETWORKS: Network[] = ["facebook", "instagram", "tiktok", "pinterest"];
 const STATUS_LABEL: Record<string, string> = {
   draft: "Draft",
   scheduled: "Scheduled",
@@ -168,6 +168,7 @@ const NET_COLOR: Record<Network, string> = {
   facebook: "#1877f2",
   instagram: "#d6249f",
   tiktok: "#111111",
+  pinterest: "#e60023",
 };
 
 function NetIcon({ n, size = 16 }: { n: Network; size?: number }) {
@@ -188,6 +189,12 @@ function NetIcon({ n, size = 16 }: { n: Network; size?: number }) {
           <path
             fill="#fff"
             d="M11.3 0c.3 2 1.4 3.2 3.4 3.3v2.4c-1.2.1-2.3-.3-3.4-1v4.4c0 5.6-6.1 7.3-8.5 3.3-1.6-2.6-.6-7 4.5-7.2v2.5c-.4.1-.8.2-1.1.3-1.2.4-1.8 1.1-1.6 2.3.4 2.3 4.6 3 4.2-1.5V0h2.5Z"
+          />
+        )}
+        {n === "pinterest" && (
+          <path
+            fill="#fff"
+            d="M8 .8a7.2 7.2 0 0 0-2.6 13.9c-.1-.6-.1-1.5 0-2.2l.9-3.6s-.2-.5-.2-1.1c0-1 .6-1.8 1.4-1.8.6 0 1 .5 1 1.1 0 .7-.4 1.7-.7 2.6-.2.8.4 1.4 1.2 1.4 1.4 0 2.5-1.5 2.5-3.7 0-1.9-1.4-3.3-3.4-3.3-2.3 0-3.7 1.7-3.7 3.6 0 .7.3 1.5.6 1.9.1.1.1.2 0 .3l-.2.8c0 .1-.1.2-.3.1-1-.5-1.6-1.9-1.6-3.1 0-2.5 1.8-4.8 5.3-4.8 2.8 0 4.9 2 4.9 4.6 0 2.8-1.7 5-4.1 5-.8 0-1.6-.4-1.8-.9l-.5 1.9c-.2.7-.7 1.6-1 2.1A7.2 7.2 0 1 0 8 .8Z"
           />
         )}
       </svg>
@@ -1512,7 +1519,7 @@ function Composer({
     setSeenWritten(written);
     if (written) {
       setCaption(written.caption);
-      setCaptions({ facebook: written.facebook, instagram: written.instagram, tiktok: written.tiktok });
+      setCaptions({ facebook: written.facebook, instagram: written.instagram, tiktok: written.tiktok, pinterest: written.pinterest });
       setBrief(null);
     }
   }
@@ -1725,7 +1732,7 @@ function Composer({
                 label="Link (optional)"
                 value={link}
                 placeholder="https://"
-                details="Added under the Facebook post. Instagram and TikTok don't allow links in captions."
+                details="Added under the Facebook post and opened from the Pinterest pin. Instagram and TikTok don't allow links in captions."
                 onInput={(e) => setLink(e.currentTarget.value)}
               />
               <s-select label="Campaign" value={campaignId} onChange={(e) => setCampaignId(e.currentTarget.value)}>
@@ -1844,6 +1851,18 @@ function Preview({ n, name, caption, image, link }: { n: Network; name: string; 
       {(name.replace("@", "")[0] ?? "S").toUpperCase()}
     </span>
   );
+  if (n === "pinterest") {
+    return (
+      <div className="pc-pv pc-pv-pin">
+        {image ? <img src={image} alt="" /> : <div className="pc-pv-noimg">Add a picture</div>}
+        <strong>{caption.split("\n")[0].slice(0, 100) || "Pin title"}</strong>
+        <p>{text.length ? text : "Your description"}</p>
+        <span className="pc-pv-pin-board">
+          {avatar} {name}
+        </span>
+      </div>
+    );
+  }
   if (n === "tiktok") {
     return (
       <div className="pc-pv pc-pv-tiktok">
@@ -1936,6 +1955,15 @@ const CSS = `
 .pc-net-facebook { background: #1877f2; }
 .pc-net-instagram { background: radial-gradient(circle at 30% 107%, #fdf497 0%, #fd5949 45%, #d6249f 60%, #285aeb 90%); border-radius: 30%; }
 .pc-net-tiktok { background: #111; }
+.pc-net-pinterest { background: #e60023; }
+.pc-pv-pin { padding: 10px; border: 0; background: transparent; }
+.pc-pv-pin img, .pc-pv-pin .pc-pv-noimg { display: block; width: 100%; border-radius: 16px; aspect-ratio: auto; max-height: 420px; object-fit: cover; }
+.pc-pv-pin .pc-pv-noimg { aspect-ratio: 2 / 3; }
+.pc-pv-pin strong { display: block; margin: 10px 4px 4px; font-size: 15px; }
+.pc-pv-pin p { margin: 0 4px 10px; white-space: pre-line; color: #4a4a4a; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.pc-pv-pin p b { color: #4a4a4a; font-weight: 600; }
+.pc-pv-pin-board { display: flex; align-items: center; gap: 8px; margin: 0 4px; font-size: 12px; color: #616161; }
+.pc-pv-pin-board .pc-avatar { width: 24px; height: 24px; font-size: 11px; }
 .pc-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-auto-rows: auto; border: 1px solid #e3e3e3; border-radius: 12px; overflow: hidden; }
 .pc-week-head { display: flex; align-items: baseline; justify-content: center; gap: 6px; padding: 8px 4px; border-right: 1px solid #ececec; border-bottom: 1px solid #e3e3e3; background: #fafafa; font-size: 12px; color: #616161; }
 .pc-week-head:nth-child(7) { border-right: 0; }
@@ -2042,7 +2070,7 @@ const CSS = `
 .pc-detail-text { white-space: pre-line; font-size: 14px; line-height: 1.5; }
 .pc-results { margin: 0; padding: 0; list-style: none; }
 .pc-results li { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
-.pc-results li span { flex: 1; display: flex; flex-direction: column; }
+.pc-results li > span:not(.pc-net) { flex: 1; display: flex; flex-direction: column; }
 .pc-results em { font-style: normal; color: #616161; font-size: 12px; }
 .pc-bad { color: #c4291c !important; }
 .pc-composer-body { display: grid; grid-template-columns: minmax(0, 1fr) 340px; }

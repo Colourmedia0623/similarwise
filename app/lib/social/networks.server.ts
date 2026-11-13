@@ -1,12 +1,16 @@
 // Facebook Pages and Instagram business accounts (through Meta's Graph API)
-// and TikTok (Login Kit and the Content Posting API): signing in, and
+// TikTok (Login Kit and the Content Posting API) and Pinterest boards (API
+// v5): signing in, and
 // posting an article's picture with its caption. Each is off until its app
 // keys are set: META_APP_ID and META_APP_SECRET, TIKTOK_CLIENT_KEY and
-// TIKTOK_CLIENT_SECRET. A Business app signs in with a Facebook Login for
+// TIKTOK_CLIENT_SECRET, PINTEREST_APP_ID and PINTEREST_APP_SECRET. A Business app signs in with a Facebook Login for
 // Business configuration (META_CONFIG_ID) that holds the permissions.
 
 export const GRAPH = "https://graph.facebook.com/v23.0";
 const TIKTOK = "https://open.tiktokapis.com/v2";
+// Pinterest's trial access only writes to its sandbox; PINTEREST_API points
+// there until Pinterest grants standard access.
+const PINTEREST = () => process.env.PINTEREST_API || "https://api.pinterest.com/v5";
 
 import type { Network } from "./networks";
 
@@ -14,11 +18,15 @@ export { NETWORK_NAME, type Network } from "./networks";
 export type Fetch = typeof fetch;
 
 // Signing in to Meta connects Facebook Pages and the Instagram accounts linked to them.
-export const PROVIDER = { facebook: "meta", instagram: "meta", tiktok: "tiktok" } as const;
-export type Provider = "meta" | "tiktok";
+export const PROVIDER = { facebook: "meta", instagram: "meta", tiktok: "tiktok", pinterest: "pinterest" } as const;
+export type Provider = "meta" | "tiktok" | "pinterest";
 
 export const providerOn = (p: Provider) =>
-  p === "meta" ? !!(process.env.META_APP_ID && process.env.META_APP_SECRET) : !!(process.env.TIKTOK_CLIENT_KEY && process.env.TIKTOK_CLIENT_SECRET);
+  p === "meta"
+    ? !!(process.env.META_APP_ID && process.env.META_APP_SECRET)
+    : p === "pinterest"
+      ? !!(process.env.PINTEREST_APP_ID && process.env.PINTEREST_APP_SECRET)
+      : !!(process.env.TIKTOK_CLIENT_KEY && process.env.TIKTOK_CLIENT_SECRET);
 
 // Until Meta or TikTok approves SimilarWise, only people added to its app
 // can sign in, so the Connect button is shown only to Colourmedia's own and free
@@ -29,6 +37,7 @@ export const callbackUrl = (p: Provider) => `${process.env.SHOPIFY_APP_URL || ""
 
 const META_SCOPES = ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "business_management", "instagram_basic", "instagram_content_publish"];
 const TIKTOK_SCOPES = ["user.info.basic", "video.publish"];
+const PINTEREST_SCOPES = ["user_accounts:read", "boards:read", "pins:read", "pins:write"];
 
 export function authorizeUrl(p: Provider, state: string) {
   if (p === "meta") {
@@ -36,6 +45,10 @@ export function authorizeUrl(p: Provider, state: string) {
     const ask: Record<string, string> = config ? { config_id: config, override_default_response_type: "true" } : { scope: META_SCOPES.join(",") };
     const q = new URLSearchParams({ client_id: process.env.META_APP_ID ?? "", redirect_uri: callbackUrl(p), state, ...ask, response_type: "code" });
     return `https://www.facebook.com/v23.0/dialog/oauth?${q}`;
+  }
+  if (p === "pinterest") {
+    const q = new URLSearchParams({ client_id: process.env.PINTEREST_APP_ID ?? "", redirect_uri: callbackUrl(p), response_type: "code", scope: PINTEREST_SCOPES.join(","), state });
+    return `https://www.pinterest.com/oauth/?${q}`;
   }
   const q = new URLSearchParams({ client_key: process.env.TIKTOK_CLIENT_KEY ?? "", redirect_uri: callbackUrl(p), state, scope: TIKTOK_SCOPES.join(","), response_type: "code" });
   return `https://www.tiktok.com/v2/auth/authorize/?${q}`;
@@ -249,4 +262,71 @@ export async function postTikTok(token: string, post: Post, choices: TikTokChoic
     media_type: "PHOTO",
   });
   return { remoteId: out?.publish_id ?? "", url: null, processing: true };
+}
+
+// Pinterest: a pin is a picture with a title, description and link, saved to
+// one of the merchant's boards. Each board connects as its own account,
+// all sharing the merchant's token, which lasts 30 days and is refreshed.
+
+type PinterestToken = { access_token?: string; refresh_token?: string; expires_in?: number; message?: string; error_description?: string };
+
+async function pinterestToken(f: Fetch, params: Record<string, string>, now: Date) {
+  const basic = Buffer.from(`${process.env.PINTEREST_APP_ID ?? ""}:${process.env.PINTEREST_APP_SECRET ?? ""}`).toString("base64");
+  const res = await f(`${PINTEREST()}/oauth/token`, {
+    method: "POST",
+    headers: { authorization: `Basic ${basic}`, "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(params),
+    signal: AbortSignal.timeout(30_000),
+  });
+  const json = (await res.json().catch(() => ({}))) as PinterestToken;
+  if (!res.ok || !json.access_token) throw new Error(json.message || json.error_description || `Pinterest answered ${res.status}`);
+  return { token: json.access_token, refreshToken: json.refresh_token ?? null, expiresAt: new Date(now.getTime() + (json.expires_in ?? 30 * 86400) * 1000) };
+}
+
+export const refreshPinterest = (refreshToken: string, f: Fetch = fetch, now = new Date()) => pinterestToken(f, { grant_type: "refresh_token", refresh_token: refreshToken }, now);
+
+async function pinterest<T>(f: Fetch, token: string, path: string, body?: object): Promise<T> {
+  const res = await f(`${PINTEREST()}${path}`, {
+    method: body ? "POST" : "GET",
+    headers: { authorization: `Bearer ${token}`, ...(body ? { "content-type": "application/json" } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(60_000),
+  });
+  const json = (await res.json().catch(() => ({}))) as T & { message?: string };
+  if (!res.ok) throw new Error(json.message || `Pinterest answered ${res.status}`);
+  return json;
+}
+
+export async function connectPinterest(code: string, f: Fetch = fetch, now = new Date()): Promise<Connected[]> {
+  const t = await pinterestToken(f, { grant_type: "authorization_code", code, redirect_uri: callbackUrl("pinterest") }, now);
+  const user = await pinterest<{ username?: string }>(f, t.token, "/user_account").catch(() => ({ username: undefined }));
+  const boards: { id: string; name: string }[] = [];
+  let bookmark: string | undefined;
+  do {
+    const page = await pinterest<{ items?: { id: string; name: string }[]; bookmark?: string | null }>(f, t.token, `/boards?page_size=100${bookmark ? `&bookmark=${encodeURIComponent(bookmark)}` : ""}`);
+    boards.push(...(page.items ?? []));
+    bookmark = page.bookmark ?? undefined;
+  } while (bookmark && boards.length < 500);
+  if (!boards.length) throw new Error("Your Pinterest account has no boards yet. Make a board on Pinterest, then connect again.");
+  return boards.map((b) => ({
+    network: "pinterest" as const,
+    accountId: b.id,
+    name: `${user.username ? `${user.username}: ` : ""}${b.name}`.slice(0, 200),
+    token: t.token,
+    refreshToken: t.refreshToken,
+    expiresAt: t.expiresAt,
+  }));
+}
+
+// A pin on the board: the picture, the first line of the caption as its
+// title, the caption as its description, and the link it opens.
+export async function postPinterest(boardId: string, token: string, post: Post, f: Fetch = fetch): Promise<Posted> {
+  const pin = await pinterest<{ id: string }>(f, token, "/pins", {
+    board_id: boardId,
+    title: post.title.slice(0, 100),
+    description: post.caption.slice(0, 800),
+    ...(post.link ? { link: post.link } : {}),
+    media_source: { source_type: "image_url", url: post.imageUrl },
+  });
+  return { remoteId: pin.id, url: `https://www.pinterest.com/pin/${pin.id}/` };
 }

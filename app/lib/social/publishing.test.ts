@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import sharp from "sharp";
 import db from "../../db.server";
-import type { Fetch } from "./networks.server";
+import { connectPinterest, type Fetch } from "./networks.server";
 import { saveAccounts, socialAccounts } from "./social.server";
 import {
   calendarData,
@@ -144,6 +144,44 @@ describe("social calendar", () => {
     process.env.SOCIAL_APPROVED = "meta,tiktok";
     expect(await savePost(SHOP, { ...post, tiktok: {} }, { now: NOW })).toMatchObject({ error: expect.stringMatching(/who can see/) });
     expect(await savePost(SHOP, post, { now: NOW })).toMatchObject({ status: "scheduled" });
+  });
+
+  it("connects each Pinterest board and pins to it, refreshing the shared token", async () => {
+    process.env.SOCIAL_APPROVED = "meta,pinterest";
+    process.env.PINTEREST_APP_ID = "pin-app";
+    process.env.PINTEREST_APP_SECRET = "pin-secret";
+    const calls: Call[] = [];
+    const f = fakeFetch(
+      [
+        [/oauth\/token/, { access_token: "pin-token", refresh_token: "pin-refresh", expires_in: 3600 }],
+        [/user_account/, { username: "candleco" }],
+        [/boards\?/, { items: [{ id: "b1", name: "Autumn" }, { id: "b2", name: "Gifts" }], bookmark: null }],
+        [/\/pins$/, { id: "991" }],
+      ],
+      calls,
+    );
+    const boards = await connectPinterest("code1", f, NOW);
+    expect(boards.map((b) => [b.accountId, b.name])).toEqual([
+      ["b1", "candleco: Autumn"],
+      ["b2", "candleco: Gifts"],
+    ]);
+    expect(calls[0].body).toContain("grant_type=authorization_code");
+    await saveAccounts(SHOP, boards);
+    const [autumn] = await socialAccounts(SHOP);
+    const img = await picture();
+    await savePost(SHOP, input({ accountIds: [autumn.id], imageId: img.imageId, link: "https://candles.example/autumn", caption: "Autumn candles\nThree new scents #candles" }), {
+      now: NOW,
+    });
+    calls.length = 0;
+    // Two hours later the token has run out, so it's refreshed first, for both boards.
+    expect(await sendDuePosts({ f, now: new Date("2026-11-14T12:00:00Z") })).toBe(1);
+    expect(calls[0].url).toMatch(/oauth\/token/);
+    const pin = JSON.parse(calls.find((c) => /\/pins$/.test(c.url))!.body);
+    expect(pin).toMatchObject({ board_id: "b1", title: "Autumn candles", link: "https://candles.example/autumn", media_source: { source_type: "image_url" } });
+    expect(pin.media_source.url).toMatch(new RegExp(`/social-images/${img.imageId}\\.jpg$`));
+    const rows = await db.socialAccount.findMany({ where: { shop: SHOP, network: "pinterest" } });
+    expect(rows.every((r) => r.tokenExpiresAt!.getTime() > new Date("2026-11-14T12:00:00Z").getTime())).toBe(true);
+    expect((await calendarData(SHOP, NOW)).posts[0].results[0]).toMatchObject({ status: "posted", url: "https://www.pinterest.com/pin/991/" });
   });
 
   it("pads tall pictures for Instagram", async () => {
