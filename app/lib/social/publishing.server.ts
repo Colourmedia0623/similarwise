@@ -2,7 +2,7 @@ import db from "../../db.server";
 import { claudeJson, type AskJson } from "../ideas/claude.server";
 import { isFreeShop } from "../waitlist.server";
 import { NETWORK_NAME, PROVIDER, postLink, providerApproved, type Fetch, type Network, type TikTokChoices } from "./networks.server";
-import { sendTo } from "./social.server";
+import { readStats, sendTo } from "./social.server";
 import { fromZoned, validZone } from "./when";
 import { CAMPAIGN_COLORS, LIMITS, MAX_PICTURES } from "./publishing";
 
@@ -80,6 +80,7 @@ export async function calendarData(shop: string, now = new Date()) {
         status: s.status,
         url: postLink(s),
         error: s.error,
+        stats: readStats(s.stats),
       }));
   // Article shares made together count as one post on the calendar.
   const title = new Map(articles.map((a) => [a.id, a.title]));
@@ -132,6 +133,7 @@ export async function calendarData(shop: string, now = new Date()) {
         status: s.status,
         url: postLink(s),
         error: s.error,
+        stats: readStats(s.stats),
       })),
     })),
   };

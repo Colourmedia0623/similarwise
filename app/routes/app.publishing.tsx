@@ -3,9 +3,9 @@ import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs, ShouldRev
 import { Link, useFetcher, useFetchers, useLoaderData, useRevalidator } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
-import { NETWORK_NAME, type Network } from "../lib/social/networks";
+import { NETWORK_NAME, type Network, type PostStats } from "../lib/social/networks";
 import type { TikTokChoices } from "../lib/social/networks.server";
-import { checkTikTokPosts, tiktokAccount } from "../lib/social/social.server";
+import { checkTikTokPosts, refreshStats, tiktokAccount } from "../lib/social/social.server";
 import {
   archiveCampaign,
   blogPlan,
@@ -23,6 +23,7 @@ import {
   writeSocialCaptions,
 } from "../lib/social/publishing.server";
 import { CAMPAIGN_COLORS, LIMITS, MAX_PICTURES } from "../lib/social/publishing";
+import { StatLine, addStats } from "../components/PostStats";
 import {
   CANVA_SIZES,
   canvaAccount,
@@ -110,6 +111,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   if (intent === "canva-import") return { intent, ...(await importCanvaDesign(shop, text("designId"), Math.min(MAX_PICTURES, Number(text("max")) || MAX_PICTURES))) };
   if (intent === "duplicate") return { intent, ...(await duplicatePost(shop, id)) };
   if (intent === "delete") return { intent, id, ...(await deleteSocialPost(shop, id)) };
+  if (intent === "stats") return { intent, read: await refreshStats({ shop, scheduleId: id }) };
   if (intent === "retry") return { intent, id, ...(await retryPost(shop, id)) };
   if (intent === "send-now") return { intent, id, ...(await sendNow(shop, id)) };
   if (intent === "campaign") {
@@ -241,6 +243,9 @@ const Glyph = ({ d, size = 14 }: { d: string; size?: number }) => (
   </svg>
 );
 const G = {
+  heart: "M10 17.5 8.9 16.5C4.6 12.6 2 10.3 2 7.4 2 5 3.9 3 6.3 3c1.4 0 2.7.6 3.7 1.7C11 3.6 12.3 3 13.7 3 16.1 3 18 5 18 7.4c0 2.9-2.6 5.2-6.9 9.1L10 17.5Z",
+  eye: "M10 4c4.2 0 7.3 3.4 8.5 6-1.2 2.6-4.3 6-8.5 6S2.7 12.6 1.5 10C2.7 7.4 5.8 4 10 4Zm0 2c-2.8 0-5.1 2-6.3 4 1.2 2 3.5 4 6.3 4s5.1-2 6.3-4c-1.2-2-3.5-4-6.3-4Zm0 1.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5Z",
+  copy: "M7 2h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2v-2h2V4H7v2H5V4a2 2 0 0 1 2-2ZM4 7h9a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Zm0 2v7h9V9H4Z",
   clock: "M10 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16Zm0 2a6 6 0 1 0 0 12 6 6 0 0 0 0-12Zm1 2v3.6l2.7 2.7-1.4 1.4L9 10.4V6h2Z",
   draft: "M14.7 2.3a1 1 0 0 1 1.4 0l1.6 1.6a1 1 0 0 1 0 1.4L7.4 15.6 3 17l1.4-4.4L14.7 2.3Z",
   tick: "M8 13.6 3.7 9.3l1.4-1.4L8 10.8l6.9-6.9 1.4 1.4L8 13.6Z",
@@ -343,9 +348,12 @@ export default function Publishing() {
     failed: posts.filter((p) => p.status === "failed" || p.status === "partial").length,
   };
 
-  const open = (item: Item) => {
+  const open = (item: Item, action?: CardAction) => {
     if (item.kind === "blog") return;
     if (item.kind === "share") return setDetail({ share: item.share });
+    if (action === "preview") return setDetail({ post: item.post });
+    if (action === "duplicate") return dup.submit({ intent: "duplicate", id: item.post.id }, { method: "post" });
+    if (action === "edit") return setComposer({ post: item.post });
     if (["draft", "scheduled", "failed"].includes(item.post.status)) return setComposer({ post: item.post });
     setDetail({ post: item.post });
   };
@@ -487,6 +495,7 @@ export default function Publishing() {
               tz={tz}
               campaignById={campaignById}
               onOpen={setDetail}
+              now={data.now}
             />
           )}
           {section === "campaigns" && (
@@ -519,8 +528,8 @@ export default function Publishing() {
       )}
       {detail && (
         <Detail
-          post={detail.post}
-          share={detail.share}
+          post={detail.post ? (data.posts.find((p) => p.id === detail.post!.id) ?? detail.post) : undefined}
+          share={detail.share ? (data.articleShares.find((x) => x.id === detail.share!.id) ?? detail.share) : undefined}
           tz={tz}
           campaignById={campaignById}
           onClose={() => setDetail(null)}
@@ -641,7 +650,7 @@ function WeekView({
   campaigns: Campaign[];
   campaignById: Map<string, Campaign>;
   tz: string;
-  onOpen: (i: Item) => void;
+  onOpen: (i: Item, action?: CardAction) => void;
   onNew: (day: string) => void;
 }) {
   const start = weekStart(anchor);
@@ -762,7 +771,9 @@ const itemStatus = (i: Item) =>
   i.kind === "post" ? i.post.status : i.kind === "share" ? (i.share.results.every((r) => r.status === "failed") ? "failed" : "sent") : "blog";
 
 // A post on the calendar: its networks, time, caption, picture and campaign.
-function Card({ item, campaign, onOpen }: { item: Item; campaign?: Campaign; onOpen: (i: Item) => void }) {
+type CardAction = "preview" | "edit" | "duplicate";
+
+function Card({ item, campaign, onOpen }: { item: Item; campaign?: Campaign; onOpen: (i: Item, action?: CardAction) => void }) {
   const status = itemStatus(item);
   if (item.kind === "blog") {
     return (
@@ -779,9 +790,18 @@ function Card({ item, campaign, onOpen }: { item: Item; campaign?: Campaign; onO
   const caption = item.kind === "post" ? item.post.caption || Object.values(item.post.captions)[0] || "" : item.share.title;
   const image = item.kind === "post" ? item.post.image : item.share.image;
   const draggable = item.kind === "post" && (status === "draft" || status === "scheduled");
+  const editable = item.kind === "post" && ["draft", "scheduled", "failed"].includes(status);
+  const sentStats = addStats((item.kind === "post" ? item.post.results : item.share.results).map((r) => r.stats));
+  const total = sentStats ? engagement(sentStats) : undefined;
+  // Small buttons along the bottom; a click on them doesn't open the card.
+  const act = (action: CardAction) => (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onOpen(item, action);
+  };
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       className={`pc-card pc-card-${status}`}
       draggable={draggable}
       onDragStart={(e) => {
@@ -789,6 +809,12 @@ function Card({ item, campaign, onOpen }: { item: Item; campaign?: Campaign; onO
         e.dataTransfer.effectAllowed = "move";
       }}
       onClick={() => onOpen(item)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen(item);
+        }
+      }}
     >
       <span className="pc-card-top">
         <span className="pc-card-nets">
@@ -816,7 +842,27 @@ function Card({ item, campaign, onOpen }: { item: Item; campaign?: Campaign; onO
           {(status === "failed" || status === "partial") && <span className="pc-tag pc-tag-bad">{STATUS_LABEL[status]}</span>}
         </span>
       )}
-    </button>
+      <span className="pc-card-acts">
+        {total !== undefined && (
+          <span className="pc-card-eng" title="Engagement: likes, comments, shares, saves and clicks">
+            <Glyph d={G.heart} size={12} /> {total.toLocaleString("en-GB")}
+          </span>
+        )}
+        <button type="button" title="Preview" aria-label="Preview" onClick={act("preview")}>
+          <Glyph d={G.eye} size={14} />
+        </button>
+        {item.kind === "post" && (
+          <button type="button" title="Duplicate" aria-label="Duplicate" onClick={act("duplicate")}>
+            <Glyph d={G.copy} size={14} />
+          </button>
+        )}
+        {editable && (
+          <button type="button" title="Edit" aria-label="Edit" onClick={act("edit")}>
+            <Glyph d={G.draft} size={14} />
+          </button>
+        )}
+      </span>
+    </div>
   );
 }
 
@@ -836,7 +882,7 @@ function MonthView({
   items: Item[];
   campaignById: Map<string, Campaign>;
   tz: string;
-  onOpen: (i: Item) => void;
+  onOpen: (i: Item, action?: CardAction) => void;
   onNew: (day: string) => void;
   onWeek: (day: string) => void;
 }) {
@@ -928,7 +974,7 @@ function ListView({
   today: string;
   items: Item[];
   campaignById: Map<string, Campaign>;
-  onOpen: (i: Item) => void;
+  onOpen: (i: Item, action?: CardAction) => void;
 }) {
   const end = addDays(anchor, 29);
   const inRange = items.filter((i) => i.day >= anchor && i.day <= end);
@@ -1144,7 +1190,9 @@ function SentList({
   tz,
   campaignById,
   onOpen,
+  now,
 }: {
+  now: string;
   posts: Post[];
   shares: Share[];
   tz: string;
@@ -1173,12 +1221,85 @@ function SentList({
       from: "Blog article share",
     })),
   ].sort((a, b) => b.at.localeCompare(a.at));
+  const [view, setView] = useState<"cards" | "list">("cards");
+  // A card for each channel a post went to, leaving out the ones that failed.
+  const cards = rows.flatMap((r) =>
+    r.results
+      .filter((x) => x.status !== "failed")
+      .map((x) => ({ key: `${r.key}:${x.id}`, at: r.at, image: r.image, text: r.text, open: r.open, network: x.network, account: x.account, stats: x.stats })),
+  );
   return (
     <div className="pc-panel">
-      <h2>Sent</h2>
-      <p className="pc-muted">Everything that went out in the last four months, from here and from your blog articles.</p>
+      <div className="pc-sent-head">
+        <div>
+          <h2>Sent</h2>
+          <p className="pc-muted">Everything that went out in the last four months, from here and from your blog articles. Likes and reach update every hour.</p>
+        </div>
+        <div className="pc-seg">
+          <button type="button" className={view === "cards" ? "on" : ""} onClick={() => setView("cards")}>
+            Cards
+          </button>
+          <button type="button" className={view === "list" ? "on" : ""} onClick={() => setView("list")}>
+            List
+          </button>
+        </div>
+      </div>
       {rows.length === 0 && <div className="pc-empty">Nothing sent yet.</div>}
-      {rows.map((r) => {
+      {rows.length > 0 && <SentTotals cards={cards} now={now} />}
+      {view === "cards" && (
+        <div className="pc-cards">
+          {cards.map((c) => (
+            <button key={c.key} type="button" className="pc-perf" onClick={c.open}>
+              <div className="pc-perf-head">
+                <NetIcon n={c.network} size={18} />
+                <span className="pc-perf-name">{c.account}</span>
+                <small>{dayLabel(zoned(new Date(c.at), tz).day, { day: "numeric", month: "short" })}</small>
+              </div>
+              {c.image ? <img src={c.image} alt="" /> : <div className="pc-perf-text">{c.text}</div>}
+              {c.network === "tiktok" ? (
+                <p className="pc-perf-note">TikTok doesn&apos;t share figures with SimilarWise yet.</p>
+              ) : !c.stats ? (
+                <p className="pc-perf-note">Figures come in within the hour.</p>
+              ) : (
+                <dl>
+                  <div>
+                    <dt>{c.network === "pinterest" ? "Impressions" : "Reach"}</dt>
+                    <dd>{fmt(c.stats.reach)}</dd>
+                  </div>
+                  <div>
+                    <dt>Engagement</dt>
+                    <dd>{fmt(engagement(c.stats))}</dd>
+                  </div>
+                  {c.network === "pinterest" ? (
+                    <>
+                      <div>
+                        <dt>Saves</dt>
+                        <dd>{fmt(c.stats.saves)}</dd>
+                      </div>
+                      <div>
+                        <dt>Clicks</dt>
+                        <dd>{fmt(c.stats.clicks)}</dd>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div>
+                        <dt>Likes</dt>
+                        <dd>{fmt(c.stats.likes)}</dd>
+                      </div>
+                      <div>
+                        <dt>Comments</dt>
+                        <dd>{fmt(c.stats.comments)}</dd>
+                      </div>
+                    </>
+                  )}
+                </dl>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+      {view === "list" && rows.map((r) => {
         const when = zoned(new Date(r.at), tz);
         return (
           <button key={r.key} type="button" className="pc-row pc-row-sent pc-row-button" onClick={r.open}>
@@ -1210,10 +1331,49 @@ function SentList({
                 {r.from && <span className="pc-tag pc-tag-plain">{r.from}</span>}
               </div>
               <p className="pc-row-text">{r.text}</p>
+              <StatLine stats={addStats(r.results.map((x) => x.stats))} compact />
             </div>
           </button>
         );
       })}
+    </div>
+  );
+}
+
+const fmt = (n: number | undefined) => (typeof n === "number" ? n.toLocaleString("en-GB") : "–");
+// Everything people did with a post: likes, comments, shares, saves and clicks.
+function engagement(s: PostStats) {
+  const parts = [s.likes, s.comments, s.shares, s.saves, s.clicks].filter((v): v is number => typeof v === "number");
+  return parts.length ? parts.reduce((a, b) => a + b, 0) : undefined;
+}
+
+// Totals across the last 30 days' posts.
+function SentTotals({ cards, now }: { cards: { at: string; stats: PostStats | null | undefined }[]; now: string }) {
+  const since = Date.parse(now) - 30 * 86400_000;
+  const recent = cards.filter((c) => Date.parse(c.at) >= since);
+  const withStats = recent.map((c) => c.stats).filter((s): s is PostStats => !!s);
+  const sum = (f: (s: PostStats) => number | undefined) => {
+    const vals = withStats.map(f).filter((v): v is number => typeof v === "number");
+    return vals.length ? vals.reduce((a, b) => a + b, 0) : undefined;
+  };
+  return (
+    <div className="pc-totals">
+      <div>
+        <strong>{recent.length}</strong>
+        <span>posts in the last 30 days</span>
+      </div>
+      <div>
+        <strong>{fmt(sum((s) => s.reach))}</strong>
+        <span>reached</span>
+      </div>
+      <div>
+        <strong>{fmt(sum(engagement))}</strong>
+        <span>engagements</span>
+      </div>
+      <div>
+        <strong>{fmt(sum((s) => s.likes))}</strong>
+        <span>likes</span>
+      </div>
     </div>
   );
 }
@@ -1278,7 +1438,14 @@ function Detail({
               </a>
             </p>
           )}
-          <h3>Where it went</h3>
+          <h3 className="pc-went">
+            Where it went
+            {post && results.some((r) => r.status === "posted" && r.network !== "tiktok") && (
+              <button type="button" className="pc-link-btn" disabled={act.state !== "idle"} onClick={() => act.submit({ intent: "stats", id: post.id }, { method: "post" })}>
+                {act.state !== "idle" && act.formData?.get("intent") === "stats" ? "Reading…" : "Update likes and reach"}
+              </button>
+            )}
+          </h3>
           <ul className="pc-results">
             {results.map((r) => (
               <li key={r.id}>
@@ -1290,7 +1457,11 @@ function Detail({
                   ) : r.status === "processing" ? (
                     <em>TikTok is still processing it.</em>
                   ) : (
-                    <em>Posted</em>
+                    <em>
+                      Posted
+                      {r.stats && " · "}
+                      <StatLine stats={r.stats} />
+                    </em>
                   )}
                 </span>
                 {r.url && (
@@ -2363,6 +2534,11 @@ const CSS = `
 .pc-card-time { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; font-weight: 600; white-space: nowrap; color: #3459d6; }
 .pc-time-draft { color: #8a8a8a; } .pc-time-sent { color: #0f7a4f; } .pc-time-failed, .pc-time-partial { color: #c4291c; } .pc-time-sending { color: #8a5a00; }
 .pc-card-body { display: flex; gap: 6px; align-items: flex-start; }
+.pc-card-acts { display: flex; justify-content: flex-end; gap: 2px; margin-top: 2px; opacity: .55; transition: opacity .15s; }
+.pc-card:hover .pc-card-acts, .pc-card:focus-within .pc-card-acts { opacity: 1; }
+.pc-card-eng { display: inline-flex; align-items: center; gap: 3px; margin-right: auto; color: #c4314b; font-size: 11px; font-weight: 600; }
+.pc-card-acts button { display: inline-flex; padding: 3px; border: 0; border-radius: 6px; background: none; color: #4a4a4a; cursor: pointer; }
+.pc-card-acts button:hover { background: rgba(0,0,0,.07); color: #1a1a1a; }
 .pc-card-text { flex: 1; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
 .pc-card-body img { flex: none; width: 42px; height: 42px; object-fit: cover; border-radius: 6px; }
 .pc-card-foot { display: flex; flex-wrap: wrap; gap: 4px; }
@@ -2478,6 +2654,30 @@ const CSS = `
 .pc-canva-designs img, .pc-canva-blank { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 6px; background: #f1f1f1; display: block; }
 .pc-canva-designs span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pc-canva-designs small { color: #8a8a8a; }
+.pc-sent-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.pc-seg { display: inline-flex; border: 1px solid #d4d4d4; border-radius: 8px; overflow: hidden; flex-shrink: 0; }
+.pc-seg button { padding: 5px 12px; border: 0; background: #fff; font: inherit; font-size: 13px; cursor: pointer; }
+.pc-seg button.on { background: #303030; color: #fff; }
+.pc-totals { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0; }
+.pc-totals div { display: flex; flex-direction: column; padding: 12px 14px; border: 1px solid #e3e3e3; border-radius: 12px; background: #fff; }
+.pc-totals strong { font-size: 20px; }
+.pc-totals span { color: #616161; font-size: 12px; }
+.pc-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+.pc-perf { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid #e3e3e3; border-radius: 14px; background: #fff; font: inherit; text-align: left; cursor: pointer; }
+.pc-perf:hover { border-color: #b5b5b5; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+.pc-perf-head { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.pc-perf-head .pc-perf-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.pc-perf-head small { color: #8a8a8a; }
+.pc-perf img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 10px; display: block; }
+.pc-perf-text { aspect-ratio: 4 / 3; padding: 10px; border-radius: 10px; background: #f6f6f6; font-size: 12px; line-height: 1.4; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; }
+.pc-perf dl { margin: 0; display: grid; gap: 4px; }
+.pc-perf dl div { display: flex; justify-content: space-between; font-size: 13px; }
+.pc-perf dt { color: #4a4a4a; }
+.pc-perf dd { margin: 0; font-weight: 600; }
+.pc-perf-note { margin: 0; color: #8a8a8a; font-size: 12px; }
+.pc-went { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.pc-link-btn { padding: 0; border: 0; background: none; color: #2c6ecb; font: inherit; font-size: 12px; font-weight: 400; cursor: pointer; }
+.pc-link-btn:disabled { color: #8a8a8a; cursor: default; }
 .pc-pics { display: flex; flex-wrap: wrap; gap: 8px; }
 .pc-pic { position: relative; width: 92px; height: 92px; border-radius: 10px; overflow: hidden; cursor: grab; background: #f1f1f1; }
 .pc-pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
