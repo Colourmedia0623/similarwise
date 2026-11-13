@@ -526,12 +526,13 @@ model SocialAccount {
   @@unique([shop, network, accountId])
 }
 
-// An article shared to one social account.
+// An article, or a post from the social calendar, sent to one social account.
 model SocialPost {
-  id        String    @id @default(cuid())
-  shop      String
-  articleId String
-  accountId String    // SocialAccount.id
+  id         String    @id @default(cuid())
+  shop       String
+  articleId  String?   // Shared from a blog article
+  scheduleId String?   // ScheduledPost.id, from the social calendar
+  accountId  String    // SocialAccount.id
   network   String
   caption   String
   status    String    // posted | failed | processing
@@ -541,6 +542,58 @@ model SocialPost {
   createdAt DateTime  @default(now())
 
   @@index([shop, articleId])
+  @@index([shop, scheduleId])
+}
+
+// A post written in the social calendar: one picture and caption sent to
+// several accounts, now, at a set time, or kept as a draft (lib/social/publishing).
+model ScheduledPost {
+  id          String    @id @default(cuid())
+  shop        String
+  caption     String
+  captions    String    @default("{}") // JSON: a different caption per network
+  accountIds  String    @default("[]") // JSON: SocialAccount ids
+  tiktok      String?   // JSON: TikTok choices for each TikTok account
+  imageId     String?   // SocialImage.id
+  link        String?
+  campaignId  String?
+  status      String    // draft | scheduled | sending | sent | partial | failed
+  scheduledAt DateTime?
+  sentAt      DateTime?
+  error       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([shop, scheduledAt])
+  @@index([status, scheduledAt])
+}
+
+// A picture uploaded for a social calendar post, served at /social-images/<id>.jpg.
+model SocialImage {
+  id        String   @id @default(cuid())
+  shop      String
+  data      Bytes
+  mime      String
+  width     Int
+  height    Int
+  createdAt DateTime @default(now())
+
+  @@index([shop])
+}
+
+// A named run of social posts with its own colour and dates.
+model SocialCampaign {
+  id        String   @id @default(cuid())
+  shop      String
+  name      String
+  color     String
+  startDay  String?  // YYYY-MM-DD
+  endDay    String?
+  note      String?
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([shop])
 }
 
 // A Google search the shop tracks its position for daily (lib/ranks).

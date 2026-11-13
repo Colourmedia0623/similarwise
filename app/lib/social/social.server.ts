@@ -94,6 +94,17 @@ export async function tiktokAccount(shop: string, accountId: string, { f = fetch
   }
 }
 
+type Account = { id: string; network: string; accountId: string; token: string; refreshToken: string | null; tokenExpiresAt: Date | null };
+
+// One post to one connected account, through that network's API.
+export async function sendTo(account: Account, post: Post, tiktok: TikTokChoices | undefined, f: Fetch, now: Date): Promise<Posted> {
+  const token = await liveToken(account, f, now);
+  if (account.network === "facebook") return postFacebook(account.accountId, token, post, f);
+  if (account.network === "instagram") return postInstagram(account.accountId, token, post, f);
+  if (!tiktok) throw new Error("Choose who can see the TikTok post.");
+  return postTikTok(token, post, tiktok, f);
+}
+
 export type Pick = { accountId: string; caption: string; tiktok?: TikTokChoices };
 
 // Posts the article to each picked account. One failing doesn't stop the rest.
@@ -121,12 +132,9 @@ export async function shareArticle(shop: string, articleId: string, picks: Pick[
       if (network === "tiktok" && !pick.tiktok?.privacy) return fail("Choose who can see the TikTok post.");
       if (network !== "facebook" && !image) return fail(`${NETWORK_NAME[network]} needs a picture. Make or upload one for the article first.`);
       try {
-        const token = await liveToken(account, f, now);
         // TikTok gets a copy small enough for it to accept.
         const picture = image && network === "tiktok" ? `${image}${image.includes("?") ? "&" : "?"}for=tiktok` : image;
-        const post: Post = { caption, title: a.title, link, imageUrl: picture ?? "" };
-        const done: Posted =
-          network === "facebook" ? await postFacebook(account.accountId, token, post, f) : network === "instagram" ? await postInstagram(account.accountId, token, post, f) : await postTikTok(token, post, pick.tiktok!, f);
+        const done = await sendTo(account, { caption, title: a.title, link, imageUrl: picture ?? "" }, pick.tiktok, f, now);
         await db.socialPost.create({ data: { shop, articleId, accountId: account.id, network, caption, status: done.processing ? "processing" : "posted", remoteId: done.remoteId, url: done.url } });
         return { accountId: account.id, ok: true as const };
       } catch (err) {
@@ -159,10 +167,13 @@ export async function autoShare(shop: string, articleId: string, opts: { ask?: A
   );
 }
 
-// Asks TikTok where the article's sent posts got to, and records the answer.
-// One that can't be checked stays as sent, to try again next time.
-export async function checkTikTokPosts(shop: string, articleId: string, { f = fetch, now = new Date() }: { f?: Fetch; now?: Date } = {}) {
-  const posts = await db.socialPost.findMany({ where: { shop, articleId, network: "tiktok", status: "processing", remoteId: { not: null } } });
+// Asks TikTok where the article's (or, with no article, the social
+// calendar's) sent posts got to, and records the answer. One that can't be
+// checked stays as sent, to try again next time.
+export async function checkTikTokPosts(shop: string, articleId: string | null, { f = fetch, now = new Date() }: { f?: Fetch; now?: Date } = {}) {
+  const posts = await db.socialPost.findMany({
+    where: { shop, ...(articleId ? { articleId } : { scheduleId: { not: null } }), network: "tiktok", status: "processing", remoteId: { not: null } },
+  });
   for (const p of posts) {
     const account = await db.socialAccount.findFirst({ where: { id: p.accountId, shop } });
     if (!account) continue;
