@@ -203,6 +203,13 @@ model ShopSettings {
 
   // Site audit (lib/audit): a weekly SEO check of the shop's own storefront.
   auditRunningAt DateTime?
+
+  // Social listening (lib/listening): what people say about the shop and its competitors online.
+  listenCheckedAt  DateTime? // The last finished check
+  listenRunningAt  DateTime? // Set while a check runs
+  listenError      String?
+  listenInsights   String? // JSON: Claude's read of the latest mentions
+  listenInsightsAt DateTime?
 }
 
 // A competitor's search numbers on each traffic refresh, for trends.
@@ -735,4 +742,45 @@ model AdSchedule {
 
   @@index([status, runAt])
   @@index([shop, runAt])
+}
+
+// Social listening (lib/listening): a brand, competitor or keyword the shop
+// listens for. The brand and competitor topics follow the shop's settings and
+// competitor list; keyword topics are the merchant's own.
+model ListenTopic {
+  id           String   @id @default(cuid())
+  shop         String
+  kind         String // brand | competitor | keyword
+  name         String
+  terms        String   @default("[]") // JSON list of the words searched for
+  competitorId String?
+  createdAt    DateTime @default(now())
+
+  @@index([shop])
+}
+
+// One post, video, comment or page that mentions a topic.
+model ListenMention {
+  id          String    @id @default(cuid())
+  shop        String
+  topicId     String
+  source      String // reddit | web | youtube | tiktok
+  externalId  String
+  url         String
+  author      String?
+  place       String? // The subreddit, site or channel
+  title       String?
+  text        String    @default("")
+  publishedAt DateTime?
+  foundAt     DateTime
+  engagement  Int? // Upvotes, likes or views
+  read        Boolean   @default(false) // Claude has read it
+  relevant    Boolean   @default(true) // False when it's about something else with the same name
+  sentiment   String? // positive | neutral | negative
+  themes      String    @default("[]") // JSON list of short themes, e.g. ["delivery times"]
+  summary     String?
+
+  @@unique([topicId, source, externalId])
+  @@index([shop, foundAt])
+  @@index([shop, publishedAt])
 }

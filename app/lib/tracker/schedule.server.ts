@@ -9,6 +9,7 @@ import { refreshAllSimilar } from "../traffic/similar.server";
 import { sendAlerts, sendDigests } from "../email/alerts.server";
 import { runCalendar } from "../ideas/calendar.server";
 import { refreshAllAiMentions } from "../ai/mentions.server";
+import { refreshAllListening } from "../listening/listening.server";
 import { refreshAllRanks } from "../ranks/ranks.server";
 import { refreshAllAudits } from "../audit/audit.server";
 import { refreshAllGoogle } from "../google/google.server";
@@ -17,7 +18,7 @@ import { sendDuePosts } from "../social/publishing.server";
 
 // Every hour, re-checks the competitors nobody has checked in a day, one at
 // a time, and their search traffic and keyword gap, ads and link gap when they're a week old.
-// Then reads the shops' own storefronts daily, finds similar sites weekly, writes the blog posts due on the content calendar, asks AI assistants the shops' questions weekly, checks the shops' tracked Google rankings daily, audits the shops' own storefronts weekly, reads their own Google Analytics and Ads figures daily, checks their paid social spend against its monthly limits,
+// Then reads the shops' own storefronts daily, finds similar sites weekly, writes the blog posts due on the content calendar, asks AI assistants the shops' questions weekly, collects what people say about the shops and their competitors every three days, checks the shops' tracked Google rankings daily, audits the shops' own storefronts weekly, reads their own Google Analytics and Ads figures daily, checks their paid social spend against its monthly limits,
 // and every minute sends the social calendar posts that are due,
 // and emails what changed, and on Mondays the weekly summary.
 
@@ -41,6 +42,7 @@ export async function checkStale() {
     await refreshAllSimilar();
     await runCalendar().catch((err) => console.error("Couldn't run the content calendar", err));
     await refreshAllAiMentions().catch((err) => console.error("Couldn't check AI mentions", err));
+    await refreshAllListening().catch((err) => console.error("Couldn't check social listening", err));
     await refreshAllRanks().catch((err) => console.error("Couldn't check rankings", err));
     await refreshAllAudits().catch((err) => console.error("Couldn't audit storefronts", err));
     await refreshAllGoogle().catch((err) => console.error("Couldn't read Google figures", err));

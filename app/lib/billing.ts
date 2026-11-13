@@ -29,7 +29,7 @@ export const PLANS: { tier: Tier; name: string; blurb: string; monthly: number; 
     blurb: "See competitors' ads and publish your own content everywhere.",
     monthly: 339,
     yearly: 269,
-    includes: ["Everything in Grow", "Competitor ads", "Ad ideas", "Social calendar: schedule posts to Facebook, Instagram and TikTok", "Paid social ad budgets and spend limits"],
+    includes: ["Everything in Grow", "Competitor ads", "Ad ideas", "Social listening: what people say about you and your competitors", "Social calendar: schedule posts to Facebook, Instagram and TikTok", "Paid social ad budgets and spend limits"],
   },
 ];
 
@@ -57,6 +57,7 @@ const PAGES: [string, Tier][] = [
   ["/app/outreach", "grow"],
   ["/app/ads", "advertise"],
   ["/app/ad-ideas", "advertise"],
+  ["/app/listening", "advertise"],
   ["/app/social", "advertise"],
   ["/app/publishing", "advertise"],
   ["/app/paid-social", "advertise"],

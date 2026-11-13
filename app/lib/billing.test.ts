@@ -15,6 +15,7 @@ describe("billing plans", () => {
     expect(pageTier("/app/articles/abc")).toBe("grow");
     expect(pageTier("/app/ads")).toBe("advertise");
     expect(pageTier("/app/ad-ideas")).toBe("advertise");
+    expect(pageTier("/app/listening")).toBe("advertise");
     expect(pageTier("/app/adsx")).toBe("watch");
   });
 
