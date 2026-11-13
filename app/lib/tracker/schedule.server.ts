@@ -14,7 +14,7 @@ import { refreshAllAudits } from "../audit/audit.server";
 import { refreshAllGoogle } from "../google/google.server";
 import { checkSpendLimits } from "../paidsocial/paid.server";
 import { sendDuePosts } from "../social/publishing.server";
-import { refreshStats } from "../social/social.server";
+import { recordFollowers, refreshStats } from "../social/social.server";
 
 // Every hour, re-checks the competitors nobody has checked in a day, one at
 // a time, and their search traffic and keyword gap, ads and link gap when they're a week old.
@@ -59,7 +59,13 @@ export function startTrackerSchedule() {
   setInterval(() => void checkStale().catch((err) => console.error("Tracker run failed", err)), HOUR).unref();
   setTimeout(() => void checkStale().catch((err) => console.error("Tracker run failed", err)), 60_000).unref();
   // Likes, comments and reach for sent social posts, read hourly.
-  setInterval(() => void refreshStats().catch((err) => console.error("Couldn't read social engagement", err)), HOUR).unref();
+  setInterval(
+    () =>
+      void refreshStats()
+        .then(() => recordFollowers())
+        .catch((err) => console.error("Couldn't read social engagement", err)),
+    HOUR,
+  ).unref();
   // Social calendar posts go out on the minute they're due.
   setInterval(() => void sendDuePosts().catch((err) => console.error("Couldn't send scheduled social posts", err)), 60_000).unref();
 }

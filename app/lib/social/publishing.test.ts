@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import sharp from "sharp";
 import db from "../../db.server";
 import { connectPinterest, type Fetch } from "./networks.server";
-import { articleShares, createPinterestBoard, refreshStats, saveAccounts, shopPinterestPin, socialAccounts } from "./social.server";
+import { articleShares, createPinterestBoard, followerHistory, recordFollowers, refreshStats, saveAccounts, shopPinterestPin, socialAccounts } from "./social.server";
 import {
   calendarData,
   deleteCampaign,
@@ -68,7 +68,7 @@ const input = (extra: Partial<PostInput>): PostInput => ({
 describe("social calendar", () => {
   beforeEach(async () => {
     process.env.SOCIAL_APPROVED = "meta";
-    for (const t of [db.scheduledPost, db.socialImage, db.socialCampaign, db.socialPost, db.socialAccount] as const)
+    for (const t of [db.socialFollowers, db.scheduledPost, db.socialImage, db.socialCampaign, db.socialPost, db.socialAccount] as const)
       await (t as unknown as { deleteMany: (a: object) => Promise<unknown> }).deleteMany({ where: { shop: SHOP } });
   });
 
@@ -321,6 +321,28 @@ describe("social calendar", () => {
     expect(await refreshStats({ f, now: new Date(NOW.getTime() + 20 * 60_000), shop: SHOP })).toBe(0);
     expect(calls.length).toBe(made);
     expect(await refreshStats({ f, now: new Date(NOW.getTime() + 61 * 60_000), shop: SHOP })).toBe(3);
+  });
+
+  it("records follower counts once a day for the report", async () => {
+    await accounts();
+    const calls: Call[] = [];
+    const counts = (fb: number, ig: number) =>
+      fakeFetch(
+        [
+          [/\/p1\?/, { followers_count: fb }],
+          [/\/ig1\?/, { followers_count: ig }],
+        ],
+        calls,
+      );
+    expect(await recordFollowers({ f: counts(100, 250), now: NOW })).toBe(2);
+    expect(await recordFollowers({ f: counts(101, 251), now: new Date(NOW.getTime() + 3600_000) })).toBe(0);
+    expect(await recordFollowers({ f: counts(104, 260), now: new Date(NOW.getTime() + 86400_000) })).toBe(2);
+    const history = Object.fromEntries((await followerHistory(SHOP, NOW)).map((a) => [a.network, a.points]));
+    expect(history.facebook).toEqual([
+      { day: "2026-11-13", followers: 100 },
+      { day: "2026-11-14", followers: 104 },
+    ]);
+    expect(history.instagram.map((p: { followers: number }) => p.followers)).toEqual([250, 260]);
   });
 
   it("pads tall pictures for Instagram", async () => {

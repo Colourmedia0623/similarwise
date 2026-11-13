@@ -10,6 +10,7 @@ import {
   postLink,
   postPinterest,
   postStats,
+  followerCount,
   postTikTok,
   readPinterestPin,
   refreshPinterest,
@@ -304,4 +305,36 @@ export function readStats(raw: string | null): PostStats | null {
   } catch {
     return null;
   }
+}
+
+// Records each account's follower count for today, once a day.
+export async function recordFollowers({ f = fetch, now = new Date() }: { f?: Fetch; now?: Date } = {}) {
+  const day = now.toISOString().slice(0, 10);
+  const accounts = await db.socialAccount.findMany({ where: { network: { in: STATS_NETWORKS } } });
+  const done = new Set((await db.socialFollowers.findMany({ where: { day }, select: { accountId: true } })).map((r) => r.accountId));
+  let read = 0;
+  for (const a of accounts) {
+    if (done.has(a.id)) continue;
+    try {
+      const followers = await followerCount(a.network as Network, a.accountId, await liveToken(a, f, now), f);
+      if (followers === null) continue;
+      await db.socialFollowers.upsert({ where: { accountId_day: { accountId: a.id, day } }, update: { followers }, create: { shop: a.shop, accountId: a.id, day, followers } });
+      read++;
+    } catch (err) {
+      console.error("Couldn't read followers", a.shop, a.network, a.id, err instanceof Error ? err.message : err);
+    }
+  }
+  return read;
+}
+
+// Follower counts for each account over the last 90 days, for the report.
+export async function followerHistory(shop: string, now = new Date()) {
+  const since = new Date(now.getTime() - 90 * 86400_000).toISOString().slice(0, 10);
+  const [rows, accounts] = await Promise.all([
+    db.socialFollowers.findMany({ where: { shop, day: { gte: since } }, orderBy: { day: "asc" } }),
+    db.socialAccount.findMany({ where: { shop }, select: { id: true, network: true, name: true } }),
+  ]);
+  return accounts
+    .map((a) => ({ accountId: a.id, network: a.network as Network, name: a.name, points: rows.filter((r) => r.accountId === a.id).map((r) => ({ day: r.day, followers: r.followers })) }))
+    .filter((a) => a.points.length);
 }
