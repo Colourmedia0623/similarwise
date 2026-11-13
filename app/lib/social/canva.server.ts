@@ -1,5 +1,8 @@
+import { createPublicKey, randomBytes, verify, type webcrypto } from "node:crypto";
+
+type JsonWebKey = webcrypto.JsonWebKey;
 import db from "../../db.server";
-import { uploadSocialImage } from "./publishing.server";
+import { postImages, uploadSocialImage } from "./publishing.server";
 import { pkceChallenge, pkceVerifier, seal, signState, unseal } from "./seal.server";
 import type { Fetch } from "./networks.server";
 
@@ -108,7 +111,13 @@ export async function newCanvaDesign(shop: string, size: string, title: string, 
       title: (title.trim() || "Social post").slice(0, 255),
     });
     if (!made.design?.urls?.edit_url) return { error: "Canva didn't send a link to the design." };
-    return { editUrl: made.design.urls.edit_url };
+    // Canva hands this back with the design when the merchant presses its
+    // return button, so the design lands in the post they were writing.
+    const back = randomBytes(18).toString("base64url");
+    await db.canvaReturn.create({ data: { token: back, shop } });
+    const edit = new URL(made.design.urls.edit_url);
+    edit.searchParams.set("correlation_state", back);
+    return { editUrl: edit.toString(), token: back };
   } catch (err) {
     return { error: err instanceof Error ? err.message : String(err) };
   }
@@ -170,4 +179,72 @@ export async function importCanvaDesign(
   } catch (err) {
     return { error: err instanceof Error ? err.message : String(err) };
   }
+}
+
+// Canva's return button: Canva sends the merchant to /canva/return with a
+// JWT it signed, holding the correlation_state we gave it and the design.
+let keys: { at: number; keys: (JsonWebKey & { kid?: string })[] } | null = null;
+
+async function canvaKeys(f: Fetch, now: number, fresh = false) {
+  if (!fresh && keys && now - keys.at < 3600_000) return keys.keys;
+  const res = await f(`${API}/connect/keys`, { signal: AbortSignal.timeout(30_000) });
+  const json = (await res.json().catch(() => ({}))) as { keys?: (JsonWebKey & { kid?: string })[] };
+  if (!res.ok || !json.keys?.length) throw new Error("Couldn't check Canva's signature.");
+  keys = { at: now, keys: json.keys };
+  return json.keys;
+}
+
+export async function readCanvaReturn(jwt: string, f: Fetch = fetch, now = Date.now()) {
+  const [h, p, sig] = jwt.split(".");
+  if (!h || !p || !sig) return null;
+  try {
+    const header = JSON.parse(Buffer.from(h, "base64url").toString("utf8")) as { alg?: string; kid?: string };
+    if (header.alg !== "RS256") return null;
+    let key = (await canvaKeys(f, now)).find((k) => k.kid === header.kid);
+    // Canva may have started signing with a new key since the list was read.
+    if (!key) key = (await canvaKeys(f, now, true)).find((k) => k.kid === header.kid);
+    if (!key) return null;
+    const ok = verify("RSA-SHA256", Buffer.from(`${h}.${p}`), createPublicKey({ key, format: "jwk" }), Buffer.from(sig, "base64url"));
+    if (!ok) return null;
+    const claims = JSON.parse(Buffer.from(p, "base64url").toString("utf8")) as { exp?: number; aud?: string | string[]; correlation_state?: string; design_id?: string };
+    if (claims.exp && claims.exp * 1000 < now) return null;
+    const aud = Array.isArray(claims.aud) ? claims.aud : claims.aud ? [claims.aud] : [];
+    if (aud.length && !aud.includes(process.env.CANVA_CLIENT_ID ?? "")) return null;
+    if (!claims.correlation_state || !claims.design_id) return null;
+    return { token: claims.correlation_state, designId: claims.design_id };
+  } catch {
+    return null;
+  }
+}
+
+const RETURN_FOR = 24 * 3600_000;
+
+// Brings the design in for the post that started it.
+export async function finishCanvaReturn(jwt: string, { f = fetch, now = new Date(), pause = wait }: { f?: Fetch; now?: Date; pause?: (ms: number) => Promise<unknown> } = {}) {
+  const back = await readCanvaReturn(jwt, f, now.getTime());
+  if (!back) return { error: "This link from Canva isn't valid. Go back to SimilarWise and press Add from Canva instead." };
+  const row = await db.canvaReturn.findUnique({ where: { token: back.token } });
+  if (!row || now.getTime() - row.createdAt.getTime() > RETURN_FOR)
+    return { error: "This design was started too long ago to bring in this way. Go back to SimilarWise and press Add from Canva instead." };
+  if (row.status === "ready") return { ok: true as const, pages: postImages({ imageId: null, imageIds: row.imageIds }).length };
+  const res = await importCanvaDesign(row.shop, back.designId, 10, { f, now, pause });
+  if ("error" in res && res.error) {
+    await db.canvaReturn.update({ where: { token: row.token }, data: { status: "failed", error: res.error.slice(0, 300) } });
+    return { error: res.error };
+  }
+  const ids = "images" in res && res.images ? res.images.map((i) => i.id) : [];
+  await db.canvaReturn.update({ where: { token: row.token }, data: { status: "ready", imageIds: JSON.stringify(ids) } });
+  return { ok: true as const, pages: ids.length };
+}
+
+// What the composer sees while it waits: the pictures once they're in. Each
+// set is handed over once.
+export async function takeCanvaReturn(shop: string, token: string) {
+  const row = await db.canvaReturn.findFirst({ where: { token, shop } });
+  if (!row) return { status: "gone" as const };
+  if (row.status === "waiting") return { status: "waiting" as const };
+  await db.canvaReturn.delete({ where: { token } });
+  if (row.status === "failed") return { status: "failed" as const, error: row.error ?? "Couldn't bring the design in from Canva." };
+  const ids = postImages({ imageId: null, imageIds: row.imageIds });
+  return { status: "ready" as const, images: ids.map((id) => ({ id, url: `/social-images/${id}.jpg` })) };
 }

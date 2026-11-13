@@ -537,6 +537,20 @@ model CanvaConnection {
   createdAt      DateTime  @default(now())
 }
 
+// A design started from the composer, waiting for the merchant to press
+// Canva's return button. The token goes to Canva as correlation_state and
+// comes back signed with the design; its pages are then saved as pictures.
+model CanvaReturn {
+  token     String   @id
+  shop      String
+  status    String   @default("waiting") // waiting | ready | failed
+  imageIds  String   @default("[]")      // JSON: SocialImage ids, a page each
+  error     String?
+  createdAt DateTime @default(now())
+
+  @@index([shop, createdAt])
+}
+
 // An article, or a post from the social calendar, sent to one social account.
 model SocialPost {
   id         String    @id @default(cuid())
