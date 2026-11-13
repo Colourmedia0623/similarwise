@@ -632,8 +632,28 @@ model AdChange {
   kind         String   // pause | resume | budget
   before       String?
   after        String?
-  by           String   // you | limit
+  by           String   // you | limit | schedule
   createdAt    DateTime @default(now())
 
   @@index([shop, createdAt])
+}
+
+// A change to a paid social campaign the merchant asked for at a set time:
+// switch it on, pause it, or set a new budget. Run within a minute of runAt.
+model AdSchedule {
+  id           String    @id @default(cuid())
+  shop         String
+  adAccountId  String    // AdAccount.id
+  campaignId   String
+  campaignName String
+  kind         String    // pause | resume | budget
+  amount       Float?    // The new budget, in the account's currency
+  runAt        DateTime
+  status       String    @default("pending") // pending | running | done | failed
+  error        String?
+  doneAt       DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@index([status, runAt])
+  @@index([shop, runAt])
 }

@@ -40,6 +40,7 @@ export async function saveAdAccounts(shop: string, accounts: ConnectedAdAccount[
 
 export async function disconnectAdAccount(shop: string, id: string) {
   await db.adAccount.deleteMany({ where: { id, shop } });
+  await db.adSchedule.deleteMany({ where: { adAccountId: id, shop, status: "pending" } });
 }
 
 // Our own reasons, shown as they are rather than as something the network said.
@@ -117,13 +118,15 @@ async function setStatus(a: Row, campaignId: string, on: boolean, f: Fetch, now:
 }
 
 // Switches one campaign on or off.
-export async function setCampaignOn(shop: string, adAccountId: string, campaignId: string, on: boolean, { f = fetch, now = new Date() }: { f?: Fetch; now?: Date } = {}) {
+type By = "you" | "schedule";
+
+export async function setCampaignOn(shop: string, adAccountId: string, campaignId: string, on: boolean, { f = fetch, now = new Date(), by = "you" }: { f?: Fetch; now?: Date; by?: By } = {}) {
   let a: Row | null = null;
   try {
     a = await account(shop, adAccountId);
     const before = await setStatus(a, campaignId, on, f, now);
     await db.adChange.create({
-      data: { shop, adAccountId, campaignId, campaignName: before.name.slice(0, 200), kind: on ? "resume" : "pause", before: before.on ? "on" : "off", after: on ? "on" : "off", by: "you" },
+      data: { shop, adAccountId, campaignId, campaignName: before.name.slice(0, 200), kind: on ? "resume" : "pause", before: before.on ? "on" : "off", after: on ? "on" : "off", by },
     });
     return { ok: true as const };
   } catch (err) {
@@ -132,7 +135,7 @@ export async function setCampaignOn(shop: string, adAccountId: string, campaignI
 }
 
 // Changes one campaign's daily or lifetime budget, whichever it has.
-export async function setCampaignBudget(shop: string, adAccountId: string, campaignId: string, amount: number, { f = fetch, now = new Date() }: { f?: Fetch; now?: Date } = {}) {
+export async function setCampaignBudget(shop: string, adAccountId: string, campaignId: string, amount: number, { f = fetch, now = new Date(), by = "you" }: { f?: Fetch; now?: Date; by?: By } = {}) {
   let a: Row | null = null;
   try {
     a = await account(shop, adAccountId);
@@ -154,7 +157,7 @@ export async function setCampaignBudget(shop: string, adAccountId: string, campa
         kind: "budget",
         before: before.budget != null ? `${formatMoney(before.budget, a.currency)} ${before.budgetKind === "daily" ? "a day" : "in total"}` : null,
         after: `${formatMoney(value, a.currency)} ${before.budgetKind === "daily" ? "a day" : "in total"}`,
-        by: "you",
+        by,
       },
     });
     return { ok: true as const };
@@ -248,4 +251,144 @@ export async function checkSpendLimits({ f = fetch, send = mailer(), now = new D
       console.error("Couldn't check an ad account's spend limit", a.shop, a.id, err);
     }
   }
+}
+
+// ---------- Scheduled changes ----------
+
+const MINUTE = 60_000;
+// How far ahead a change can be scheduled.
+const SCHEDULE_AHEAD = 366 * 24 * HOUR;
+
+export type AdScheduleKind = "pause" | "resume" | "budget";
+
+// Books a change to one campaign for a set time.
+export async function scheduleAdChange(
+  shop: string,
+  input: { account: string; campaign: string; campaignName: string; kind: string; amount?: number | null; runAt: string },
+  now = new Date(),
+) {
+  const kind = input.kind as AdScheduleKind;
+  if (!["pause", "resume", "budget"].includes(kind)) return { error: "Choose what should happen." };
+  const runAt = new Date(input.runAt);
+  if (Number.isNaN(runAt.getTime())) return { error: "Choose a day and time." };
+  if (runAt.getTime() < now.getTime() - MINUTE) return { error: "That time has already passed. Choose a time from now on." };
+  if (runAt.getTime() > now.getTime() + SCHEDULE_AHEAD) return { error: "Changes can be scheduled up to a year ahead." };
+  const amount = kind === "budget" ? Number(input.amount) : null;
+  if (kind === "budget" && (!Number.isFinite(amount) || amount! <= 0)) return { error: "Enter a budget above zero." };
+  const a = await db.adAccount.findFirst({ where: { id: input.account, shop } });
+  if (!a) return { error: "That ad account isn't connected any more." };
+  if (!input.campaign) return { error: "Choose a campaign." };
+  await db.adSchedule.create({
+    data: {
+      shop,
+      adAccountId: a.id,
+      campaignId: input.campaign,
+      campaignName: (input.campaignName || input.campaign).slice(0, 200),
+      kind,
+      amount: amount == null ? null : roundMoney(amount, a.currency),
+      runAt,
+    },
+  });
+  return { ok: true as const };
+}
+
+export async function cancelAdSchedule(shop: string, id: string) {
+  const res = await db.adSchedule.deleteMany({ where: { id, shop, status: "pending" } });
+  return res.count ? { ok: true as const } : { error: "That change has already run, or was cancelled." };
+}
+
+export type AdScheduleView = {
+  id: string;
+  adAccountId: string;
+  campaignName: string;
+  kind: AdScheduleKind;
+  amount: number | null;
+  runAt: string;
+  status: "pending" | "failed";
+  error: string | null;
+};
+
+// What's still to come, and anything that didn't go through in the last week.
+export async function adSchedules(shop: string, now = new Date()): Promise<AdScheduleView[]> {
+  const rows = await db.adSchedule.findMany({
+    where: { shop, OR: [{ status: { in: ["pending", "running"] } }, { status: "failed", runAt: { gt: new Date(now.getTime() - 7 * 24 * HOUR) } }] },
+    orderBy: { runAt: "asc" },
+    take: 100,
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    adAccountId: r.adAccountId,
+    campaignName: r.campaignName,
+    kind: r.kind as AdScheduleKind,
+    amount: r.amount,
+    runAt: r.runAt.toISOString(),
+    status: r.status === "failed" ? "failed" : "pending",
+    error: r.error,
+  }));
+}
+
+// True when this month's limit has been reached on an account set to pause at it.
+function limitHolds(a: Row, now: Date) {
+  return !!a.monthlyLimit && a.limitPause && (a.limitNotified ?? "") === `${now.toISOString().slice(0, 7)}:100`;
+}
+
+export function scheduleFailedEmail(r: { campaignName: string; kind: string; error: string }, accountName: string, shop: string) {
+  const what = r.kind === "budget" ? "budget change" : r.kind === "pause" ? "pause" : "switch on";
+  const line = `The scheduled ${what} for ${r.campaignName} (${accountName}) didn't go through: ${r.error}`;
+  const link = adminUrl(shop, "/app/paid-social");
+  return {
+    subject: `A scheduled ad change for ${r.campaignName} didn't go through`,
+    text: `${line}\n\nOpen SimilarWise: ${link}`,
+    html: `<p>${escapeHtml(line)}</p><p><a href="${escapeHtml(link)}">Open paid social ads in SimilarWise</a></p>`,
+  };
+}
+
+// Makes the changes that are due (every minute, from the ad schedule).
+export async function runAdSchedules({ f = fetch, send = mailer(), now = new Date() }: { f?: Fetch; send?: Mailer | null; now?: Date } = {}) {
+  const due = await db.adSchedule.findMany({ where: { status: "pending", runAt: { lte: now } }, orderBy: { runAt: "asc" }, take: 50 });
+  for (const r of due) {
+    // Claim it first, so a change never runs twice.
+    const claimed = await db.adSchedule.updateMany({ where: { id: r.id, status: "pending" }, data: { status: "running" } });
+    if (!claimed.count) continue;
+    let error: string | null = null;
+    const a = await db.adAccount.findFirst({ where: { id: r.adAccountId, shop: r.shop } });
+    try {
+      if (!a) error = "The ad account isn't connected any more.";
+      else if (r.kind === "resume" && limitHolds(a, now)) error = "This month's spend limit has been reached, so the campaign was left paused.";
+      else {
+        const res =
+          r.kind === "budget"
+            ? await setCampaignBudget(r.shop, r.adAccountId, r.campaignId, r.amount ?? 0, { f, now, by: "schedule" })
+            : await setCampaignOn(r.shop, r.adAccountId, r.campaignId, r.kind === "resume", { f, now, by: "schedule" });
+        if ("error" in res) error = res.error;
+      }
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    }
+    await db.adSchedule.update({ where: { id: r.id }, data: { status: error ? "failed" : "done", error, doneAt: now } });
+    if (error) {
+      console.error("A scheduled ad change failed", r.shop, r.id, error);
+      const settings = await db.shopSettings.findUnique({ where: { shop: r.shop } });
+      if (send && settings?.alertEmail)
+        await send({ to: settings.alertEmail, ...scheduleFailedEmail({ ...r, error }, a?.name ?? "Disconnected account", r.shop) }).catch((err) =>
+          console.error("Couldn't email a failed ad change", r.shop, err),
+        );
+    }
+  }
+}
+
+let started = false;
+let running = false;
+
+// Checks for due changes every minute.
+export function startAdSchedule() {
+  if (started || process.env.NODE_ENV === "test") return;
+  started = true;
+  setInterval(() => {
+    if (running) return;
+    running = true;
+    void runAdSchedules()
+      .catch((err) => console.error("Scheduled ad changes failed", err))
+      .finally(() => (running = false));
+  }, MINUTE).unref();
 }

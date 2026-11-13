@@ -2,7 +2,19 @@ import { beforeEach, describe, expect, it } from "vitest";
 import db from "../../db.server";
 import type { Email } from "../email/send.server";
 import { adAuthorizeUrl, connectMetaAds, connectTikTokAds, type Fetch } from "./networks.server";
-import { checkSpendLimits, paidOverview, saveAdAccounts, setCampaignBudget, setCampaignOn, setSpendLimit } from "./paid.server";
+import {
+  adSchedules,
+  cancelAdSchedule,
+  checkSpendLimits,
+  disconnectAdAccount,
+  paidOverview,
+  runAdSchedules,
+  saveAdAccounts,
+  scheduleAdChange,
+  setCampaignBudget,
+  setCampaignOn,
+  setSpendLimit,
+} from "./paid.server";
 import { periodDates } from "./paid";
 
 const SHOP = "paid.myshopify.com";
@@ -55,6 +67,7 @@ async function metaAccount(extra: Partial<{ monthlyLimit: number; limitPause: bo
 describe("paid social ads", () => {
   beforeEach(async () => {
     await db.adChange.deleteMany({ where: { shop: SHOP } });
+    await db.adSchedule.deleteMany({ where: { shop: SHOP } });
     await db.adAccount.deleteMany({ where: { shop: SHOP } });
     await db.shopSettings.deleteMany({ where: { shop: SHOP } });
   });
@@ -216,6 +229,71 @@ describe("paid social ads", () => {
     expect(run.calls.some((c) => c.method === "POST")).toBe(false);
     expect(sent).toHaveLength(2);
     expect((await db.adAccount.findUniqueOrThrow({ where: { id: acc.id } })).monthSpend).toBe(260);
+  });
+
+  it("makes scheduled changes once they're due, and only once", async () => {
+    const acc = await metaAccount();
+    const at = (min: number) => new Date(NOW.getTime() + min * 60_000).toISOString();
+    expect(await scheduleAdChange(SHOP, { account: acc.id, campaign: "c2", campaignName: "Retargeting", kind: "resume", runAt: at(60) }, NOW)).toEqual({ ok: true });
+    expect(await scheduleAdChange(SHOP, { account: acc.id, campaign: "c1", campaignName: "Spring sale", kind: "budget", amount: 40, runAt: at(120) }, NOW)).toEqual({ ok: true });
+    expect(await scheduleAdChange(SHOP, { account: acc.id, campaign: "c1", campaignName: "Spring sale", kind: "pause", runAt: at(-30) }, NOW)).toMatchObject({ error: expect.stringContaining("already passed") });
+    expect(await scheduleAdChange(SHOP, { account: acc.id, campaign: "c1", campaignName: "Spring sale", kind: "budget", amount: 0, runAt: at(60) }, NOW)).toMatchObject({ error: expect.stringContaining("above zero") });
+    expect(await scheduleAdChange("other.myshopify.com", { account: acc.id, campaign: "c1", campaignName: "x", kind: "pause", runAt: at(60) }, NOW)).toMatchObject({ error: expect.stringContaining("isn't connected") });
+    expect((await adSchedules(SHOP, NOW)).map((s) => s.kind)).toEqual(["resume", "budget"]);
+
+    const calls: Call[] = [];
+    const f = fakeFetch(
+      [
+        [/GET .*act_111\/campaigns/, metaCampaignList],
+        [/GET .*\/c1\?/, metaCampaignList.data[0]],
+        [/GET .*\/c2\?/, metaCampaignList.data[1]],
+        [/POST .*\/c[12]$/, { success: true }],
+      ],
+      calls,
+    );
+    // Nothing is due yet.
+    await runAdSchedules({ f, send: null, now: new Date(NOW.getTime() + 30 * 60_000) });
+    expect(calls).toHaveLength(0);
+    // The first is due: switched on, logged as scheduled, and not run again.
+    await runAdSchedules({ f, send: null, now: new Date(NOW.getTime() + 61 * 60_000) });
+    await runAdSchedules({ f, send: null, now: new Date(NOW.getTime() + 62 * 60_000) });
+    expect(calls.filter((c) => c.method === "POST").map((c) => new URLSearchParams(c.body).get("status"))).toEqual(["ACTIVE"]);
+    // Then the budget.
+    await runAdSchedules({ f, send: null, now: new Date(NOW.getTime() + 125 * 60_000) });
+    expect(new URLSearchParams(calls.filter((c) => c.method === "POST")[1].body).get("daily_budget")).toBe("4000");
+    const changes = await db.adChange.findMany({ where: { shop: SHOP }, orderBy: { createdAt: "asc" } });
+    expect(changes.map((c) => [c.kind, c.by])).toEqual([
+      ["resume", "schedule"],
+      ["budget", "schedule"],
+    ]);
+    expect(await adSchedules(SHOP, NOW)).toEqual([]);
+  });
+
+  it("won't switch a campaign back on once the monthly limit has paused it, and emails why", async () => {
+    const acc = await metaAccount({ monthlyLimit: 100, limitPause: true });
+    await db.adAccount.update({ where: { id: acc.id }, data: { limitNotified: "2026-11:100" } });
+    await db.shopSettings.create({ data: { shop: SHOP, alertEmail: "owner@example.com" } });
+    await scheduleAdChange(SHOP, { account: acc.id, campaign: "c2", campaignName: "Retargeting", kind: "resume", runAt: NOW.toISOString() }, NOW);
+    const calls: Call[] = [];
+    const sent: Email[] = [];
+    await runAdSchedules({ f: fakeFetch([], calls), send: async (e) => void sent.push(e), now: NOW });
+    expect(calls).toHaveLength(0);
+    const [failed] = await adSchedules(SHOP, NOW);
+    expect([failed.status, failed.error]).toEqual(["failed", expect.stringContaining("spend limit has been reached")]);
+    expect(sent[0].subject).toBe("A scheduled ad change for Retargeting didn't go through");
+  });
+
+  it("cancels a scheduled change, and drops them all when the account is disconnected", async () => {
+    const acc = await metaAccount();
+    const runAt = new Date(NOW.getTime() + 3600_000).toISOString();
+    await scheduleAdChange(SHOP, { account: acc.id, campaign: "c1", campaignName: "Spring sale", kind: "pause", runAt }, NOW);
+    await scheduleAdChange(SHOP, { account: acc.id, campaign: "c2", campaignName: "Retargeting", kind: "resume", runAt }, NOW);
+    const [first] = await adSchedules(SHOP, NOW);
+    expect(await cancelAdSchedule("other.myshopify.com", first.id)).toMatchObject({ error: expect.any(String) });
+    expect(await cancelAdSchedule(SHOP, first.id)).toEqual({ ok: true });
+    expect(await adSchedules(SHOP, NOW)).toHaveLength(1);
+    await disconnectAdAccount(SHOP, acc.id);
+    expect(await adSchedules(SHOP, NOW)).toHaveLength(0);
   });
 
   it("covers whole days for each period", () => {

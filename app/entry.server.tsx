@@ -6,11 +6,14 @@ import { type EntryContext } from "react-router";
 import { isbot } from "isbot";
 import { addDocumentResponseHeaders } from "./shopify.server";
 import { startTrackerSchedule } from "./lib/tracker/schedule.server";
+import { startAdSchedule } from "./lib/paidsocial/paid.server";
 
 export const streamTimeout = 5000;
 
 // Re-checks every competitor store about once a day.
 startTrackerSchedule();
+// Makes the ad campaign changes merchants scheduled, within a minute of their time.
+startAdSchedule();
 
 export default async function handleRequest(
   request: Request,
