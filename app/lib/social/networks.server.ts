@@ -37,7 +37,7 @@ export const callbackUrl = (p: Provider) => `${process.env.SHOPIFY_APP_URL || ""
 
 const META_SCOPES = ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "business_management", "instagram_basic", "instagram_content_publish"];
 const TIKTOK_SCOPES = ["user.info.basic", "video.publish"];
-const PINTEREST_SCOPES = ["user_accounts:read", "boards:read", "pins:read", "pins:write"];
+const PINTEREST_SCOPES = ["user_accounts:read", "boards:read", "boards:write", "pins:read", "pins:write"];
 
 export function authorizeUrl(p: Provider, state: string) {
   if (p === "meta") {
@@ -299,7 +299,7 @@ async function pinterest<T>(f: Fetch, token: string, path: string, body?: object
 
 export async function connectPinterest(code: string, f: Fetch = fetch, now = new Date()): Promise<Connected[]> {
   const t = await pinterestToken(f, { grant_type: "authorization_code", code, redirect_uri: callbackUrl("pinterest") }, now);
-  const user = await pinterest<{ username?: string }>(f, t.token, "/user_account").catch(() => ({ username: undefined }));
+  const user = await pinterest<{ username?: string; business_name?: string }>(f, t.token, "/user_account").catch(() => ({ username: undefined, business_name: undefined }));
   const boards: { id: string; name: string }[] = [];
   let bookmark: string | undefined;
   do {
@@ -307,7 +307,15 @@ export async function connectPinterest(code: string, f: Fetch = fetch, now = new
     boards.push(...(page.items ?? []));
     bookmark = page.bookmark ?? undefined;
   } while (bookmark && boards.length < 500);
-  if (!boards.length) throw new Error("Your Pinterest account has no boards yet. Make a board on Pinterest, then connect again.");
+  // A new business account has no boards, and Pinterest hides the button to
+  // make one until there's a pin, so the first board is made here.
+  if (!boards.length) {
+    const name = `${(user.business_name || user.username || "Shop").slice(0, 40)} products`;
+    const made = await pinterest<{ id: string; name: string }>(f, t.token, "/boards", { name, privacy: "PUBLIC" }).catch((err) => {
+      throw new Error(`Your Pinterest account has no boards yet, and SimilarWise couldn't make one (${err instanceof Error ? err.message : String(err)}). Make a board on Pinterest, then connect again.`);
+    });
+    boards.push({ id: made.id, name: made.name || name });
+  }
   return boards.map((b) => ({
     network: "pinterest" as const,
     accountId: b.id,
