@@ -1464,6 +1464,58 @@ const QUICK_TIMES = [
   { label: "Evening", time: "18:30" },
 ];
 
+// A month to pick the day from. It opens in the composer itself rather than
+// as a pop-up, which the bottom of the Shopify admin window cut off.
+function DayPicker({ value, today, onPick }: { value: string; today: string; onPick: (day: string) => void }) {
+  const [month, setMonth] = useState(value.slice(0, 7));
+  const first = `${month}-01`;
+  const start = weekStart(first);
+  const next = addDays(first, 32).slice(0, 7);
+  const prev = addDays(first, -1).slice(0, 7);
+  const days = Array.from({ length: 42 }, (_, i) => addDays(start, i));
+  const weeks = days[35].slice(0, 7) === month ? 6 : 5;
+  return (
+    <div className="pc-picker" ref={(el) => el?.scrollIntoView({ block: "nearest", behavior: "smooth" })}>
+      <div className="pc-picker-head">
+        <button type="button" aria-label="Previous month" disabled={prev < today.slice(0, 7)} onClick={() => setMonth(prev)}>
+          ‹
+        </button>
+        <strong>{dayLabel(first, { month: "long", year: "numeric" })}</strong>
+        <button type="button" aria-label="Next month" onClick={() => setMonth(next)}>
+          ›
+        </button>
+      </div>
+      <div className="pc-picker-grid">
+        {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
+          <span key={d}>{d}</span>
+        ))}
+        {days.slice(0, weeks * 7).map((d) => (
+          <button
+            key={d}
+            type="button"
+            disabled={d < today}
+            className={[d.slice(0, 7) !== month && "pc-picker-out", d === today && "pc-picker-today", d === value && "pc-picker-on"].filter(Boolean).join(" ")}
+            onClick={() => onPick(d)}
+          >
+            {Number(d.slice(8))}
+          </button>
+        ))}
+      </div>
+      <div className="pc-picker-quick">
+        <button type="button" onClick={() => onPick(today)}>
+          Today
+        </button>
+        <button type="button" onClick={() => onPick(addDays(today, 1))}>
+          Tomorrow
+        </button>
+        <button type="button" onClick={() => onPick(addDays(weekStart(today), 7))}>
+          Next Monday
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const hashtags = (s: string) => (s.match(/#[\p{L}\p{N}_]+/gu) ?? []).length;
 
 function Composer({
@@ -1496,6 +1548,7 @@ function Composer({
     day: start?.day ?? day ?? today,
     time: start?.time ?? time ?? "09:00",
   });
+  const [picking, setPicking] = useState(false);
   const [tiktok, setTiktok] = useState<Record<string, TikTokChoices | null>>(post?.tiktok ?? {});
   const [brief, setBrief] = useState<string | null>(null);
   const [preview, setPreview] = useState<Network | null>(null);
@@ -1768,13 +1821,9 @@ function Composer({
             <section className="pc-when">
               <span className="pc-label">When</span>
               <div className="pc-when-row">
-                <s-date-field
-                  label="Day"
-                  labelAccessibilityVisibility="exclusive"
-                  value={when.day}
-                  allow={`${today}--`}
-                  onChange={(e) => setWhen({ ...when, day: e.currentTarget.value })}
-                />
+                <button type="button" className={`pc-day${picking ? " pc-day-open" : ""}`} aria-expanded={picking} onClick={() => setPicking(!picking)}>
+                  {dayLabel(when.day, { weekday: "short", day: "numeric", month: "short", year: when.day.slice(0, 4) === today.slice(0, 4) ? undefined : "numeric" })}
+                </button>
                 <input
                   className="pc-time"
                   type="time"
@@ -1793,6 +1842,16 @@ function Composer({
                   </button>
                 ))}
               </div>
+              {picking && (
+                <DayPicker
+                  value={when.day}
+                  today={today}
+                  onPick={(d) => {
+                    setWhen({ ...when, day: d });
+                    setPicking(false);
+                  }}
+                />
+              )}
               <small className="pc-muted">Your shop&apos;s time ({tz.replace(/_/g, " ")}).</small>
             </section>
           </div>
@@ -2104,6 +2163,23 @@ const CSS = `
 .pc-drop-zone:hover, .pc-dragging { border-color: #4f7cff; background: #f5f8ff; }
 .pc-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
 .pc-when-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.pc-day { padding: 6px 12px; border: 1px solid #8a8a8a; border-radius: 8px; background: #fff; font: inherit; font-size: 13px; cursor: pointer; }
+.pc-day-open { border-color: #303030; box-shadow: 0 0 0 1px #303030; }
+.pc-picker { width: 280px; margin-top: 8px; scroll-margin-bottom: 130px; padding: 10px; border: 1px solid #e3e3e3; border-radius: 12px; background: #fff; }
+.pc-picker-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; font-size: 13px; }
+.pc-picker-head button { width: 28px; height: 28px; border: 0; border-radius: 8px; background: none; font-size: 18px; cursor: pointer; }
+.pc-picker-head button:hover:not(:disabled) { background: #f1f1f1; }
+.pc-picker-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align: center; }
+.pc-picker-grid span { padding: 4px 0; color: #8a8a8a; font-size: 11px; }
+.pc-picker-grid button { height: 32px; border: 0; border-radius: 8px; background: none; font: inherit; font-size: 13px; cursor: pointer; }
+.pc-picker-grid button:hover:not(:disabled) { background: #f1f1f1; }
+.pc-picker-grid button:disabled { color: #c9c9c9; cursor: default; }
+.pc-picker-grid .pc-picker-out { color: #9a9a9a; }
+.pc-picker-grid .pc-picker-today { box-shadow: inset 0 0 0 1px #8a8a8a; }
+.pc-picker-grid .pc-picker-on { background: #303030; color: #fff; }
+.pc-picker-grid .pc-picker-on:hover:not(:disabled) { background: #303030; }
+.pc-picker-quick { display: flex; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px solid #ececec; }
+.pc-picker-quick button { padding: 3px 9px; border: 1px solid #d4d4d4; border-radius: 14px; background: #fff; font: inherit; font-size: 12px; cursor: pointer; }
 .pc-time { padding: 7px 8px; border: 1px solid #8a8a8a; border-radius: 8px; font: inherit; font-size: 13px; }
 .pc-previews { padding: 18px; background: #f7f7f8; border-radius: 0 16px 0 0; }
 .pc-preview-tabs { margin-bottom: 12px; }
