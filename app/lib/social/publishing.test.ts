@@ -197,7 +197,7 @@ describe("social calendar", () => {
       ],
       calls,
     );
-    expect((await connectPinterest("code1", f, NOW)).map((b) => [b.accountId, b.name])).toEqual([["b9", "x9: Colourmedia products"]]);
+    expect((await connectPinterest("code1", f, NOW)).map((b) => [b.accountId, b.name])).toEqual([["b9", "Colourmedia: Colourmedia products"]]);
     expect(JSON.parse(calls.find((c) => /\/boards$/.test(c.url))!.body)).toEqual({ name: "Colourmedia products", privacy: "PUBLIC" });
   });
 
@@ -209,6 +209,22 @@ describe("social calendar", () => {
     expect(await createPinterestBoard(SHOP, "Gift ideas", { f, now: NOW })).toEqual({ ok: true, name: "Gift ideas" });
     expect(JSON.parse(calls[0].body)).toEqual({ name: "Gift ideas", privacy: "PUBLIC" });
     expect((await socialAccounts(SHOP)).map((a) => a.name).sort()).toEqual(["candleco: Autumn", "candleco: Gift ideas"]);
+  });
+
+  it("keeps Pinterest boards and pins in the sandbox while the app has trial access", async () => {
+    process.env.PINTEREST_API = "https://api-sandbox.pinterest.com/v5";
+    const calls: Call[] = [];
+    const f = fakeFetch(
+      [
+        [/oauth\/token/, { access_token: "pin-token", refresh_token: "r", expires_in: 3600 }],
+        [/user_account/, { business_name: "Colourmedia" }],
+        [/boards\?/, { items: [{ id: "s1", name: "Sandbox board" }], bookmark: null }],
+      ],
+      calls,
+    );
+    await connectPinterest("code1", f, NOW);
+    delete process.env.PINTEREST_API;
+    expect(calls.map((c) => new URL(c.url).host)).toEqual(["api.pinterest.com", "api.pinterest.com", "api-sandbox.pinterest.com"]);
   });
 
   it("pads tall pictures for Instagram", async () => {
