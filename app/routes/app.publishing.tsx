@@ -22,7 +22,7 @@ import {
   uploadSocialImage,
   writeSocialCaptions,
 } from "../lib/social/publishing.server";
-import { CAMPAIGN_COLORS, LIMITS } from "../lib/social/publishing";
+import { CAMPAIGN_COLORS, LIMITS, MAX_PICTURES } from "../lib/social/publishing";
 import { addDays, dayLabel, timeLabel, validZone, weekStart, zoned } from "../lib/social/when";
 import { TikTokPost } from "../components/TikTokPost";
 
@@ -62,9 +62,16 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const id = text("id");
   if (intent === "save") return { intent, ...(await savePost(shop, readPostInput(form))) };
   if (intent === "upload") {
-    const file = form.get("file");
-    if (!(file instanceof File)) return { intent, error: "Choose a picture." };
-    return { intent, ...(await uploadSocialImage(shop, file)) };
+    const files = form.getAll("file").filter((f): f is File => f instanceof File);
+    if (!files.length) return { intent, error: "Choose a picture." };
+    const images: { id: string; url: string }[] = [];
+    let error: string | undefined;
+    for (const file of files.slice(0, MAX_PICTURES)) {
+      const up = await uploadSocialImage(shop, file);
+      if ("imageId" in up && up.imageId) images.push({ id: up.imageId, url: up.url });
+      else error = up.error;
+    }
+    return { intent, images, error };
   }
   if (intent === "ai")
     return {
@@ -116,8 +123,7 @@ type Answer = {
   status?: string;
   posted?: number;
   failed?: number;
-  imageId?: string;
-  url?: string;
+  images?: { id: string; url: string }[];
   captions?: Record<string, string>;
 };
 
@@ -1541,7 +1547,9 @@ function Composer({
   const [caption, setCaption] = useState(post?.caption ?? "");
   const [captions, setCaptions] = useState<Partial<Record<Network, string>>>(post?.captions ?? {});
   const [tab, setTab] = useState<"all" | Network>("all");
-  const [image, setImage] = useState<{ id: string; url: string } | null>(post?.imageId && post.image ? { id: post.imageId, url: post.image } : null);
+  const [images, setImages] = useState<{ id: string; url: string }[]>(post?.images ?? []);
+  const image = images[0] ?? null;
+  const [dragged, setDragged] = useState<number | null>(null);
   const [link, setLink] = useState(post?.link ?? "");
   const [campaignId, setCampaignId] = useState(post?.campaignId ?? "");
   const [when, setWhen] = useState({
@@ -1568,7 +1576,7 @@ function Composer({
   const [seenUpload, setSeenUpload] = useState(uploaded);
   if (uploaded !== seenUpload) {
     setSeenUpload(uploaded);
-    if (uploaded?.imageId && uploaded.url) setImage({ id: uploaded.imageId, url: uploaded.url });
+    if (uploaded?.images?.length) setImages((now) => [...now, ...uploaded.images!].slice(0, MAX_PICTURES));
   }
   const written = ai.state === "idle" ? ai.data?.captions : undefined;
   const [seenWritten, setSeenWritten] = useState(written);
@@ -1619,7 +1627,7 @@ function Composer({
         captions: JSON.stringify(Object.fromEntries(networks.map((n) => [n, captions[n] ?? ""]))),
         accountIds: JSON.stringify(picked),
         tiktok: JSON.stringify(Object.fromEntries(Object.entries(tiktok).filter(([id, c]) => c && picked.includes(id)))),
-        imageId: image?.id ?? "",
+        imageIds: JSON.stringify(images.map((i) => i.id)),
         link,
         campaignId,
         day: when.day,
@@ -1628,11 +1636,12 @@ function Composer({
       },
       { method: "post" },
     );
-  const sendFile = (file: File | undefined) => {
-    if (!file) return;
+  const sendFiles = (list: FileList | null | undefined) => {
+    const files = [...(list ?? [])].slice(0, MAX_PICTURES - images.length);
+    if (!files.length) return;
     const fd = new FormData();
     fd.set("intent", "upload");
-    fd.set("file", file);
+    for (const file of files) fd.append("file", file);
     upload.submit(fd, { method: "post", encType: "multipart/form-data" });
   };
   const busy = (mode: string) => save.state !== "idle" && save.formData?.get("mode") === mode;
@@ -1747,20 +1756,48 @@ function Composer({
             </section>
 
             <section>
-              <span className="pc-label">Picture</span>
-              {image ? (
-                <div className="pc-image">
-                  <img src={image.url} alt="" />
-                  <div>
-                    <button type="button" className="pc-btn" onClick={() => fileRef.current?.click()}>
-                      Replace
+              <span className="pc-label">
+                Pictures{images.length > 1 && <small className="pc-muted"> · carousel of {images.length}, drag to reorder</small>}
+              </span>
+              {images.length > 0 && (
+                <div className="pc-pics">
+                  {images.map((img, i) => (
+                    <div
+                      key={img.id}
+                      className={`pc-pic${dragged === i ? " pc-pic-dragging" : ""}`}
+                      draggable
+                      onDragStart={(e) => {
+                        setDragged(i);
+                        e.dataTransfer.effectAllowed = "move";
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        if (dragged === null || dragged === i) return;
+                        setImages((now) => {
+                          const next = [...now];
+                          const [moved] = next.splice(dragged, 1);
+                          next.splice(i, 0, moved);
+                          return next;
+                        });
+                        setDragged(i);
+                      }}
+                      onDragEnd={() => setDragged(null)}
+                    >
+                      <img src={img.url} alt="" draggable={false} />
+                      <span className="pc-pic-n">{i + 1}</span>
+                      <button type="button" className="pc-pic-x" aria-label={`Remove picture ${i + 1}`} onClick={() => setImages((now) => now.filter((x) => x.id !== img.id))}>
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                  {images.length < MAX_PICTURES && (
+                    <button type="button" className="pc-pic pc-pic-add" onClick={() => fileRef.current?.click()} disabled={upload.state !== "idle"}>
+                      {upload.state !== "idle" ? "Uploading…" : "+ Add"}
                     </button>
-                    <button type="button" className="pc-btn pc-btn-danger" onClick={() => setImage(null)}>
-                      Remove
-                    </button>
-                  </div>
+                  )}
                 </div>
-              ) : (
+              )}
+              {images.length === 0 && (
                 <button
                   type="button"
                   className={`pc-drop-zone${dragging ? " pc-dragging" : ""}`}
@@ -1773,14 +1810,27 @@ function Composer({
                   onDrop={(e) => {
                     e.preventDefault();
                     setDragging(false);
-                    sendFile(e.dataTransfer.files[0]);
+                    sendFiles(e.dataTransfer.files);
                   }}
                 >
-                  {upload.state !== "idle" ? "Uploading…" : "Drop a picture here, or choose one"}
-                  <small>JPG, PNG or WebP. Instagram and TikTok need one.</small>
+                  {upload.state !== "idle" ? "Uploading…" : "Drop pictures here, or choose them"}
+                  <small>JPG, PNG or WebP. Instagram, Pinterest and TikTok need one. Add up to {MAX_PICTURES} for a carousel.</small>
                 </button>
               )}
-              <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => sendFile(e.currentTarget.files?.[0])} />
+              {images.length > 5 && pickedAccounts.some((a) => a.network === "pinterest") && (
+                <small className="pc-muted">Pinterest carousels take up to 5 pictures, so the pin gets the first 5.</small>
+              )}
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                multiple
+                hidden
+                onChange={(e) => {
+                  sendFiles(e.currentTarget.files);
+                  e.currentTarget.value = "";
+                }}
+              />
               {upload.state === "idle" && upload.data?.error && <s-text tone="critical">{upload.data.error}</s-text>}
             </section>
 
@@ -1869,7 +1919,7 @@ function Composer({
                 n={shownPreview}
                 name={pickedAccounts.find((a) => a.network === shownPreview)?.name ?? ""}
                 caption={captionFor(shownPreview)}
-                image={image?.url ?? null}
+                images={images.map((i) => i.url)}
                 link={shownPreview === "facebook" ? link : ""}
               />
             ) : (
@@ -1907,7 +1957,35 @@ function Composer({
 }
 
 // Roughly how the post will look on each network.
-function Preview({ n, name, caption, image, link }: { n: Network; name: string; caption: string; image: string | null; link: string }) {
+function Preview({ n, name, caption, images, link }: { n: Network; name: string; caption: string; images: string[]; link: string }) {
+  const [shown, setShown] = useState(0);
+  const pics = n === "pinterest" ? images.slice(0, 5) : n === "instagram" ? images.slice(0, 10) : images;
+  const at = Math.min(shown, Math.max(pics.length - 1, 0));
+  const image = pics[at] ?? null;
+  // Arrows and dots to look through a carousel, over the picture.
+  const swipe =
+    pics.length > 1 ? (
+      <>
+        {at > 0 && (
+          <button type="button" className="pc-car-prev" aria-label="Previous picture" onClick={() => setShown(at - 1)}>
+            ‹
+          </button>
+        )}
+        {at < pics.length - 1 && (
+          <button type="button" className="pc-car-next" aria-label="Next picture" onClick={() => setShown(at + 1)}>
+            ›
+          </button>
+        )}
+        <span className="pc-car-count">
+          {at + 1}/{pics.length}
+        </span>
+        <span className="pc-car-dots">
+          {pics.map((_, i) => (
+            <i key={i} className={i === at ? "on" : ""} />
+          ))}
+        </span>
+      </>
+    ) : null;
   const text = caption.split(/(#[\p{L}\p{N}_]+)/gu).map((part, i) => (part.startsWith("#") ? <b key={i}>{part}</b> : part));
   const avatar = (
     <span className="pc-avatar" style={{ background: NET_COLOR[n] }}>
@@ -1917,7 +1995,10 @@ function Preview({ n, name, caption, image, link }: { n: Network; name: string; 
   if (n === "pinterest") {
     return (
       <div className="pc-pv pc-pv-pin">
-        {image ? <img src={image} alt="" /> : <div className="pc-pv-noimg">Add a picture</div>}
+        <div className="pc-car">
+          {image ? <img src={image} alt="" /> : <div className="pc-pv-noimg">Add a picture</div>}
+          {swipe}
+        </div>
         <strong>{caption.split("\n")[0].slice(0, 100) || "Pin title"}</strong>
         <p>{text.length ? text : "Your description"}</p>
         <span className="pc-pv-pin-board">
@@ -1929,7 +2010,10 @@ function Preview({ n, name, caption, image, link }: { n: Network; name: string; 
   if (n === "tiktok") {
     return (
       <div className="pc-pv pc-pv-tiktok">
-        {image ? <img src={image} alt="" /> : <div className="pc-pv-noimg">Add a picture</div>}
+        <div className="pc-car">
+          {image ? <img src={image} alt="" /> : <div className="pc-pv-noimg">Add a picture</div>}
+          {swipe}
+        </div>
         <div className="pc-pv-tt-text">
           <strong>{name}</strong>
           <p>{text.length ? text : "Your caption"}</p>
@@ -1944,7 +2028,10 @@ function Preview({ n, name, caption, image, link }: { n: Network; name: string; 
           {avatar}
           <strong>{name.replace(/^@/, "")}</strong>
         </div>
-        {image ? <img className="pc-pv-square" src={image} alt="" /> : <div className="pc-pv-noimg pc-pv-square">Add a picture</div>}
+        <div className="pc-car">
+          {image ? <img className="pc-pv-square" src={image} alt="" /> : <div className="pc-pv-noimg pc-pv-square">Add a picture</div>}
+          {swipe}
+        </div>
         <p className="pc-pv-text">
           <strong>{name.replace(/^@/, "")}</strong> {text.length ? text : "Your caption"}
         </p>
@@ -1977,7 +2064,18 @@ function Preview({ n, name, caption, image, link }: { n: Network; name: string; 
           </>
         )}
       </p>
-      {image && <img className="pc-pv-wide" src={image} alt="" />}
+      {pics.length > 1 ? (
+        <div className={`pc-fb-grid pc-fb-${Math.min(pics.length, 4)}`}>
+          {pics.slice(0, 4).map((src, i) => (
+            <span key={i}>
+              <img src={src} alt="" />
+              {i === 3 && pics.length > 4 && <b>+{pics.length - 4}</b>}
+            </span>
+          ))}
+        </div>
+      ) : (
+        image && <img className="pc-pv-wide" src={image} alt="" />
+      )}
       {!image && host && <div className="pc-pv-link">{host.toUpperCase()}</div>}
     </div>
   );
@@ -2156,6 +2254,27 @@ const CSS = `
 .pc-count { margin-left: auto; font-size: 12px; color: #8a8a8a; }
 .pc-brief { margin-top: 10px; padding: 12px; border-radius: 10px; background: #f6f3ff; display: flex; flex-direction: column; gap: 8px; }
 .pc-image { display: flex; gap: 12px; align-items: flex-end; }
+.pc-pics { display: flex; flex-wrap: wrap; gap: 8px; }
+.pc-pic { position: relative; width: 92px; height: 92px; border-radius: 10px; overflow: hidden; cursor: grab; background: #f1f1f1; }
+.pc-pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pc-pic-dragging { opacity: .4; }
+.pc-pic-n { position: absolute; left: 5px; top: 5px; min-width: 18px; padding: 1px 5px; border-radius: 9px; background: rgba(0,0,0,.6); color: #fff; font-size: 11px; text-align: center; }
+.pc-pic-x { position: absolute; right: 4px; top: 4px; width: 22px; height: 22px; border: 0; border-radius: 50%; background: rgba(0,0,0,.6); color: #fff; font-size: 15px; line-height: 1; cursor: pointer; }
+.pc-pic-add { border: 1.5px dashed #c4c4c4; background: #fafafa; color: #616161; font: inherit; font-size: 13px; cursor: pointer; }
+.pc-pic-add:hover { border-color: #8a8a8a; }
+.pc-car { position: relative; }
+.pc-car-prev, .pc-car-next { position: absolute; top: 50%; transform: translateY(-50%); width: 26px; height: 26px; border: 0; border-radius: 50%; background: rgba(255,255,255,.9); box-shadow: 0 1px 4px rgba(0,0,0,.25); font-size: 17px; line-height: 1; cursor: pointer; }
+.pc-car-prev { left: 8px; }
+.pc-car-next { right: 8px; }
+.pc-car-count { position: absolute; right: 8px; top: 8px; padding: 2px 8px; border-radius: 10px; background: rgba(0,0,0,.6); color: #fff; font-size: 11px; }
+.pc-car-dots { position: absolute; left: 0; right: 0; bottom: 8px; display: flex; justify-content: center; gap: 4px; }
+.pc-car-dots i { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,.55); }
+.pc-car-dots i.on { background: #fff; }
+.pc-fb-grid { display: grid; gap: 2px; grid-template-columns: 1fr 1fr; }
+.pc-fb-grid span { position: relative; aspect-ratio: 1; overflow: hidden; }
+.pc-fb-grid img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pc-fb-grid b { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.45); color: #fff; font-size: 22px; }
+.pc-fb-3 span:first-child { grid-column: 1 / -1; aspect-ratio: 2; }
 .pc-image img { width: 160px; max-height: 160px; object-fit: cover; border-radius: 10px; }
 .pc-image div { display: flex; gap: 6px; }
 .pc-drop-zone { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; padding: 22px; border: 2px dashed #d4d4d4; border-radius: 12px; background: #fafafa; font: inherit; font-size: 13px; color: #4a4a4a; cursor: pointer; }

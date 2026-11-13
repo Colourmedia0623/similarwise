@@ -38,8 +38,8 @@ async function picture(width = 1200, height = 800) {
     .png()
     .toBuffer();
   const res = await uploadSocialImage(SHOP, { type: "image/png", size: data.length, arrayBuffer: async () => new Uint8Array(data).buffer });
-  if (!("imageId" in res)) throw new Error(res.error);
-  return res;
+  if (!("imageId" in res) || !res.imageId) throw new Error(res.error);
+  return { ...res, imageId: res.imageId };
 }
 
 async function accounts() {
@@ -57,7 +57,7 @@ const input = (extra: Partial<PostInput>): PostInput => ({
   tiktok: {},
   link: "",
   campaignId: "",
-  imageId: null,
+  imageIds: [],
   mode: "schedule",
   day: "2026-11-14",
   time: "09:00",
@@ -87,7 +87,7 @@ describe("social calendar", () => {
     expect(await savePost(SHOP, input({ accountIds: [ids.facebook], link: "candles.com" }), { now: NOW })).toMatchObject({ error: expect.stringMatching(/https/) });
     const tags = Array.from({ length: 31 }, (_, i) => `#t${i}`).join(" ");
     const img = await picture();
-    expect(await savePost(SHOP, input({ accountIds: [ids.instagram], imageId: img.imageId, caption: tags }), { now: NOW })).toMatchObject({ error: expect.stringMatching(/30 hashtags/) });
+    expect(await savePost(SHOP, input({ accountIds: [ids.instagram], imageIds: [img.imageId], caption: tags }), { now: NOW })).toMatchObject({ error: expect.stringMatching(/30 hashtags/) });
     const draft = await savePost(SHOP, input({ mode: "draft", accountIds: [], caption: "half an idea", day: "" }), { now: NOW });
     expect(draft).toMatchObject({ status: "draft" });
     expect(await db.scheduledPost.findFirstOrThrow({ where: { shop: SHOP } })).toMatchObject({ status: "draft", scheduledAt: null });
@@ -98,7 +98,7 @@ describe("social calendar", () => {
     const img = await picture(600, 1200);
     const saved = await savePost(
       SHOP,
-      input({ accountIds: [ids.facebook, ids.instagram], imageId: img.imageId, link: "https://candles.example/autumn", captions: { instagram: "Autumn is here\n#candles #autumn" } }),
+      input({ accountIds: [ids.facebook, ids.instagram], imageIds: [img.imageId], link: "https://candles.example/autumn", captions: { instagram: "Autumn is here\n#candles #autumn" } }),
       { now: NOW },
     );
     expect(saved).toMatchObject({ status: "scheduled" });
@@ -138,7 +138,7 @@ describe("social calendar", () => {
     const [tiktok] = await socialAccounts(SHOP);
     const img = await picture();
     const choices = { privacy: "SELF_ONLY", allowComments: false, yourBrand: false, brandedContent: false };
-    const post = input({ accountIds: [tiktok.id], imageId: img.imageId, tiktok: { [tiktok.id]: choices } });
+    const post = input({ accountIds: [tiktok.id], imageIds: [img.imageId], tiktok: { [tiktok.id]: choices } });
     expect((await calendarData(SHOP, NOW)).accounts).toEqual([]);
     expect(await savePost(SHOP, post, { now: NOW })).toEqual({ error: "Posting to TikTok isn't open yet." });
     process.env.SOCIAL_APPROVED = "meta,tiktok";
@@ -169,7 +169,7 @@ describe("social calendar", () => {
     await saveAccounts(SHOP, boards);
     const [autumn] = await socialAccounts(SHOP);
     const img = await picture();
-    await savePost(SHOP, input({ accountIds: [autumn.id], imageId: img.imageId, link: "https://candles.example/autumn", caption: "Autumn candles\nThree new scents #candles" }), {
+    await savePost(SHOP, input({ accountIds: [autumn.id], imageIds: [img.imageId], link: "https://candles.example/autumn", caption: "Autumn candles\nThree new scents #candles" }), {
       now: NOW,
     });
     calls.length = 0;
@@ -245,6 +245,50 @@ describe("social calendar", () => {
     expect((await articleShares(SHOP, "a1"))[0].url).toBe("https://www.pinterest.com/pin/p9/");
   });
 
+  it("sends several pictures as a carousel on each network, and drops pictures taken off", async () => {
+    process.env.SOCIAL_APPROVED = "meta,pinterest";
+    const ids = await accounts();
+    await saveAccounts(SHOP, [{ network: "pinterest", accountId: "b1", name: "Gifts", token: "pin-token", refreshToken: "r", expiresAt: new Date(NOW.getTime() + 86400_000) }]);
+    const pin = (await socialAccounts(SHOP)).find((a) => a.network === "pinterest")!.id;
+    const imgs = [await picture(), await picture(), await picture()];
+    const order = [imgs[2].imageId, imgs[0].imageId, imgs[1].imageId];
+    const draft = await savePost(SHOP, input({ accountIds: [ids.facebook, ids.instagram, pin], imageIds: order }), { now: NOW });
+    expect((await calendarData(SHOP, NOW)).posts[0].images.map((i) => i.id)).toEqual(order);
+    expect(await savePost(SHOP, input({ imageIds: Array(11).fill(order[0]).map((x, i) => `${x}${i}`) }), { now: NOW })).toMatchObject({ error: expect.stringMatching(/up to 10/) });
+    const calls: Call[] = [];
+    let n = 0;
+    const f = fakeFetch(
+      [
+        [/p1\/photos/, { get id() { return `ph${++n}`; } }],
+        [/p1\/feed/, { id: "p1_9" }],
+        [/ig1\/media_publish/, { id: "m1" }],
+        [/ig1\/media$/, { get id() { return `c${++n}`; } }],
+        [/m1\?/, { permalink: "https://instagram.com/p/a" }],
+        [/\/pins$/, { id: "pin1" }],
+      ],
+      calls,
+    );
+    const sent = await savePost(SHOP, input({ id: (draft as { id: string }).id, mode: "now", accountIds: [ids.facebook, ids.instagram, pin], imageIds: order }), { f, now: NOW });
+    expect(sent).toMatchObject({ status: "sent" });
+    const fbPhotos = calls.filter((c) => c.url.includes("p1/photos")).map((c) => new URLSearchParams(c.body));
+    expect(fbPhotos.map((b) => [b.get("url")?.match(/social-images\/(\w+)/)?.[1], b.get("published")])).toEqual(order.map((id) => [id, "false"]));
+    const feed = new URLSearchParams(calls.find((c) => c.url.includes("p1/feed"))!.body);
+    expect(JSON.parse(feed.get("attached_media[2]")!)).toHaveProperty("media_fbid");
+    const igItems = calls.filter((c) => /ig1\/media$/.test(c.url)).map((c) => new URLSearchParams(c.body));
+    expect(igItems.slice(0, 3).every((b) => b.get("is_carousel_item") === "true")).toBe(true);
+    expect(igItems[3].get("media_type")).toBe("CAROUSEL");
+    expect(igItems[3].get("children")!.split(",")).toHaveLength(3);
+    const pinBody = JSON.parse(calls.find((c) => /\/pins$/.test(c.url))!.body);
+    expect(pinBody.media_source.source_type).toBe("multiple_image_urls");
+    expect(pinBody.media_source.items).toHaveLength(3);
+    // Taking a picture off a draft deletes it once nothing else uses it.
+    const copy = (await duplicatePost(SHOP, (draft as { id: string }).id)) as { id: string };
+    const copied = (await calendarData(SHOP, NOW)).posts.find((p) => p.id === copy.id)!.images.map((i) => i.id);
+    expect(copied).toHaveLength(3);
+    expect(await savePost(SHOP, input({ id: copy.id, mode: "draft", imageIds: copied.slice(0, 1) }), { now: NOW })).toMatchObject({ status: "draft" });
+    expect(await db.socialImage.count({ where: { id: { in: copied } } })).toBe(1);
+  });
+
   it("pads tall pictures for Instagram", async () => {
     const tall = await sharp({ create: { width: 400, height: 1000, channels: 3, background: "#000" } })
       .jpeg()
@@ -256,7 +300,7 @@ describe("social calendar", () => {
   it("retries only the accounts that failed", async () => {
     const ids = await accounts();
     const img = await picture();
-    await savePost(SHOP, input({ accountIds: [ids.facebook, ids.instagram], imageId: img.imageId }), { now: NOW });
+    await savePost(SHOP, input({ accountIds: [ids.facebook, ids.instagram], imageIds: [img.imageId] }), { now: NOW });
     const calls: Call[] = [];
     const facebookOnly = fakeFetch([[/p1\/photos/, { id: "ph1", post_id: "p1_1" }]], calls);
     await sendDuePosts({ f: facebookOnly, now: new Date("2026-11-14T09:00:00Z") });

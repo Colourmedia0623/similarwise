@@ -554,7 +554,8 @@ model ScheduledPost {
   captions    String    @default("{}") // JSON: a different caption per network
   accountIds  String    @default("[]") // JSON: SocialAccount ids
   tiktok      String?   // JSON: TikTok choices for each TikTok account
-  imageId     String?   // SocialImage.id
+  imageId     String?   // SocialImage.id of the first picture
+  imageIds    String    @default("[]") // JSON: every picture in order, for a carousel
   link        String?
   campaignId  String?
   status      String    // draft | scheduled | sending | sent | partial | failed

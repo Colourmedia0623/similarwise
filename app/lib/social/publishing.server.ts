@@ -4,7 +4,7 @@ import { isFreeShop } from "../waitlist.server";
 import { NETWORK_NAME, PROVIDER, postLink, providerApproved, type Fetch, type Network, type TikTokChoices } from "./networks.server";
 import { sendTo } from "./social.server";
 import { fromZoned, validZone } from "./when";
-import { CAMPAIGN_COLORS, LIMITS } from "./publishing";
+import { CAMPAIGN_COLORS, LIMITS, MAX_PICTURES } from "./publishing";
 
 // The social calendar: posts the merchant writes themselves (a picture and
 // a caption, with a different caption per network if they like), sent to
@@ -25,6 +25,12 @@ const json = <T>(s: string | null | undefined, fallback: T): T => {
   } catch {
     return fallback;
   }
+};
+
+// Every picture of a post in order. Posts from before carousels only have imageId.
+export const postImages = (p: { imageId: string | null; imageIds: string }) => {
+  const ids = json<string[]>(p.imageIds, []);
+  return ids.length ? ids : p.imageId ? [p.imageId] : [];
 };
 
 export const socialImageUrl = (id: string, forNetwork?: "instagram" | "tiktok") =>
@@ -93,6 +99,7 @@ export async function calendarData(shop: string, now = new Date()) {
       tiktok: json<Record<string, TikTokChoices>>(p.tiktok, {}),
       image: p.imageId ? `/social-images/${p.imageId}.jpg` : null,
       imageId: p.imageId,
+      images: postImages(p).map((id) => ({ id, url: `/social-images/${id}.jpg` })),
       link: p.link,
       campaignId: p.campaignId,
       status: p.status as Status,
@@ -138,7 +145,7 @@ export type PostInput = {
   tiktok: Record<string, TikTokChoices>;
   link: string;
   campaignId: string;
-  imageId: string | null;
+  imageIds: string[];
   mode: "draft" | "schedule" | "now";
   day: string;
   time: string;
@@ -156,7 +163,7 @@ export function readPostInput(form: FormData): PostInput {
     tiktok: json(text("tiktok"), {}),
     link: text("link").trim(),
     campaignId: text("campaignId"),
-    imageId: text("imageId") || null,
+    imageIds: json<unknown[]>(text("imageIds"), []).filter((x): x is string => typeof x === "string" && !!x),
     mode: mode === "now" || mode === "schedule" ? mode : "draft",
     day: text("day"),
     time: text("time"),
@@ -198,13 +205,11 @@ export async function savePost(shop: string, input: PostInput, { f = fetch, now 
     };
   if (input.link && !/^https?:\/\/\S+$/i.test(input.link)) return { error: "The link needs to start with https://." };
   if (input.caption.length > 63206) return { error: "That caption is too long." };
-  const image = input.imageId
-    ? await db.socialImage.findFirst({
-        where: { id: input.imageId, shop },
-        select: { id: true },
-      })
-    : null;
-  if (input.imageId && !image) return { error: "That picture isn't there any more. Add it again." };
+  const imageIds = [...new Set(input.imageIds)];
+  if (imageIds.length > MAX_PICTURES) return { error: `A post can have up to ${MAX_PICTURES} pictures.` };
+  const found = imageIds.length ? await db.socialImage.findMany({ where: { id: { in: imageIds }, shop }, select: { id: true } }) : [];
+  if (found.length !== imageIds.length) return { error: "One of the pictures isn't there any more. Add it again." };
+  const image = imageIds.length ? { id: imageIds[0] } : null;
   const campaign = input.campaignId
     ? await db.socialCampaign.findFirst({
         where: { id: input.campaignId, shop },
@@ -237,6 +242,7 @@ export async function savePost(shop: string, input: PostInput, { f = fetch, now 
     accountIds: JSON.stringify(input.accountIds),
     tiktok: Object.keys(input.tiktok).length ? JSON.stringify(input.tiktok) : null,
     imageId: image?.id ?? null,
+    imageIds: JSON.stringify(imageIds),
     link: input.link || null,
     campaignId: campaign?.id ?? null,
     status: input.mode === "draft" ? "draft" : input.mode === "now" ? "sending" : "scheduled",
@@ -249,7 +255,7 @@ export async function savePost(shop: string, input: PostInput, { f = fetch, now 
       where: { shop, scheduleId: existing.id },
     });
   const post = existing ? await db.scheduledPost.update({ where: { id: existing.id }, data }) : await db.scheduledPost.create({ data: { shop, ...data } });
-  if (existing?.imageId && existing.imageId !== post.imageId) await dropImage(shop, existing.imageId);
+  if (existing) for (const old of postImages(existing)) if (!imageIds.includes(old)) await dropImage(shop, old);
   if (input.mode === "now") return { id: post.id, ...(await sendPost(post.id, { f, now })) };
   return { id: post.id, status: post.status as Status };
 }
@@ -298,14 +304,15 @@ export async function sendPost(id: string, { f = fetch, now = new Date(), onlyFa
           return false;
         }
         try {
-          const image = post.imageId ? socialImageUrl(post.imageId, network === "instagram" || network === "tiktok" ? network : undefined) : "";
+          const images = postImages(post).map((img) => socialImageUrl(img, network === "instagram" || network === "tiktok" ? network : undefined));
           const sent = await sendTo(
             account,
             {
               caption,
               title: caption.split("\n")[0].slice(0, 90),
               link: post.link ?? "",
-              imageUrl: image,
+              imageUrl: images[0] ?? "",
+              images,
             },
             choices[account.id],
             f,
@@ -410,24 +417,10 @@ export async function movePost(shop: string, id: string, day: string, time: stri
 export async function duplicatePost(shop: string, id: string) {
   const p = await db.scheduledPost.findFirst({ where: { id, shop } });
   if (!p) return { error: "That post isn't there any more." };
-  let imageId = p.imageId;
-  if (imageId) {
-    const img = await db.socialImage.findFirst({
-      where: { id: imageId, shop },
-    });
-    imageId = img
-      ? (
-          await db.socialImage.create({
-            data: {
-              shop,
-              data: img.data,
-              mime: img.mime,
-              width: img.width,
-              height: img.height,
-            },
-          })
-        ).id
-      : null;
+  const imageIds: string[] = [];
+  for (const id of postImages(p)) {
+    const img = await db.socialImage.findFirst({ where: { id, shop } });
+    if (img) imageIds.push((await db.socialImage.create({ data: { shop, data: img.data, mime: img.mime, width: img.width, height: img.height } })).id);
   }
   const copy = await db.scheduledPost.create({
     data: {
@@ -436,7 +429,8 @@ export async function duplicatePost(shop: string, id: string) {
       captions: p.captions,
       accountIds: p.accountIds,
       tiktok: null,
-      imageId,
+      imageId: imageIds[0] ?? null,
+      imageIds: JSON.stringify(imageIds),
       link: p.link,
       campaignId: p.campaignId,
       status: "draft",
@@ -456,12 +450,13 @@ export async function deleteSocialPost(shop: string, id: string) {
     };
   await db.scheduledPost.delete({ where: { id } });
   await db.socialPost.deleteMany({ where: { shop, scheduleId: id } });
-  if (p.imageId) await dropImage(shop, p.imageId);
+  for (const img of postImages(p)) await dropImage(shop, img);
   return { ok: true as const };
 }
 
 async function dropImage(shop: string, imageId: string) {
-  if (!(await db.scheduledPost.count({ where: { shop, imageId } }))) await db.socialImage.deleteMany({ where: { id: imageId, shop } });
+  const using = await db.scheduledPost.count({ where: { shop, OR: [{ imageId }, { imageIds: { contains: `"${imageId}"` } }] } });
+  if (!using) await db.socialImage.deleteMany({ where: { id: imageId, shop } });
 }
 
 const UPLOAD_TYPES = ["image/jpeg", "image/png", "image/webp"];

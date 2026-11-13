@@ -139,7 +139,9 @@ export async function connectTikTok(code: string, f: Fetch = fetch, now = new Da
 export const refreshTikTok = (refreshToken: string, f: Fetch = fetch, now = new Date()) => tiktokToken(f, { grant_type: "refresh_token", refresh_token: refreshToken }, now);
 
 // link may be empty: a social calendar post needn't link anywhere.
-export type Post = { caption: string; title: string; link: string; imageUrl: string };
+// images holds every picture of a carousel, in order; imageUrl is the first.
+export type Post = { caption: string; title: string; link: string; imageUrl: string; images?: string[] };
+const pictures = (p: Post) => (p.images?.length ? p.images : p.imageUrl ? [p.imageUrl] : []);
 export type Posted = { remoteId: string; url: string | null; processing?: boolean };
 
 // The article's picture as a photo post, with the link under the caption.
@@ -147,6 +149,20 @@ export type Posted = { remoteId: string; url: string | null; processing?: boolea
 // picture, which fails while a store is password-protected. Without a
 // picture it falls back to a link post.
 export async function postFacebook(pageId: string, token: string, post: Post, f: Fetch = fetch): Promise<Posted> {
+  const pics = pictures(post);
+  // Several pictures: each is uploaded unpublished, then posted together.
+  if (pics.length > 1) {
+    const message = post.link ? `${post.caption}\n\n${post.link}` : post.caption;
+    const ids: string[] = [];
+    for (const url of pics) ids.push((await graph<{ id: string }>(f, `/${pageId}/photos`, { url, published: "false", access_token: token }, "POST")).id);
+    const res = await graph<{ id: string }>(
+      f,
+      `/${pageId}/feed`,
+      { message, access_token: token, ...Object.fromEntries(ids.map((id, i) => [`attached_media[${i}]`, JSON.stringify({ media_fbid: id })])) },
+      "POST",
+    );
+    return { remoteId: res.id, url: `https://www.facebook.com/${res.id}` };
+  }
   if (post.imageUrl) {
     const caption = post.link ? `${post.caption}\n\n${post.link}` : post.caption;
     const res = await graph<{ id: string; post_id?: string }>(f, `/${pageId}/photos`, { url: post.imageUrl, caption, access_token: token }, "POST");
@@ -158,8 +174,15 @@ export async function postFacebook(pageId: string, token: string, post: Post, f:
 }
 
 // Instagram takes a picture and caption in two steps: make the post, then publish it.
+// A carousel makes each picture as an item first, then the carousel from them.
 export async function postInstagram(igId: string, token: string, post: Post, f: Fetch = fetch): Promise<Posted> {
-  const made = await graph<{ id: string }>(f, `/${igId}/media`, { image_url: post.imageUrl, caption: post.caption, access_token: token }, "POST");
+  const pics = pictures(post).slice(0, 10);
+  let made: { id: string };
+  if (pics.length > 1) {
+    const children: string[] = [];
+    for (const url of pics) children.push((await graph<{ id: string }>(f, `/${igId}/media`, { image_url: url, is_carousel_item: "true", access_token: token }, "POST")).id);
+    made = await graph<{ id: string }>(f, `/${igId}/media`, { media_type: "CAROUSEL", children: children.join(","), caption: post.caption, access_token: token }, "POST");
+  } else made = await graph<{ id: string }>(f, `/${igId}/media`, { image_url: post.imageUrl, caption: post.caption, access_token: token }, "POST");
   let published: { id: string } | null = null;
   // Instagram fetches the picture first, which can take a few seconds.
   for (let i = 0; i < 6 && !published; i++) {
@@ -262,7 +285,7 @@ export async function postTikTok(token: string, post: Post, choices: TikTokChoic
       brand_content_toggle: choices.brandedContent,
       auto_add_music: true,
     },
-    source_info: { source: "PULL_FROM_URL", photo_cover_index: 0, photo_images: [post.imageUrl] },
+    source_info: { source: "PULL_FROM_URL", photo_cover_index: 0, photo_images: pictures(post).slice(0, 35) },
     post_mode: "DIRECT_POST",
     media_type: "PHOTO",
   });
@@ -348,7 +371,11 @@ export async function postPinterest(boardId: string, token: string, post: Post, 
     title: post.title.slice(0, 100),
     description: post.caption.slice(0, 800),
     ...(post.link ? { link: post.link } : {}),
-    media_source: { source_type: "image_url", url: post.imageUrl },
+    // Two to five pictures make a carousel pin.
+    media_source:
+      pictures(post).length > 1
+        ? { source_type: "multiple_image_urls", items: pictures(post).slice(0, 5).map((url) => ({ url })) }
+        : { source_type: "image_url", url: post.imageUrl },
   });
   // A sandbox pin isn't on pinterest.com, so its link opens it in SimilarWise.
   return { remoteId: pin.id, url: PINTEREST() === PINTEREST_LIVE ? `https://www.pinterest.com/pin/${pin.id}/` : `/app/pinterest-pin/${pin.id}` };
