@@ -350,5 +350,28 @@ export async function postPinterest(boardId: string, token: string, post: Post, 
     ...(post.link ? { link: post.link } : {}),
     media_source: { source_type: "image_url", url: post.imageUrl },
   });
-  return { remoteId: pin.id, url: `https://www.pinterest.com/pin/${pin.id}/` };
+  // A sandbox pin isn't on pinterest.com, so its link opens it in SimilarWise.
+  return { remoteId: pin.id, url: PINTEREST() === PINTEREST_LIVE ? `https://www.pinterest.com/pin/${pin.id}/` : `/app/pinterest-pin/${pin.id}` };
+}
+
+// Where "Open the post" goes. Pins made in the sandbox open in SimilarWise,
+// including ones saved before their link was set that way.
+export const postLink = (p: { network: string; remoteId: string | null; url: string | null }) =>
+  p.network === "pinterest" && p.remoteId && PINTEREST() !== PINTEREST_LIVE ? `/app/pinterest-pin/${p.remoteId}` : p.url;
+
+export type PinterestPin = { id: string; title: string; description: string; link: string | null; image: string | null; createdAt: string | null };
+
+// A pin as Pinterest has it, for looking at sandbox pins that its site doesn't show.
+export async function readPinterestPin(id: string, token: string, f: Fetch = fetch): Promise<PinterestPin> {
+  const pin = await pinterest<{
+    id: string;
+    title?: string | null;
+    description?: string | null;
+    link?: string | null;
+    created_at?: string | null;
+    media?: { images?: Record<string, { url?: string; width?: number }> };
+  }>(f, token, `/pins/${encodeURIComponent(id)}`);
+  const images = Object.values(pin.media?.images ?? {}).filter((i) => i.url);
+  const biggest = images.sort((a, b) => (b.width ?? 0) - (a.width ?? 0))[0];
+  return { id: pin.id, title: pin.title ?? "", description: pin.description ?? "", link: pin.link ?? null, image: biggest?.url ?? null, createdAt: pin.created_at ?? null };
 }
