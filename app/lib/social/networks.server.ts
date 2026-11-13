@@ -17,7 +17,7 @@ const TIKTOK = "https://open.tiktokapis.com/v2";
 const PINTEREST_LIVE = "https://api.pinterest.com/v5";
 const PINTEREST = () => process.env.PINTEREST_API || PINTEREST_LIVE;
 
-import type { Network } from "./networks";
+import type { Network, PostStats } from "./networks";
 
 export { NETWORK_NAME, type Network } from "./networks";
 export type Fetch = typeof fetch;
@@ -401,4 +401,41 @@ export async function readPinterestPin(id: string, token: string, f: Fetch = fet
   const images = Object.values(pin.media?.images ?? {}).filter((i) => i.url);
   const biggest = images.sort((a, b) => (b.width ?? 0) - (a.width ?? 0))[0];
   return { id: pin.id, title: pin.title ?? "", description: pin.description ?? "", link: pin.link ?? null, image: biggest?.url ?? null, createdAt: pin.created_at ?? null };
+}
+
+const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+
+// Likes, comments, shares and reach for a post on Facebook, Instagram or
+// Pinterest. Reach needs insights permissions some accounts haven't given,
+// so it's left out when the network says no. TikTok isn't read: posts there
+// are identified by a publish id, not the video's.
+export async function postStats(network: Network, remoteId: string, token: string, sentAt: Date, f: Fetch = fetch, now = new Date()): Promise<PostStats | null> {
+  if (network === "facebook") {
+    const p = await graph<{ reactions?: { summary?: { total_count?: number } }; comments?: { summary?: { total_count?: number } }; shares?: { count?: number } }>(
+      f,
+      `/${remoteId}`,
+      { fields: "reactions.summary(total_count).limit(0),comments.summary(total_count).limit(0),shares", access_token: token },
+    );
+    const reach = await graph<{ data?: { values?: { value?: number }[] }[] }>(f, `/${remoteId}/insights`, { metric: "post_impressions_unique", access_token: token })
+      .then((r) => num(r.data?.[0]?.values?.[0]?.value))
+      .catch(() => undefined);
+    return { likes: num(p.reactions?.summary?.total_count) ?? 0, comments: num(p.comments?.summary?.total_count) ?? 0, shares: num(p.shares?.count) ?? 0, reach };
+  }
+  if (network === "instagram") {
+    const m = await graph<{ like_count?: number; comments_count?: number }>(f, `/${remoteId}`, { fields: "like_count,comments_count", access_token: token });
+    const insights = await graph<{ data?: { name: string; values?: { value?: number }[] }[] }>(f, `/${remoteId}/insights`, { metric: "reach,saved,shares", access_token: token })
+      .then((r) => Object.fromEntries((r.data ?? []).map((d) => [d.name, num(d.values?.[0]?.value)])))
+      .catch(() => ({}) as Record<string, number | undefined>);
+    return { likes: num(m.like_count), comments: num(m.comments_count), reach: insights.reach, saves: insights.saved, shares: insights.shares };
+  }
+  if (network === "pinterest") {
+    const day = (d: Date) => d.toISOString().slice(0, 10);
+    const start = new Date(Math.max(sentAt.getTime(), now.getTime() - 89 * 86400_000));
+    const q = new URLSearchParams({ start_date: day(start), end_date: day(now), metric_types: "IMPRESSION,SAVE,PIN_CLICK,OUTBOUND_CLICK" });
+    const a = await pinterest<{ all?: { summary_metrics?: Record<string, number> } }>(f, token, `/pins/${encodeURIComponent(remoteId)}/analytics?${q}`);
+    const m = a.all?.summary_metrics ?? {};
+    const clicks = (num(m.PIN_CLICK) ?? 0) + (num(m.OUTBOUND_CLICK) ?? 0);
+    return { reach: num(m.IMPRESSION), saves: num(m.SAVE), clicks };
+  }
+  return null;
 }

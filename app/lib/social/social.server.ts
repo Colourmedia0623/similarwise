@@ -9,6 +9,7 @@ import {
   makePinterestBoard,
   postLink,
   postPinterest,
+  postStats,
   postTikTok,
   readPinterestPin,
   refreshPinterest,
@@ -23,6 +24,7 @@ import {
   type TikTokChoices,
 } from "./networks.server";
 import { seal, unseal } from "./seal.server";
+import type { PostStats } from "./networks";
 
 // Sharing blog articles to the merchant's Facebook Pages, Instagram business
 // accounts and TikTok: a caption for each network written by Claude, the
@@ -252,6 +254,54 @@ export async function articleShares(shop: string, articleId: string) {
     status: p.status,
     url: postLink(p),
     error: p.error,
+    stats: readStats(p.stats),
     createdAt: p.createdAt.toISOString(),
   }));
+}
+
+const STATS_NETWORKS = ["facebook", "instagram", "pinterest"];
+
+// Reads how sent posts are doing. Posts from the last two days are read
+// hourly, older ones every six hours, for 60 days after they went out.
+export async function refreshStats({ f = fetch, now = new Date(), shop, scheduleId }: { f?: Fetch; now?: Date; shop?: string; scheduleId?: string } = {}) {
+  const hour = 3600_000;
+  const posts = await db.socialPost.findMany({
+    where: {
+      ...(shop ? { shop } : {}),
+      ...(scheduleId ? { scheduleId } : {}),
+      status: "posted",
+      remoteId: { not: null },
+      network: { in: STATS_NETWORKS },
+      createdAt: { gt: new Date(now.getTime() - 60 * 24 * hour) },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 300,
+  });
+  let read = 0;
+  for (const p of posts) {
+    const age = now.getTime() - p.createdAt.getTime();
+    const every = age < 48 * hour ? hour : 6 * hour;
+    if (!scheduleId && p.statsAt && now.getTime() - p.statsAt.getTime() < every - 60_000) continue;
+    const account = await db.socialAccount.findFirst({ where: { id: p.accountId, shop: p.shop } });
+    if (!account) continue;
+    try {
+      const stats = await postStats(p.network as Network, p.remoteId!, await liveToken(account, f, now), p.createdAt, f, now);
+      if (!stats) continue;
+      await db.socialPost.update({ where: { id: p.id }, data: { stats: JSON.stringify(stats), statsAt: now } });
+      read++;
+    } catch (err) {
+      console.error("Couldn't read a post's engagement", p.shop, p.network, p.id, err instanceof Error ? err.message : err);
+      await db.socialPost.update({ where: { id: p.id }, data: { statsAt: now } });
+    }
+  }
+  return read;
+}
+
+export function readStats(raw: string | null): PostStats | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as PostStats;
+  } catch {
+    return null;
+  }
 }
