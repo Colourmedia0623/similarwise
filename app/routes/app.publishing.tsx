@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "react-router";
-import { Link, useFetcher, useFetchers, useLoaderData } from "react-router";
+import { Link, useFetcher, useFetchers, useLoaderData, useRevalidator } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { NETWORK_NAME, type Network } from "../lib/social/networks";
@@ -23,6 +23,7 @@ import {
   writeSocialCaptions,
 } from "../lib/social/publishing.server";
 import { CAMPAIGN_COLORS, LIMITS, MAX_PICTURES } from "../lib/social/publishing";
+import { CANVA_SIZES, canvaAccount, canvaAuthorizeUrl, canvaOn, importCanvaDesign, newCanvaDesign, recentCanvaDesigns, type CanvaDesign } from "../lib/social/canva.server";
 import { addDays, dayLabel, timeLabel, validZone, weekStart, zoned } from "../lib/social/when";
 import { TikTokPost } from "../components/TikTokPost";
 
@@ -42,10 +43,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   await checkTikTokPosts(shop, null).catch((err) => console.error("Couldn't check TikTok posts", shop, err));
   const now = new Date();
   const today = zoned(now, tz).day;
-  const [data, blog] = await Promise.all([calendarData(shop, now), blogPlan(shop, addDays(today, -120))]);
+  const [data, blog, canvaUser] = await Promise.all([calendarData(shop, now), blogPlan(shop, addDays(today, -120)), canvaOn() ? canvaAccount(shop) : null]);
   return {
     ...data,
     blog,
+    canva: canvaOn()
+      ? { connected: !!canvaUser, connect: canvaAuthorizeUrl(shop), sizes: Object.entries(CANVA_SIZES).map(([key, v]) => ({ key, label: v.label })) }
+      : null,
     tz,
     today,
     now: now.toISOString(),
@@ -85,6 +89,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       id,
       ...(await movePost(shop, id, text("day"), text("time"), text("tz"))),
     };
+  if (intent === "canva-new") return { intent, ...(await newCanvaDesign(shop, text("size"), text("title"))) };
+  if (intent === "canva-designs") return { intent, ...(await recentCanvaDesigns(shop)) };
+  if (intent === "canva-import") return { intent, ...(await importCanvaDesign(shop, text("designId"), Math.min(MAX_PICTURES, Number(text("max")) || MAX_PICTURES))) };
   if (intent === "duplicate") return { intent, ...(await duplicatePost(shop, id)) };
   if (intent === "delete") return { intent, id, ...(await deleteSocialPost(shop, id)) };
   if (intent === "retry") return { intent, id, ...(await retryPost(shop, id)) };
@@ -124,6 +131,9 @@ type Answer = {
   posted?: number;
   failed?: number;
   images?: { id: string; url: string }[];
+  editUrl?: string;
+  designs?: CanvaDesign[];
+  more?: boolean;
   captions?: Record<string, string>;
 };
 
@@ -1470,6 +1480,137 @@ const QUICK_TIMES = [
   { label: "Evening", time: "18:30" },
 ];
 
+// Designing pictures in Canva: start a design at a post's size, which opens
+// in a new tab, then bring a design's pages back as the post's pictures.
+function CanvaTools({
+  canva,
+  room,
+  title,
+  onImages,
+}: {
+  canva: { connected: boolean; connect: string; sizes: { key: string; label: string }[] };
+  room: number;
+  title: string;
+  onImages: (images: { id: string; url: string }[]) => void;
+}) {
+  const make = useFetcher<Answer>();
+  const list = useFetcher<Answer>();
+  const bring = useFetcher<Answer>();
+  const revalidator = useRevalidator();
+  const [open, setOpen] = useState<"sizes" | "designs" | null>(null);
+  const [designed, setDesigned] = useState(false);
+  const tab = useRef<Window | null>(null);
+
+  // Connecting happens in another tab; pick it up on coming back.
+  useEffect(() => {
+    if (canva.connected) return;
+    const back = () => document.visibilityState === "visible" && revalidator.revalidate();
+    document.addEventListener("visibilitychange", back);
+    return () => document.removeEventListener("visibilitychange", back);
+  }, [canva.connected, revalidator]);
+
+  // The design's tab is opened on the click, so it isn't blocked, and sent
+  // to the design once Canva has made it.
+  const made = make.state === "idle" ? make.data : undefined;
+  useEffect(() => {
+    if (!made) return;
+    if (made.editUrl && tab.current) {
+      tab.current.location.href = made.editUrl;
+      setDesigned(true);
+    } else tab.current?.close();
+    tab.current = null;
+  }, [made]);
+
+  const brought = bring.state === "idle" ? bring.data : undefined;
+  const [seen, setSeen] = useState(brought);
+  if (brought !== seen) {
+    setSeen(brought);
+    if (brought?.images?.length) {
+      onImages(brought.images);
+      setOpen(null);
+    }
+  }
+
+  if (!canva.connected)
+    return (
+      <div className="pc-canva">
+        <a className="pc-btn" href={canva.connect} target="_blank" rel="noreferrer">
+          <CanvaMark /> Connect Canva
+        </a>
+        <small className="pc-muted">to design this post&apos;s pictures in Canva.</small>
+      </div>
+    );
+  const error = (make.state === "idle" && make.data?.error) || (list.state === "idle" && list.data?.error) || (bring.state === "idle" && bring.data?.error);
+  return (
+    <div className="pc-canva-box">
+      <div className="pc-canva">
+        <button type="button" className="pc-btn" aria-expanded={open === "sizes"} onClick={() => setOpen(open === "sizes" ? null : "sizes")}>
+          <CanvaMark /> Design in Canva
+        </button>
+        <button
+          type="button"
+          className="pc-btn"
+          disabled={room <= 0}
+          aria-expanded={open === "designs"}
+          onClick={() => {
+            setOpen(open === "designs" ? null : "designs");
+            if (open !== "designs") list.submit({ intent: "canva-designs" }, { method: "post" });
+          }}
+        >
+          Add from Canva
+        </button>
+        {designed && open === null && <small className="pc-muted">Finished in Canva? Press Add from Canva to bring it in.</small>}
+      </div>
+      {open === "sizes" && (
+        <div className="pc-canva-sizes">
+          {canva.sizes.map((s) => (
+            <button
+              key={s.key}
+              type="button"
+              disabled={make.state !== "idle"}
+              onClick={() => {
+                tab.current = window.open("", "_blank");
+                make.submit({ intent: "canva-new", size: s.key, title }, { method: "post" });
+                setOpen(null);
+              }}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      )}
+      {open === "designs" && (
+        <div className="pc-canva-designs">
+          {bring.state !== "idle" ? (
+            <p className="pc-muted">Bringing in your design… Canva takes a few seconds for each page.</p>
+          ) : list.state !== "idle" ? (
+            <p className="pc-muted">Looking at your Canva designs…</p>
+          ) : list.data?.designs?.length === 0 ? (
+            <p className="pc-muted">No designs in your Canva account yet. Press Design in Canva to start one.</p>
+          ) : (
+            list.data?.designs?.map((d) => (
+              <button key={d.id} type="button" onClick={() => bring.submit({ intent: "canva-import", designId: d.id, max: String(room) }, { method: "post" })}>
+                {d.thumbnail ? <img src={d.thumbnail} alt="" /> : <span className="pc-canva-blank" />}
+                <span>{d.title}</span>
+                {d.pages && d.pages > 1 && <small>{d.pages} pages</small>}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+      {brought?.more && <small className="pc-muted">The design has more pages than the post has room for, so only the first ones came in.</small>}
+      {error && <s-text tone="critical">{error}</s-text>}
+    </div>
+  );
+}
+
+const CanvaMark = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" style={{ verticalAlign: "-2px" }}>
+    <circle cx="12" cy="12" r="12" fill="#7d2ae8" />
+    <path d="M15.6 15.2c-.9 1.1-2.1 1.8-3.4 1.8-2.3 0-3.7-2-3.3-4.6.4-2.8 2.6-4.9 4.8-4.9 1 0 1.7.5 1.6 1.4 0 .7-.6 1.3-1 1.3-.3 0-.3-.2-.3-.5.1-.5-.1-.9-.6-.9-1.1 0-2.4 1.6-2.6 3.5-.2 1.6.5 2.8 1.8 2.8 1 0 1.9-.6 2.6-1.4z" fill="#fff" />
+  </svg>
+);
+
 // A month to pick the day from. It opens in the composer itself rather than
 // as a pop-up, which the bottom of the Shopify admin window cut off.
 function DayPicker({ value, today, onPick }: { value: string; today: string; onPick: (day: string) => void }) {
@@ -1819,6 +1960,14 @@ function Composer({
               )}
               {images.length > 5 && pickedAccounts.some((a) => a.network === "pinterest") && (
                 <small className="pc-muted">Pinterest carousels take up to 5 pictures, so the pin gets the first 5.</small>
+              )}
+              {data.canva && (
+                <CanvaTools
+                  canva={data.canva}
+                  room={MAX_PICTURES - images.length}
+                  title={caption.split("\n")[0].slice(0, 80)}
+                  onImages={(more) => setImages((now) => [...now, ...more].slice(0, MAX_PICTURES))}
+                />
               )}
               <input
                 ref={fileRef}
@@ -2254,6 +2403,19 @@ const CSS = `
 .pc-count { margin-left: auto; font-size: 12px; color: #8a8a8a; }
 .pc-brief { margin-top: 10px; padding: 12px; border-radius: 10px; background: #f6f3ff; display: flex; flex-direction: column; gap: 8px; }
 .pc-image { display: flex; gap: 12px; align-items: flex-end; }
+.pc-canva-box { margin-top: 8px; }
+.pc-canva { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.pc-canva a.pc-btn { text-decoration: none; color: inherit; }
+.pc-canva-sizes { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.pc-canva-sizes button { padding: 5px 10px; border: 1px solid #d4d4d4; border-radius: 14px; background: #fff; font: inherit; font-size: 12px; cursor: pointer; }
+.pc-canva-sizes button:hover { border-color: #7d2ae8; color: #7d2ae8; }
+.pc-canva-designs { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; margin-top: 8px; max-height: 280px; overflow-y: auto; }
+.pc-canva-designs p { grid-column: 1 / -1; margin: 4px 0; }
+.pc-canva-designs button { display: flex; flex-direction: column; gap: 4px; padding: 6px; border: 1px solid #e3e3e3; border-radius: 10px; background: #fff; font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+.pc-canva-designs button:hover { border-color: #7d2ae8; }
+.pc-canva-designs img, .pc-canva-blank { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 6px; background: #f1f1f1; display: block; }
+.pc-canva-designs span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pc-canva-designs small { color: #8a8a8a; }
 .pc-pics { display: flex; flex-wrap: wrap; gap: 8px; }
 .pc-pic { position: relative; width: 92px; height: 92px; border-radius: 10px; overflow: hidden; cursor: grab; background: #f1f1f1; }
 .pc-pic img { width: 100%; height: 100%; object-fit: cover; display: block; }

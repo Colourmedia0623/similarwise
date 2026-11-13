@@ -23,6 +23,7 @@ export async function redactShop(shop: string) {
   await db.socialImage.deleteMany({ where: { shop } });
   await db.socialCampaign.deleteMany({ where: { shop } });
   await db.socialAccount.deleteMany({ where: { shop } });
+  await db.canvaConnection.deleteMany({ where: { shop } });
   await db.adChange.deleteMany({ where: { shop } });
   await db.adAccount.deleteMany({ where: { shop } });
   await db.siteAudit.deleteMany({ where: { shop } });
