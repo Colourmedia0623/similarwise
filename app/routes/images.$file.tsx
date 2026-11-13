@@ -1,6 +1,6 @@
 import type { LoaderFunctionArgs } from "react-router";
 import db from "../db.server";
-import { articleImage } from "../lib/ideas/images.server";
+import { articleImage, tiktokCopy } from "../lib/ideas/images.server";
 import { articlePicture } from "../lib/ideas/articles.server";
 
 // Blog article pictures, public so Shopify, Instagram and TikTok can fetch
@@ -19,7 +19,8 @@ const TIKTOK_VERIFICATION = [
   "tiktok-developers-site-verification=SOmS0sEZGOe7TnRb0G2SqgpMOHkONFeJ",
 ];
 
-export const loader = async ({ params }: LoaderFunctionArgs) => {
+export const loader = async ({ params, request }: LoaderFunctionArgs) => {
+  const forTikTok = new URL(request.url).searchParams.get("for") === "tiktok";
   if (/^tiktok[\w-]*\.txt$/i.test(params.file ?? "")) {
     const code = params.file!.slice(6, -4);
     const line = TIKTOK_VERIFICATION.find((v) => !code || v.endsWith(`=${code}`)) ?? TIKTOK_VERIFICATION[0];
@@ -27,17 +28,22 @@ export const loader = async ({ params }: LoaderFunctionArgs) => {
   }
   const id = /^([a-z0-9]+)\.jpg$/i.exec(params.file ?? "")?.[1];
   const image = id ? await articleImage(id) : null;
-  if (image)
+  if (image) {
+    if (forTikTok) return jpeg(await tiktokCopy(new Uint8Array(image.data)));
     return new Response(new Uint8Array(image.data), {
       headers: { "Content-Type": image.mime, "Cache-Control": "public, max-age=3600", ETag: `"${image.createdAt.getTime()}"` },
     });
+  }
   const a = id ? await db.blogArticle.findUnique({ where: { id } }) : null;
   const picture = a ? await articlePicture(a.shop, { ...a, imageAlt: null }) : null;
   if (!picture || !/^https:\/\/cdn\.shopify\.com\//.test(picture.url)) return new Response("Not found", { status: 404 });
   // Instagram only takes JPEGs; Shopify's CDN converts on request.
   const res = await fetch(`${picture.url}${picture.url.includes("?") ? "&" : "?"}format=pjpg`, { signal: AbortSignal.timeout(20_000) }).catch(() => null);
   if (!res?.ok) return new Response("Not found", { status: 404 });
+  if (forTikTok) return jpeg(await tiktokCopy(new Uint8Array(await res.arrayBuffer())));
   return new Response(await res.arrayBuffer(), {
     headers: { "Content-Type": res.headers.get("content-type") ?? "image/jpeg", "Cache-Control": "public, max-age=3600" },
   });
 };
+
+const jpeg = (data: Uint8Array) => new Response(new Uint8Array(data), { headers: { "Content-Type": "image/jpeg", "Cache-Control": "public, max-age=3600" } });

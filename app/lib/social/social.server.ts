@@ -122,7 +122,9 @@ export async function shareArticle(shop: string, articleId: string, picks: Pick[
       if (network !== "facebook" && !image) return fail(`${NETWORK_NAME[network]} needs a picture. Make or upload one for the article first.`);
       try {
         const token = await liveToken(account, f, now);
-        const post: Post = { caption, title: a.title, link, imageUrl: image ?? "" };
+        // TikTok gets a copy small enough for it to accept.
+        const picture = image && network === "tiktok" ? `${image}${image.includes("?") ? "&" : "?"}for=tiktok` : image;
+        const post: Post = { caption, title: a.title, link, imageUrl: picture ?? "" };
         const done: Posted =
           network === "facebook" ? await postFacebook(account.accountId, token, post, f) : network === "instagram" ? await postInstagram(account.accountId, token, post, f) : await postTikTok(token, post, pick.tiktok!, f);
         await db.socialPost.create({ data: { shop, articleId, accountId: account.id, network, caption, status: done.processing ? "processing" : "posted", remoteId: done.remoteId, url: done.url } });
