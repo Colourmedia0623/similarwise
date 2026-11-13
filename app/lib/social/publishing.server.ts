@@ -298,7 +298,7 @@ export async function sendPost(id: string, { f = fetch, now = new Date(), onlyFa
           return false;
         }
         try {
-          const image = post.imageId ? socialImageUrl(post.imageId, network === "facebook" ? undefined : network) : "";
+          const image = post.imageId ? socialImageUrl(post.imageId, network === "instagram" || network === "tiktok" ? network : undefined) : "";
           const sent = await sendTo(
             account,
             {
@@ -577,12 +577,13 @@ export async function deleteCampaign(shop: string, id: string) {
 const SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["caption", "facebook", "instagram", "tiktok"],
+  required: ["caption", "facebook", "instagram", "tiktok", "pinterest"],
   properties: {
     caption: { type: "string" },
     facebook: { type: "string" },
     instagram: { type: "string" },
     tiktok: { type: "string" },
+    pinterest: { type: "string" },
   },
 };
 
@@ -591,6 +592,7 @@ const SYSTEM = `You write social media posts for a small online shop. You get th
 - facebook: 1 to 3 short sentences that make people want to click or visit. At most 2 hashtags. Any link is added separately, so don't include one.
 - instagram: 2 to 4 short lines with a line break between them, then 5 to 8 relevant hashtags on the last line. Say "link in bio" if there's somewhere to go.
 - tiktok: a short, punchy caption under 300 characters ending with 3 to 5 hashtags.
+- pinterest: a pin description of 1 to 3 sentences, under 500 characters, using the words people would search for, with 2 to 4 hashtags at the end.
 No emojis unless they add something; at most two per post.`;
 
 // Captions from a short brief, for the composer's Write with AI button.
@@ -615,6 +617,7 @@ export async function writeSocialCaptions(shop: string, brief: string, draft: st
       facebook: text("facebook", 2200),
       instagram: text("instagram", 2200),
       tiktok: text("tiktok", 2200),
+      pinterest: text("pinterest", 800),
     };
     if (!captions.caption) return { error: "Couldn't write captions just now. Try again." };
     return { captions };

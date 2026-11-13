@@ -1,10 +1,10 @@
 import type { LoaderFunctionArgs } from "react-router";
 import { useLoaderData } from "react-router";
 import { readState } from "../lib/social/seal.server";
-import { connectMeta, connectTikTok } from "../lib/social/networks.server";
+import { connectMeta, connectPinterest, connectTikTok } from "../lib/social/networks.server";
 import { saveAccounts } from "../lib/social/social.server";
 
-// Where Meta and TikTok send the merchant back after they sign in. Opened in
+// Where Meta, TikTok and Pinterest send the merchant back after they sign in. Opened in
 // its own tab, since neither sign-in page works inside Shopify's admin.
 
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
@@ -12,11 +12,11 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const provider = params.provider;
   const state = readState(url.searchParams.get("state") ?? "");
   const code = url.searchParams.get("code");
-  if (!state || (provider !== "meta" && provider !== "tiktok") || state.network !== provider)
+  if (!state || (provider !== "meta" && provider !== "tiktok" && provider !== "pinterest") || state.network !== provider)
     return { ok: false as const, message: "This sign-in link has expired. Go back to SimilarWise and press Connect again." };
   if (!code) return { ok: false as const, message: "You didn't finish signing in, so nothing was connected. You can try again from SimilarWise." };
   try {
-    const accounts = provider === "meta" ? await connectMeta(code) : await connectTikTok(code);
+    const accounts = provider === "meta" ? await connectMeta(code) : provider === "pinterest" ? await connectPinterest(code) : await connectTikTok(code);
     const count = await saveAccounts(state.shop, accounts);
     if (!count)
       return {
@@ -24,7 +24,9 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
         message:
           provider === "meta"
             ? "No Facebook Pages came through. Make sure you picked your shop's Page when signing in, and that its Instagram is a business account linked to the Page."
-            : "No TikTok account came through. Try connecting again.",
+            : provider === "pinterest"
+              ? "No Pinterest boards came through. Make a board on Pinterest, then connect again."
+              : "No TikTok account came through. Try connecting again.",
       };
     return { ok: true as const, message: `Connected ${accounts.map((a) => a.name).join(", ")}.` };
   } catch (err) {

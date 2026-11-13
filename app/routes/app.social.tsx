@@ -10,8 +10,8 @@ import { isFreeShop } from "../lib/waitlist.server";
 import { signState } from "../lib/social/seal.server";
 import { disconnectAccount, setSocialAuto, socialAccounts } from "../lib/social/social.server";
 
-// Social accounts: the Facebook Pages, Instagram business accounts and TikTok
-// accounts blog articles can be shared to.
+// Social accounts: the Facebook Pages, Instagram business accounts, TikTok
+// accounts and Pinterest boards that posts and blog articles can be shared to.
 
 const SIGN_IN_FOR = 30 * 60_000;
 
@@ -21,7 +21,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const open = (p: Provider) => providerOn(p) && (providerApproved(p) || isFreeShop(shop));
   const link = (p: Provider) => (open(p) ? authorizeUrl(p, signState({ shop, network: p, exp: Date.now() + SIGN_IN_FOR })) : null);
   const [accounts, settings] = await Promise.all([socialAccounts(shop), db.shopSettings.findUnique({ where: { shop } })]);
-  return { accounts, auto: settings?.socialAuto ?? false, meta: link("meta"), tiktok: link("tiktok") };
+  return { accounts, auto: settings?.socialAuto ?? false, meta: link("meta"), tiktok: link("tiktok"), pinterest: link("pinterest") };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -34,7 +34,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function Social() {
-  const { accounts, auto, meta, tiktok } = useLoaderData<typeof loader>();
+  const { accounts, auto, meta, tiktok, pinterest } = useLoaderData<typeof loader>();
   const act = useFetcher<typeof action>();
   const revalidator = useRevalidator();
   const autoOn = act.formData?.get("intent") === "auto" ? act.formData.get("on") === "true" : auto;
@@ -51,7 +51,7 @@ export default function Social() {
       <s-section>
         <s-stack gap="base">
           <s-paragraph>
-            Connect your shop&apos;s Facebook Page, Instagram and TikTok to share your blog articles there, each with a caption written for that
+            Connect your shop&apos;s Facebook Page, Instagram, TikTok and Pinterest boards to share your blog articles there, each with a caption written for that
             network, the article&apos;s picture and a link back to your blog. Signing in opens in a new tab.
           </s-paragraph>
           <s-stack direction="inline" gap="small">
@@ -69,11 +69,18 @@ export default function Social() {
             ) : (
               <s-button disabled>TikTok coming soon</s-button>
             )}
+            {pinterest ? (
+              <s-button href={pinterest} target="_blank">
+                Connect Pinterest
+              </s-button>
+            ) : (
+              <s-button disabled>Pinterest coming soon</s-button>
+            )}
           </s-stack>
           <s-text color="subdued">
             Instagram needs a business or creator account linked to your Facebook Page. Signing in to Facebook connects both.
           </s-text>
-          {(!meta || !tiktok) && (
+          {(!meta || !tiktok || !pinterest) && (
             <s-text color="subdued">Sharing to the networks marked coming soon opens once they&apos;ve finished approving SimilarWise. We&apos;ll email you when it&apos;s ready.</s-text>
           )}
         </s-stack>
@@ -86,7 +93,7 @@ export default function Social() {
           <s-stack gap="small">
             {accounts.map((a) => (
               <s-stack key={a.id} direction="inline" gap="small" alignItems="center">
-                <s-badge tone={a.network === "facebook" ? "info" : a.network === "instagram" ? "warning" : "neutral"}>{NETWORK_NAME[a.network]}</s-badge>
+                <s-badge tone={a.network === "facebook" ? "info" : a.network === "instagram" ? "warning" : a.network === "pinterest" ? "critical" : "neutral"}>{NETWORK_NAME[a.network]}</s-badge>
                 <s-text>{a.name}</s-text>
                 <s-button variant="tertiary" tone="critical" onClick={() => act.submit({ intent: "disconnect", id: a.id }, { method: "post" })}>
                   Disconnect
