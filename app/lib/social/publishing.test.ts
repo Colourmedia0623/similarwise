@@ -22,12 +22,12 @@ import { fromZoned, zoned } from "./when";
 const SHOP = "calendar.myshopify.com";
 const NOW = new Date("2026-11-13T10:00:00Z");
 
-type Call = { url: string; body: string };
+type Call = { url: string; body: string; auth?: string };
 
 function fakeFetch(routes: [RegExp, unknown][], calls: Call[]): Fetch {
   return (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
-    calls.push({ url, body: String(init?.body ?? "") });
+    calls.push({ url, body: String(init?.body ?? ""), auth: new Headers(init?.headers).get("authorization") ?? undefined });
     const hit = routes.find(([re]) => re.test(url));
     return new Response(JSON.stringify(hit ? hit[1] : { error: { message: `unexpected ${url}` } }), { status: hit ? 200 : 400 });
   }) as Fetch;
@@ -213,6 +213,7 @@ describe("social calendar", () => {
 
   it("keeps Pinterest boards and pins in the sandbox while the app has trial access", async () => {
     process.env.PINTEREST_API = "https://api-sandbox.pinterest.com/v5";
+    process.env.PINTEREST_SANDBOX_TOKEN = "sandbox-token";
     const calls: Call[] = [];
     const f = fakeFetch(
       [
@@ -224,7 +225,10 @@ describe("social calendar", () => {
     );
     await connectPinterest("code1", f, NOW);
     delete process.env.PINTEREST_API;
+    delete process.env.PINTEREST_SANDBOX_TOKEN;
     expect(calls.map((c) => new URL(c.url).host)).toEqual(["api.pinterest.com", "api.pinterest.com", "api-sandbox.pinterest.com"]);
+    // The sandbox only accepts the app's own sandbox token.
+    expect(calls.slice(1).map((c) => c.auth)).toEqual(["Bearer pin-token", "Bearer sandbox-token"]);
   });
 
   it("pads tall pictures for Instagram", async () => {

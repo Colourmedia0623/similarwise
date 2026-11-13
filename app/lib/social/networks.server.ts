@@ -11,7 +11,9 @@ const TIKTOK = "https://open.tiktokapis.com/v2";
 // Pinterest's trial access only creates pins in its sandbox, which has its
 // own boards. PINTEREST_API points boards and pins there
 // (https://api-sandbox.pinterest.com/v5) until Pinterest grants standard
-// access; signing in and the account's name always use the live API.
+// access; signing in and the account's name always use the live API. The
+// sandbox refuses the merchant's own token, so its calls use the sandbox
+// token from the app's page on developers.pinterest.com (PINTEREST_SANDBOX_TOKEN).
 const PINTEREST_LIVE = "https://api.pinterest.com/v5";
 const PINTEREST = () => process.env.PINTEREST_API || PINTEREST_LIVE;
 
@@ -289,9 +291,10 @@ async function pinterestToken(f: Fetch, params: Record<string, string>, now: Dat
 export const refreshPinterest = (refreshToken: string, f: Fetch = fetch, now = new Date()) => pinterestToken(f, { grant_type: "refresh_token", refresh_token: refreshToken }, now);
 
 async function pinterest<T>(f: Fetch, token: string, path: string, body?: object, base = PINTEREST()): Promise<T> {
+  const auth = base !== PINTEREST_LIVE && process.env.PINTEREST_SANDBOX_TOKEN ? process.env.PINTEREST_SANDBOX_TOKEN : token;
   const res = await f(`${base}${path}`, {
     method: body ? "POST" : "GET",
-    headers: { authorization: `Bearer ${token}`, ...(body ? { "content-type": "application/json" } : {}) },
+    headers: { authorization: `Bearer ${auth}`, ...(body ? { "content-type": "application/json" } : {}) },
     body: body ? JSON.stringify(body) : undefined,
     signal: AbortSignal.timeout(60_000),
   });

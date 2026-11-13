@@ -46,6 +46,7 @@ jobs:
           PINTEREST_APP_ID: ${{ secrets.PINTEREST_APP_ID }}
           PINTEREST_APP_SECRET: ${{ secrets.PINTEREST_APP_SECRET }}
           PINTEREST_API: ${{ vars.PINTEREST_API }}
+          PINTEREST_SANDBOX_TOKEN: ${{ secrets.PINTEREST_SANDBOX_TOKEN }}
           # Managing the merchant's own paid social ads. Meta reuses the app above with its
           # own Login for Business configuration; TikTok needs a TikTok for Business app.
           META_ADS_CONFIG_ID: ${{ secrets.META_ADS_CONFIG_ID }}
@@ -86,6 +87,7 @@ jobs:
             echo "PINTEREST_APP_ID=$PINTEREST_APP_ID"
             echo "PINTEREST_APP_SECRET=$PINTEREST_APP_SECRET"
             echo "PINTEREST_API=$PINTEREST_API"
+            echo "PINTEREST_SANDBOX_TOKEN=$PINTEREST_SANDBOX_TOKEN"
             echo "META_ADS_CONFIG_ID=$META_ADS_CONFIG_ID"
             echo "TIKTOK_ADS_APP_ID=$TIKTOK_ADS_APP_ID"
             echo "TIKTOK_ADS_SECRET=$TIKTOK_ADS_SECRET"
