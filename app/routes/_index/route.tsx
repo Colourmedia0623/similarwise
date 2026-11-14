@@ -60,7 +60,7 @@ const GROUPS = [
     id: "ads",
     tag: "Advertise",
     title: "Know what's working in their ads",
-    intro: "Read competitors' live ads from the public Meta, TikTok and Google ad libraries, then turn them into ads of your own.",
+    intro: "Read competitors' live ads from the public Meta, TikTok, Google and LinkedIn ad libraries, then turn them into ads of your own.",
     features: [
       { title: "Competitors' ads", body: "Every ad they run on Meta, TikTok and Google, and their estimated Google Ads spend." },
       { title: "Ad ideas", body: "The angles their ads keep repeating, and ready-written ads for your own products." },
@@ -122,7 +122,7 @@ const FAQ = [
   },
   {
     q: "Where does the data come from?",
-    a: "From competitors' public storefronts, the public Meta, TikTok and Google ad libraries, and trusted search and traffic data providers. Nothing private is ever accessed.",
+    a: "From competitors' public storefronts, the public Meta, TikTok, Google and LinkedIn ad libraries, and trusted search and traffic data providers. Nothing private is ever accessed.",
   },
   {
     q: "Do I have to publish the articles it writes?",

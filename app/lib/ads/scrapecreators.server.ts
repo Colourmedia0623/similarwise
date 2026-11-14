@@ -3,7 +3,8 @@
 
 const API = "https://api.scrapecreators.com";
 
-export type Platform = "meta" | "tiktok" | "google";
+// LinkedIn ads come from LinkedIn's own Ad Library API (linkedin.server.ts).
+export type Platform = "meta" | "tiktok" | "google" | "linkedin";
 
 export type LibraryAd = {
   platform: Platform;
