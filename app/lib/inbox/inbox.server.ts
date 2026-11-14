@@ -170,11 +170,12 @@ export async function syncShop(shop: string, opts: Opts = {}) {
 // Meta's webhook: something changed on a Page or Instagram account (a new
 // comment or message). Reads the shops that have it connected straight away.
 export async function inboxWebhook(ids: string[], opts: Opts = {}) {
-  if (!ids.length) return 0;
+  if (!ids.length) return { shops: 0, reading: Promise.resolve() };
   const accounts = await db.socialAccount.findMany({ where: { network: { in: ["facebook", "instagram"] }, accountId: { in: ids } }, select: { shop: true, network: true } });
   const shops = [...new Set(accounts.filter((a) => inboxOpen(a.shop, a.network)).map((a) => a.shop))];
-  for (const shop of shops) void syncShop(shop, opts).catch((err) => console.error("Couldn't read the social inbox after a webhook", shop, err));
-  return shops.length;
+  // Not awaited by the webhook: Meta wants an answer within a few seconds.
+  const reading = Promise.all(shops.map((shop) => syncShop(shop, opts).catch((err) => console.error("Couldn't read the social inbox after a webhook", shop, err)))).then(() => undefined);
+  return { shops: shops.length, reading };
 }
 
 // Asks Meta to send each connected Page's (and its Instagram's) new comments
