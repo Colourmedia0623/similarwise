@@ -1,4 +1,6 @@
 import db from "../../db.server";
+import { isWebShop } from "../web/shop";
+import { noStoreGraphql } from "../web/context.server";
 import { claudeJson, type AskJson } from "./claude.server";
 import { keywordGap } from "../traffic/gap.server";
 import { articlePicture, deleteArticle, sendArticle, writeTopic } from "./articles.server";
@@ -206,6 +208,8 @@ export async function writePost(shop: string, id: string, graphql: Graphql, ask:
 }
 
 const adminGraphql = async (shop: string): Promise<Graphql> => {
+  // Web workspaces have no Shopify store to publish to.
+  if (isWebShop(shop)) return async () => (await noStoreGraphql()).json();
   const { unauthenticated } = await import("../../shopify.server");
   const { admin } = await unauthenticated.admin(shop);
   return async (query, variables) => (await admin.graphql(query, { variables })).json();

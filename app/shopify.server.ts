@@ -3,6 +3,7 @@ import { ApiVersion, AppDistribution, BillingInterval, shopifyApp } from "@shopi
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server";
 import { PLANS, TRIAL_DAYS, planKey } from "./lib/billing";
+import { webAdminContext } from "./lib/web/context.server";
 
 // Two charges per plan: every 30 days, or once a year at the yearly monthly price times twelve.
 const billing = Object.fromEntries(
@@ -33,7 +34,16 @@ const shopify = shopifyApp({
 export default shopify;
 export const apiVersion = ApiVersion.October25;
 export const addDocumentResponseHeaders = shopify.addDocumentResponseHeaders;
-export const authenticate = shopify.authenticate;
+// Every app page calls authenticate.admin. A website login (the standalone
+// web version, lib/web) answers first, looking like a Shopify login whose
+// shop is the workspace's key; requests from Shopify admin never carry it,
+// so they always go to Shopify's own login as before.
+export const authenticate = {
+  ...shopify.authenticate,
+  admin: async (request: Request) =>
+    ((await webAdminContext(request)) as unknown as Awaited<ReturnType<typeof shopify.authenticate.admin>> | null) ??
+    shopify.authenticate.admin(request),
+} as typeof shopify.authenticate;
 export const unauthenticated = shopify.unauthenticated;
 export const login = shopify.login;
 export const registerWebhooks = shopify.registerWebhooks;

@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { isWebShop } from "../web/shop";
 
 // Sends the app's emails through Resend. Off unless RESEND_API_KEY is set;
 // EMAIL_FROM must be an address on a domain verified in Resend.
@@ -48,8 +49,9 @@ export function verifyUnsubscribe(shop: string, list: string, sig: string): list
   return want.length === got.length && timingSafeEqual(want, got);
 }
 
-// The app inside the shop's Shopify admin.
+// The app inside the shop's Shopify admin, or on the website for web workspaces.
 export function adminUrl(shop: string, path = "") {
+  if (isWebShop(shop)) return `${process.env.SHOPIFY_APP_URL || ""}${path || "/app"}`;
   return `https://admin.shopify.com/store/${shop.replace(/\.myshopify\.com$/, "")}/apps/${process.env.SHOPIFY_API_KEY || ""}${path}`;
 }
 

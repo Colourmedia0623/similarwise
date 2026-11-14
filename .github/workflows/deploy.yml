@@ -68,6 +68,10 @@ jobs:
           GOOGLE_APPROVED: ${{ vars.GOOGLE_APPROVED }}
           # The App Store listing, once it's live: the landing page then says Install instead of the waitlist.
           APP_STORE_URL: ${{ vars.APP_STORE_URL }}
+          # The standalone web version (/login, /signup). Until WEB_SIGNUP=open,
+          # only waitlisted emails and those in WEB_INVITES (comma-separated) can sign up.
+          WEB_SIGNUP: ${{ vars.WEB_SIGNUP }}
+          WEB_INVITES: ${{ vars.WEB_INVITES }}
         run: |
           scopes=$(sed -n 's/^scopes = "\(.*\)"/\1/p' shopify.app.toml)
           {
@@ -106,6 +110,8 @@ jobs:
             echo "GOOGLE_ADS_DEVELOPER_TOKEN=$GOOGLE_ADS_DEVELOPER_TOKEN"
             echo "GOOGLE_APPROVED=$GOOGLE_APPROVED"
             echo "APP_STORE_URL=$APP_STORE_URL"
+            echo "WEB_SIGNUP=$WEB_SIGNUP"
+            echo "WEB_INVITES=$WEB_INVITES"
           } > deploy/.env
 
       # The private, free copy for 7fa72e-da.myshopify.com runs beside the
