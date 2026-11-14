@@ -76,7 +76,7 @@ export default function Ideas() {
           <s-stack gap="base">
             <s-stack direction="inline" gap="small" alignItems="center">
               <s-badge>{KIND[i.pageKind as keyof typeof KIND] ?? i.pageKind}</s-badge>
-              {i.productId ? (
+              {i.productId?.startsWith("gid://") ? (
                 <s-link href={`shopify://admin/products/${i.productId.split("/").pop()}`} target="_blank">
                   {i.pageName}
                 </s-link>

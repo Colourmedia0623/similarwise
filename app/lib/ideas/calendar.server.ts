@@ -195,6 +195,11 @@ export async function writePost(shop: string, id: string, graphql: Graphql, ask:
       await db.plannedPost.update({ where: { id }, data: { articleId } });
     }
     const settings = await db.shopSettings.findUnique({ where: { shop } });
+    // Web workspaces have no Shopify blog: the article waits in Blog articles, ready to copy.
+    if (isWebShop(shop)) {
+      await db.plannedPost.update({ where: { id }, data: { status: "done", error: null } });
+      return { ok: true as const };
+    }
     const sent = await sendArticle(shop, articleId, settings?.calendarPublish ?? true, graphql, now);
     if ("error" in sent && sent.error !== "That article is already on your blog.") return await fail(sent.error ?? "Couldn't add it to your blog.");
     await db.plannedPost.update({ where: { id }, data: { status: "done", error: null } });

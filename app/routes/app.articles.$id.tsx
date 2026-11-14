@@ -4,6 +4,7 @@ import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "re
 import { Link, redirect, useFetcher, useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
+import { isWebShop } from "../lib/web/shop";
 import db from "../db.server";
 import { compact } from "../lib/format";
 import { articlePicture, atOrigin, blogArticle, deleteArticle, editArticle, sendArticle, storeOrigin, updateOnShopify } from "../lib/ideas/articles.server";
@@ -31,7 +32,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     db.shopSettings.findUnique({ where: { shop: session.shop }, select: { blogAuthor: true } }),
   ]);
   if (!article) throw redirect("/app/articles");
-  return { article: { ...article, url: atOrigin(article.url, origin) }, defaultAuthor: settings?.blogAuthor ?? "", imagesOn: Boolean(process.env.OPENAI_API_KEY), accounts, shares };
+  return { article: { ...article, url: atOrigin(article.url, origin) }, defaultAuthor: settings?.blogAuthor ?? "", imagesOn: Boolean(process.env.OPENAI_API_KEY), accounts, shares, web: isWebShop(session.shop) };
 };
 
 export const action = async ({ request, params }: ActionFunctionArgs) => {
@@ -129,7 +130,7 @@ const TOOLS: { label: string; title: string; run: () => void }[] = [
 ];
 
 export default function ArticleEditor() {
-  const { article: a, defaultAuthor, imagesOn } = useLoaderData<typeof loader>();
+  const { article: a, defaultAuthor, imagesOn, web } = useLoaderData<typeof loader>();
   const save = useFetcher<typeof action>();
   const picture = useFetcher<typeof action>();
   const body = useRef<HTMLDivElement>(null);
@@ -308,7 +309,21 @@ export default function ArticleEditor() {
             <s-button variant={sent ? "primary" : "secondary"} loading={busy("save")} onClick={() => submit("save")}>
               {sent ? "Save and update blog post" : "Save"}
             </s-button>
-            {!sent && (
+            {web && (
+              // No Shopify blog to send it to: copy it into WordPress, Wix or any other site.
+              <s-button
+                variant="primary"
+                onClick={() => {
+                  const html = body.current?.innerHTML ?? a.bodyHtml;
+                  void navigator.clipboard
+                    .write([new ClipboardItem({ "text/html": new Blob([html], { type: "text/html" }), "text/plain": new Blob([body.current?.innerText ?? ""], { type: "text/plain" }) })])
+                    .catch(() => navigator.clipboard.writeText(html));
+                }}
+              >
+                Copy article
+              </s-button>
+            )}
+            {!sent && !web && (
               <>
                 <s-button variant="primary" loading={busy("publish")} onClick={() => submit("publish")}>
                   Publish now
