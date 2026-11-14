@@ -1,20 +1,69 @@
 import type { ReactNode } from "react";
 import styles from "./auth.module.css";
 
-// The frame around the website's login, sign-up and setup pages.
+// The frame around the website's login, sign-up and setup pages: the form on
+// one side, and what SimilarWise does on the other.
+
+const POINTS = [
+  { title: "Every competitor move", text: "Prices, launches, stock, ads and traffic, checked daily." },
+  { title: "Win their searches", text: "Keyword gaps, rank tracking and ready-written blog posts." },
+  { title: "Social on autopilot", text: "Plan, post and answer comments across every network." },
+];
+
 export function AuthPage({ title, lead, children, footer }: { title: string; lead?: ReactNode; children: ReactNode; footer?: ReactNode }) {
   return (
     <main className={styles.page}>
-      <a className={styles.brand} href="/">
-        <img src="/icon-512.png" alt="" />
-        SimilarWise
-      </a>
-      <div className={styles.card}>
-        <h1>{title}</h1>
-        {lead && <p className={styles.lead}>{lead}</p>}
-        {children}
-      </div>
-      {footer}
+      <section className={styles.hero} aria-hidden="true">
+        <div className={styles.orbA} />
+        <div className={styles.orbB} />
+        <a className={styles.heroBrand} href="/">
+          <img src="/icon-512.png" alt="" />
+          SimilarWise
+        </a>
+        <div className={styles.heroBody}>
+          <h2>
+            See what your competitors do. <span>Then do it better.</span>
+          </h2>
+          <ul>
+            {POINTS.map((p) => (
+              <li key={p.title}>
+                <span className={styles.tick}>✓</span>
+                <span>
+                  <strong>{p.title}</strong>
+                  {p.text}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <div className={styles.glass}>
+            <div className={styles.glassRow}>
+              <span>Competitor price drop</span>
+              <b className={styles.down}>−12%</b>
+            </div>
+            <div className={styles.glassRow}>
+              <span>New Meta ads spotted</span>
+              <b>+4</b>
+            </div>
+            <div className={styles.glassRow}>
+              <span>Keyword gap found</span>
+              <b className={styles.up}>2.4k/mo</b>
+            </div>
+          </div>
+        </div>
+        <p className={styles.heroFoot}>For Shopify, WooCommerce, Wix and any website.</p>
+      </section>
+      <section className={styles.formSide}>
+        <a className={styles.brand} href="/">
+          <img src="/icon-512.png" alt="" />
+          SimilarWise
+        </a>
+        <div className={styles.card}>
+          <h1>{title}</h1>
+          {lead && <p className={styles.lead}>{lead}</p>}
+          {children}
+        </div>
+        {footer}
+      </section>
     </main>
   );
 }

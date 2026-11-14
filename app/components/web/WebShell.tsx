@@ -85,18 +85,25 @@ export function WebShell({ account, children }: { account: WebShellAccount; chil
   const open = openOn === pathname;
   useInPlaceLinks();
 
+  const initials = (account.user.name ?? account.user.email)
+    .split(/[\s@.]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]!.toUpperCase())
+    .join("");
+
   return (
     <div className={styles.shell}>
       <script src={POLARIS_URL} />
-      <header className={styles.top}>
-        <button className={styles.menuButton} type="button" aria-label="Menu" aria-expanded={open} onClick={() => setOpenOn(open ? null : pathname)}>
-          ☰
-        </button>
+      <aside className={`${styles.side} ${open ? styles.sideOpen : ""}`}>
         <a className={styles.brand} href="/app">
           <img src="/icon-512.png" alt="" />
           <span>SimilarWise</span>
         </a>
         <Form method="post" action="/workspace/switch" className={styles.workspace}>
+          <span className={styles.wsBadge} aria-hidden="true">
+            {account.workspace.name.slice(0, 1).toUpperCase()}
+          </span>
           <select
             name="workspaceId"
             aria-label="Workspace"
@@ -115,23 +122,7 @@ export function WebShell({ account, children }: { account: WebShellAccount; chil
             <option value="new">+ Add a workspace</option>
           </select>
         </Form>
-        <div className={styles.spacer} />
-        {account.trialDays != null && (
-          <a className={styles.trial} href="/app/plans">
-            {account.trialDays === 0 ? "Trial ends today" : `${account.trialDays} trial day${account.trialDays === 1 ? "" : "s"} left`}
-          </a>
-        )}
-        <span className={styles.user} title={account.user.email}>
-          {account.user.name ?? account.user.email}
-        </span>
-        <Form method="post" action="/logout">
-          <button className={styles.logout} type="submit">
-            Log out
-          </button>
-        </Form>
-      </header>
-      <div className={styles.body}>
-        <nav className={`${styles.side} ${open ? styles.sideOpen : ""}`} aria-label="SimilarWise">
+        <nav className={styles.nav} aria-label="SimilarWise">
           {groups.map((g) => (
             <div key={g.title || "home"} className={styles.group}>
               {g.title && <div className={styles.groupTitle}>{g.title}</div>}
@@ -143,6 +134,42 @@ export function WebShell({ account, children }: { account: WebShellAccount; chil
             </div>
           ))}
         </nav>
+        <div className={styles.me}>
+          <span className={styles.avatar} aria-hidden="true">
+            {initials}
+          </span>
+          <span className={styles.who}>
+            <strong>{account.user.name ?? "Your account"}</strong>
+            <span>{account.user.email}</span>
+          </span>
+          <Form method="post" action="/logout">
+            <button className={styles.logout} type="submit" title="Log out" aria-label="Log out">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
+              </svg>
+            </button>
+          </Form>
+        </div>
+      </aside>
+      {open && <button className={styles.scrim} type="button" aria-label="Close menu" onClick={() => setOpenOn(null)} />}
+      <div className={styles.content}>
+        <header className={styles.top}>
+          <button className={styles.menuButton} type="button" aria-label="Menu" aria-expanded={open} onClick={() => setOpenOn(open ? null : pathname)}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+              <path d="M4 7h16M4 12h16M4 17h16" />
+            </svg>
+          </button>
+          <span className={styles.wsName}>{account.workspace.name}</span>
+          {account.workspace.website && <span className={styles.site}>{account.workspace.website}</span>}
+          <div className={styles.spacer} />
+          {account.trialDays != null && (
+            <a className={styles.trial} href="/app/plans">
+              <span className={styles.pulse} aria-hidden="true" />
+              {account.trialDays === 0 ? "Trial ends today" : `${account.trialDays} trial day${account.trialDays === 1 ? "" : "s"} left`}
+              <strong>Upgrade</strong>
+            </a>
+          )}
+        </header>
         <main className={styles.main}>{rest}</main>
       </div>
     </div>
