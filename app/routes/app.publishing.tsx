@@ -30,6 +30,7 @@ import {
   canvaAccount,
   canvaAuthorizeUrl,
   canvaOn,
+  editCanvaDesign,
   importCanvaDesign,
   newCanvaDesign,
   recentCanvaDesigns,
@@ -116,6 +117,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       ...(await movePost(shop, id, text("day"), text("time"), text("tz"))),
     };
   if (intent === "canva-new") return { intent, ...(await newCanvaDesign(shop, text("size"), text("title"))) };
+  if (intent === "canva-edit") return { intent, ...(await editCanvaDesign(shop, text("designId"))) };
   if (intent === "canva-returned") return { intent, ...(await takeCanvaReturn(shop, text("token"))) };
   if (intent === "canva-designs") return { intent, ...(await recentCanvaDesigns(shop)) };
   if (intent === "canva-import") return { intent, ...(await importCanvaDesign(shop, text("designId"), Math.min(MAX_PICTURES, Number(text("max")) || MAX_PICTURES))) };
@@ -160,6 +162,9 @@ type Post = Data["posts"][number];
 type Account = Data["accounts"][number];
 type Campaign = Data["campaigns"][number];
 type Share = Data["articleShares"][number];
+// A post's picture; canva is the Canva design it came from, if any.
+type Pic = { id: string; url: string; canva?: string | null };
+
 type Answer = {
   intent?: string;
   error?: string;
@@ -167,9 +172,10 @@ type Answer = {
   status?: string;
   posted?: number;
   failed?: number;
-  images?: { id: string; url: string }[];
+  images?: Pic[];
   editUrl?: string;
   token?: string;
+  replace?: string;
   designs?: CanvaDesign[];
   more?: boolean;
   captions?: Record<string, string>;
@@ -2441,11 +2447,15 @@ function CanvaTools({
   room,
   title,
   onImages,
+  editRef,
 }: {
   canva: { connected: boolean; connect: string; sizes: { key: string; label: string }[] };
   room: number;
   title: string;
-  onImages: (images: { id: string; url: string }[]) => void;
+  // replace: the design whose pictures these take the place of.
+  onImages: (images: Pic[], replace?: string) => void;
+  // Set to a function that opens a design already in the post, to change it.
+  editRef: React.MutableRefObject<((designId: string) => void) | null>;
 }) {
   const make = useFetcher<Answer>();
   const list = useFetcher<Answer>();
@@ -2454,8 +2464,9 @@ function CanvaTools({
   const [open, setOpen] = useState<"sizes" | "designs" | null>(null);
   const [designed, setDesigned] = useState(false);
   const tab = useRef<Window | null>(null);
-  // Designs started here, waiting for Canva's return button.
-  const [waiting, setWaiting] = useState<string[]>([]);
+  // Designs started or opened here, waiting for Canva's return button, with
+  // the design being changed, if it's one already in the post.
+  const [waiting, setWaiting] = useState<{ token: string; replace?: string }[]>([]);
   const poll = useFetcher<Answer>();
   const [arrived, setArrived] = useState<string | null>(null);
 
@@ -2475,7 +2486,7 @@ function CanvaTools({
     setSeenMade(made);
     if (made?.editUrl) {
       setDesigned(true);
-      if (made.token) setWaiting((w) => [...w, made.token!]);
+      if (made.token) setWaiting((w) => [...w, { token: made.token!, replace: made.replace }]);
     }
   }
   useEffect(() => {
@@ -2485,12 +2496,26 @@ function CanvaTools({
     tab.current = null;
   }, [made]);
 
+  // Opened from a picture's Edit in Canva button. The tab opens on the
+  // click, so it isn't blocked, and goes to the design once Canva answers.
+  const makeSubmit = make.submit;
+  useEffect(() => {
+    editRef.current = (designId) => {
+      tab.current = window.open("", "_blank");
+      setArrived(null);
+      makeSubmit({ intent: "canva-edit", designId }, { method: "post" });
+    };
+    return () => {
+      editRef.current = null;
+    };
+  }, [editRef, makeSubmit]);
+
   const pollState = poll.state;
   const pollSubmit = poll.submit;
   useEffect(() => {
     if (!waiting.length) return;
     const check = () => {
-      if (pollState === "idle") pollSubmit({ intent: "canva-returned", token: waiting[0] }, { method: "post" });
+      if (pollState === "idle") pollSubmit({ intent: "canva-returned", token: waiting[0].token }, { method: "post" });
     };
     const t = setInterval(check, 4000);
     const back = () => document.visibilityState === "visible" && check();
@@ -2505,12 +2530,14 @@ function CanvaTools({
   const [seenReturn, setSeenReturn] = useState(returned);
   if (returned !== seenReturn) {
     setSeenReturn(returned);
-    const token = poll.formData?.get("token") ?? waiting[0];
+    const token = poll.formData?.get("token") ?? waiting[0]?.token;
+    const was = waiting.find((x) => x.token === token);
     if (returned && returned.status !== "waiting") {
-      setWaiting((w) => w.filter((x) => x !== token));
+      setWaiting((w) => w.filter((x) => x.token !== token));
       if (returned.images?.length) {
-        onImages(returned.images);
-        setArrived(`Your Canva design is in: ${returned.images.length} ${returned.images.length === 1 ? "picture" : "pictures"} added.`);
+        onImages(returned.images, was?.replace);
+        const n = `${returned.images.length} ${returned.images.length === 1 ? "picture" : "pictures"}`;
+        setArrived(was?.replace ? `Your Canva changes are in: ${n} updated.` : `Your Canva design is in: ${n} added.`);
       } else if (returned.error) setArrived(returned.error);
     }
   }
@@ -2740,7 +2767,8 @@ function Composer({
   const [caption, setCaption] = useState(post?.caption ?? "");
   const [captions, setCaptions] = useState<Partial<Record<Network, string>>>(post?.captions ?? {});
   const [tab, setTab] = useState<"all" | Network>("all");
-  const [images, setImages] = useState<{ id: string; url: string }[]>(post?.images ?? []);
+  const [images, setImages] = useState<Pic[]>(post?.images ?? []);
+  const editInCanva = useRef<((designId: string) => void) | null>(null);
   const image = images[0] ?? null;
   const [dragged, setDragged] = useState<number | null>(null);
   const [link, setLink] = useState(post?.link ?? "");
@@ -2968,7 +2996,7 @@ function Composer({
                   {images.map((img, i) => (
                     <div
                       key={img.id}
-                      className={`pc-pic${dragged === i ? " pc-pic-dragging" : ""}`}
+                      className={`pc-pic${images.length === 1 ? " pc-pic-one" : ""}${dragged === i ? " pc-pic-dragging" : ""}`}
                       draggable
                       onDragStart={(e) => {
                         setDragged(i);
@@ -2989,6 +3017,11 @@ function Composer({
                     >
                       <img src={img.url} alt="" draggable={false} />
                       <span className="pc-pic-n">{i + 1}</span>
+                      {img.canva && data.canva?.connected && (
+                        <button type="button" className="pc-pic-edit" onClick={() => editInCanva.current?.(img.canva!)}>
+                          Edit in Canva
+                        </button>
+                      )}
                       <button type="button" className="pc-pic-x" aria-label={`Remove picture ${i + 1}`} onClick={() => setImages((now) => now.filter((x) => x.id !== img.id))}>
                         ×
                       </button>
@@ -3029,7 +3062,16 @@ function Composer({
                   canva={data.canva}
                   room={MAX_PICTURES - images.length}
                   title={caption.split("\n")[0].slice(0, 80)}
-                  onImages={(more) => setImages((now) => [...now, ...more].slice(0, MAX_PICTURES))}
+                  editRef={editInCanva}
+                  onImages={(more, replace) =>
+                    setImages((now) => {
+                      // A changed design takes the place of its old pictures.
+                      const at = replace ? now.findIndex((x) => x.canva === replace) : -1;
+                      if (at < 0) return [...now, ...more].slice(0, MAX_PICTURES);
+                      const rest = now.filter((x) => x.canva !== replace);
+                      return [...rest.slice(0, at), ...more, ...rest.slice(at)].slice(0, MAX_PICTURES);
+                    })
+                  }
                 />
               )}
               <input
@@ -3564,9 +3606,14 @@ const CSS = `
 .pc-went { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .pc-link-btn { padding: 0; border: 0; background: none; color: #2c6ecb; font: inherit; font-size: 12px; font-weight: 400; cursor: pointer; }
 .pc-link-btn:disabled { color: #8a8a8a; cursor: default; }
-.pc-pics { display: flex; flex-wrap: wrap; gap: 8px; }
-.pc-pic { position: relative; width: 92px; height: 92px; border-radius: 10px; overflow: hidden; cursor: grab; background: #f1f1f1; }
-.pc-pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pc-pics { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+/* The whole picture, uncropped: one picture shows large, a carousel as tiles. */
+.pc-pic { position: relative; width: 150px; height: 150px; border-radius: 10px; overflow: hidden; cursor: grab; background: #f1f1f1; }
+.pc-pic img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.pc-pic-one { width: min(100%, 420px); height: auto; }
+.pc-pic-one img { height: auto; max-height: 520px; }
+.pc-pic-add { width: 92px; height: 92px; }
+.pc-pic-edit { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); padding: 4px 10px; border: 0; border-radius: 14px; background: #7d2ae8; color: #fff; font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,.25); }
 .pc-pic-dragging { opacity: .4; }
 .pc-pic-n { position: absolute; left: 5px; top: 5px; min-width: 18px; padding: 1px 5px; border-radius: 9px; background: rgba(0,0,0,.6); color: #fff; font-size: 11px; text-align: center; }
 .pc-pic-x { position: absolute; right: 4px; top: 4px; width: 22px; height: 22px; border: 0; border-radius: 50%; background: rgba(0,0,0,.6); color: #fff; font-size: 15px; line-height: 1; cursor: pointer; }
