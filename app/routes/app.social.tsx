@@ -13,7 +13,7 @@ import { createPinterestBoard, disconnectAccount, setSocialAuto, socialAccounts 
 import { HowTo } from "../components/HowTo";
 
 // Social accounts: the Facebook Pages, Instagram business accounts, TikTok
-// accounts and Pinterest boards that posts and blog articles can be shared to.
+// accounts, Pinterest boards and LinkedIn profiles that posts and blog articles can be shared to.
 
 const SIGN_IN_FOR = 30 * 60_000;
 
@@ -29,6 +29,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     meta: link("meta"),
     tiktok: link("tiktok"),
     pinterest: link("pinterest"),
+    linkedin: link("linkedin"),
     canva: canvaOn() ? { connect: canvaAuthorizeUrl(shop), name: canvaUser?.name ?? null } : null,
   };
 };
@@ -45,7 +46,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function Social() {
-  const { accounts, auto, meta, tiktok, pinterest, canva } = useLoaderData<typeof loader>();
+  const { accounts, auto, meta, tiktok, pinterest, linkedin, canva } = useLoaderData<typeof loader>();
   const act = useFetcher<typeof action>();
   const revalidator = useRevalidator();
   const autoOn = act.formData?.get("intent") === "auto" ? act.formData.get("on") === "true" : auto;
@@ -63,7 +64,7 @@ export default function Social() {
       <s-section>
         <s-stack gap="base">
           <s-paragraph>
-            Connect your shop&apos;s Facebook Page, Instagram, TikTok and Pinterest boards to share your blog articles there, each with a caption written for that
+            Connect your shop&apos;s Facebook Page, Instagram, TikTok, Pinterest boards and LinkedIn profile to share your blog articles there, each with a caption written for that
             network, the article&apos;s picture and a link back to your blog. Signing in opens in a new tab.
           </s-paragraph>
           <s-stack direction="inline" gap="small">
@@ -88,11 +89,18 @@ export default function Social() {
             ) : (
               <s-button disabled>Pinterest coming soon</s-button>
             )}
+            {linkedin ? (
+              <s-button href={linkedin} target="_blank">
+                Connect LinkedIn
+              </s-button>
+            ) : (
+              <s-button disabled>LinkedIn coming soon</s-button>
+            )}
           </s-stack>
           <s-text color="subdued">
-            Instagram needs a business or creator account linked to your Facebook Page. Signing in to Facebook connects both.
+            Instagram needs a business or creator account linked to your Facebook Page. Signing in to Facebook connects both. LinkedIn posts go to your own profile, and LinkedIn asks you to connect again every 60 days.
           </s-text>
-          {(!meta || !tiktok || !pinterest) && (
+          {(!meta || !tiktok || !pinterest || !linkedin) && (
             <s-text color="subdued">Sharing to the networks marked coming soon opens once they&apos;ve finished approving SimilarWise. We&apos;ll email you when it&apos;s ready.</s-text>
           )}
         </s-stack>
@@ -105,7 +113,7 @@ export default function Social() {
           <s-stack gap="small">
             {accounts.map((a) => (
               <s-stack key={a.id} direction="inline" gap="small" alignItems="center">
-                <s-badge tone={a.network === "facebook" ? "info" : a.network === "instagram" ? "warning" : a.network === "pinterest" ? "critical" : "neutral"}>{NETWORK_NAME[a.network]}</s-badge>
+                <s-badge tone={a.network === "facebook" ? "info" : a.network === "instagram" ? "warning" : a.network === "pinterest" ? "critical" : a.network === "linkedin" ? "success" : "neutral"}>{NETWORK_NAME[a.network]}</s-badge>
                 <s-text>{a.name}</s-text>
                 <s-button variant="tertiary" tone="critical" onClick={() => act.submit({ intent: "disconnect", id: a.id }, { method: "post" })}>
                   Disconnect
@@ -115,7 +123,7 @@ export default function Social() {
             {accounts.some((a) => a.network === "pinterest") && <NewBoard />}
             <s-checkbox
               label="Share each content calendar article when it goes out"
-              details="Posts to your Facebook, Instagram and Pinterest accounts above, with captions written for each. TikTok posts are always sent by you from the article's page, as TikTok asks."
+              details="Posts to your Facebook, Instagram, Pinterest and LinkedIn accounts above, with captions written for each. TikTok posts are always sent by you from the article's page, as TikTok asks."
               checked={autoOn}
               onChange={(e) => act.submit({ intent: "auto", on: String(e.currentTarget.checked) }, { method: "post" })}
             />

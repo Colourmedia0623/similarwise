@@ -321,7 +321,7 @@ function Share({ published, picture }: { published: boolean; picture: string | n
   const [tiktok, setTiktok] = useState<Record<string, TikTokChoices | null>>({});
   const write = useFetcher<typeof action>();
   const post = useFetcher<typeof action>();
-  const [captions, setCaptions] = useState<Record<Network, string>>({ facebook: "", instagram: "", tiktok: "", pinterest: "" });
+  const [captions, setCaptions] = useState<Record<Network, string>>({ facebook: "", instagram: "", tiktok: "", pinterest: "", linkedin: "" });
   const [picked, setPicked] = useState<string[]>(accounts.map((x) => x.id));
   const [seen, setSeen] = useState<number | null>(null);
   const written = write.state === "idle" && write.data && "captions" in write.data && write.data.captions ? { at: write.data.at, captions: write.data.captions } : null;
@@ -341,7 +341,7 @@ function Share({ published, picture }: { published: boolean; picture: string | n
       <s-stack gap="base">
         {accounts.length === 0 ? (
           <s-paragraph>
-            Connect your Facebook Page, Instagram, TikTok or Pinterest under <s-link href="/app/social">Social accounts</s-link> to share your articles there.
+            Connect your Facebook Page, Instagram, TikTok, Pinterest or LinkedIn under <s-link href="/app/social">Social accounts</s-link> to share your articles there.
           </s-paragraph>
         ) : !published ? (
           <s-paragraph>Publish the article on your blog first, so the posts can link to it.</s-paragraph>
@@ -359,7 +359,7 @@ function Share({ published, picture }: { published: boolean; picture: string | n
             </s-stack>
             <s-stack direction="inline" gap="small" alignItems="center">
               <s-button loading={write.state !== "idle"} onClick={() => write.submit({ intent: "captions" }, { method: "post" })}>
-                {captions.facebook || captions.instagram || captions.tiktok ? "Write new captions" : "Write captions"}
+                {Object.values(captions).some(Boolean) ? "Write new captions" : "Write captions"}
               </s-button>
               {writeError && <s-text tone="critical">{writeError}</s-text>}
             </s-stack>
