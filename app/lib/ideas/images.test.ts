@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import sharp from "sharp";
-import { TIKTOK_MAX, tiktokCopy } from "./images.server";
+import { ImageError, TIKTOK_MAX, imageClient, imageProblem, tiktokCopy } from "./images.server";
 
 describe("pictures for TikTok", () => {
   it("shrinks big pictures to a JPEG TikTok accepts, and leaves small ones their size", async () => {
@@ -10,5 +10,27 @@ describe("pictures for TikTok", () => {
     const small = await sharp({ create: { width: 600, height: 400, channels: 3, background: "#fff" } }).webp().toBuffer();
     const kept = await sharp(await tiktokCopy(small)).metadata();
     expect([kept.format, kept.width, kept.height]).toEqual(["jpeg", 600, 400]);
+  });
+});
+
+describe("making article pictures", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.OPENAI_API_KEY;
+  });
+
+  it("falls back to DALL·E 3 when the account can't use gpt-image-1", async () => {
+    process.env.OPENAI_API_KEY = "sk-test";
+    const models: string[] = [];
+    vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
+      const model = JSON.parse(String(init.body)).model;
+      models.push(model);
+      if (model === "gpt-image-1") return new Response(JSON.stringify({ error: { message: "The model 'gpt-image-1' does not exist." } }), { status: 400 });
+      return new Response(JSON.stringify({ data: [{ b64_json: Buffer.from("jpeg").toString("base64") }] }));
+    });
+    const out = await imageClient()!("a gift box");
+    expect(Buffer.from(out).toString()).toBe("jpeg");
+    expect(models).toEqual(["gpt-image-1", "dall-e-3"]);
+    expect(imageProblem(new ImageError("The model 'dall-e-3' does not exist.", 400))).toMatch(/Verify your organisation/);
   });
 });
