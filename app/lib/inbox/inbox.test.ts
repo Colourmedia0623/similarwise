@@ -3,7 +3,7 @@ import db from "../../db.server";
 import type { Fetch } from "../social/networks.server";
 import { saveAccounts, socialAccounts, disconnectAccount } from "../social/social.server";
 import { authorizeUrl } from "../social/networks.server";
-import { answer, assign, draftReply, inboxOpen, inboxView, saveMember, saveRule, setStatus, syncShop, type RuleInput } from "./inbox.server";
+import { answer, assign, draftReply, inboxOpen, inboxView, saveMember, saveRule, setStatus, syncShop, syncShopIfStale, type RuleInput } from "./inbox.server";
 import { fillReply, matchesWords } from "./inbox";
 
 const SHOP = "inbox.myshopify.com";
@@ -285,6 +285,21 @@ describe("social inbox", () => {
     expect(ig.error).toMatch(/read direct messages/);
     expect(ig.error).toMatch(/does not have the capability/);
     expect(v.accounts.find((a) => a.network === "facebook")!.error).toBeNull();
+  });
+
+  it("reads again for an open page only when the last read is stale, and one read at a time", async () => {
+    await connect();
+    const calls: Call[] = [];
+    const f = fakeFetch(world().routes, calls);
+    expect(await syncShopIfStale(SHOP, 45_000, { f, now: later(5), ask: null })).toEqual({ synced: true });
+    const n = calls.length;
+    expect(await syncShopIfStale(SHOP, 45_000, { f, now: new Date(later(5).getTime() + 30_000), ask: null })).toEqual({ synced: false });
+    expect(calls.length).toBe(n);
+    expect(await syncShopIfStale(SHOP, 45_000, { f, now: later(6), ask: null })).toEqual({ synced: true });
+    // Two reads at once: the second steps aside, so nothing is saved twice.
+    const [a, b] = await Promise.all([syncShop(SHOP, { f, now: later(7), ask: null }), syncShop(SHOP, { f, now: later(7), ask: null })]);
+    expect([a, b].filter((r) => "busy" in r)).toHaveLength(1);
+    expect(await db.inboxMessage.count({ where: { shop: SHOP } })).toBe(3);
   });
 
   it("drafts a reply with Claude and clears the inbox when an account is disconnected", async () => {

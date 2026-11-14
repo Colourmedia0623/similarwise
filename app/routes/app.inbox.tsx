@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "react-router";
-import { useFetcher, useLoaderData, useRevalidator, useSearchParams } from "react-router";
+import { useFetcher, useLoaderData, useSearchParams } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { claudeJson } from "../lib/ideas/claude.server";
@@ -18,6 +18,7 @@ import {
   setStatus,
   setTags,
   syncShop,
+  syncShopIfStale,
   toggleRule,
 } from "../lib/inbox/inbox.server";
 import { HowTo } from "../components/HowTo";
@@ -47,6 +48,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const text = (k: string) => String(form.get(k) ?? "");
   const ids = form.getAll("id").map(String);
   if (intent === "refresh") return { intent, ...(await syncShop(shop)) };
+  if (intent === "tick") return { intent, ...(await syncShopIfStale(shop)) };
   if (intent === "reply") return { intent, ...(await answer(shop, text("id"), text("text"), { resolve: text("resolve") === "true", by: text("by") || null })) };
   if (intent === "draft") {
     try {
@@ -148,7 +150,6 @@ export default function Inbox() {
   const d = useLoaderData<typeof loader>();
   const [params, setParams] = useSearchParams();
   const refresh = useFetcher<typeof action>();
-  const revalidator = useRevalidator();
   const set = (k: string, v: string | null, keepThread = false) => {
     const next = new URLSearchParams(params);
     if (v) next.set(k, v);
@@ -157,11 +158,21 @@ export default function Inbox() {
     setParams(next, { preventScrollReset: true });
   };
 
-  // New comments and messages come in every few minutes.
+  // While the page is open and in view, new comments and messages are read
+  // every minute (the server reads every five minutes otherwise). The page
+  // updates by itself after each read.
+  const tick = useFetcher<typeof action>();
+  const ticking = useRef(tick);
   useEffect(() => {
-    const t = setInterval(() => document.visibilityState === "visible" && revalidator.revalidate(), 60_000);
+    ticking.current = tick;
+  });
+  useEffect(() => {
+    const t = setInterval(() => {
+      const f = ticking.current;
+      if (document.visibilityState === "visible" && f.state === "idle") f.submit({ intent: "tick" }, { method: "post" });
+    }, 60_000);
     return () => clearInterval(t);
-  }, [revalidator]);
+  }, []);
 
   const syncing = refresh.state !== "idle";
   const lastSync = d.accounts.map((a) => a.syncedAt).filter(Boolean).sort().pop();
@@ -242,7 +253,7 @@ export default function Inbox() {
             <Conversation key={d.selected?.id ?? "none"} d={d} />
           </div>
           <s-text color="subdued">
-            {lastSync ? `Checked ${ago(lastSync)}. ` : ""}New comments and messages come in every five minutes.
+            {lastSync ? `Checked ${ago(lastSync)}. ` : ""}New comments and messages come in every minute while this page is open.
             {d.networks.length < INBOX_NETWORKS.length && ` ${INBOX_NETWORKS.filter((n) => !d.networks.includes(n)).map((n) => NETWORK_NAME[n]).join(" and ")} coming soon.`}
           </s-text>
         </>

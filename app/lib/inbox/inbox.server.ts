@@ -134,7 +134,7 @@ async function settle(threadId: string, extra: { status?: string; resolvedAt?: D
 
 // Reads every open account of the shop, then lets Claude and the automations
 // at what came in.
-export async function syncShop(shop: string, opts: Opts = {}) {
+async function runSync(shop: string, opts: Opts) {
   const accounts = (await db.socialAccount.findMany({ where: { shop } })).filter((a) => inboxOpen(shop, a.network));
   const fresh: Fresh[] = [];
   for (const a of accounts) fresh.push(...(await syncAccount(a, opts)).fresh);
@@ -142,6 +142,32 @@ export async function syncShop(shop: string, opts: Opts = {}) {
   await automate(shop, fresh, opts);
   await route(shop, fresh.map((x) => x.id));
   return { accounts: accounts.length, fresh: fresh.length };
+}
+
+// One read at a time per shop, so the scheduler and an open inbox page
+// don't both save the same new messages.
+const busy = new Set<string>();
+
+export async function syncShop(shop: string, opts: Opts = {}) {
+  if (busy.has(shop)) return { accounts: 0, fresh: 0, busy: true as const };
+  busy.add(shop);
+  try {
+    return await runSync(shop, opts);
+  } finally {
+    busy.delete(shop);
+  }
+}
+
+// While the inbox page is open it asks every minute; this reads again only
+// when the last read is older than maxAge, so several open tabs cost one read.
+export async function syncShopIfStale(shop: string, maxAge = 45_000, opts: Opts = {}) {
+  const now = opts.now ?? new Date();
+  const accounts = (await db.socialAccount.findMany({ where: { shop }, select: { network: true, inboxSyncedAt: true } })).filter((a) => inboxOpen(shop, a.network));
+  if (!accounts.length) return { synced: false };
+  const oldest = Math.min(...accounts.map((a) => a.inboxSyncedAt?.getTime() ?? 0));
+  if (now.getTime() - oldest < maxAge) return { synced: false };
+  await syncShop(shop, opts);
+  return { synced: true };
 }
 
 let syncing = false;
