@@ -45,7 +45,9 @@ export const forgetPictureModels = () => {
   listed = null;
 };
 
-export type MakeImage = (prompt: string) => Promise<Uint8Array>;
+// source: a photo to build the picture around (a product, say), kept as it is.
+export type Source = { data: Uint8Array; mime: string };
+export type MakeImage = (prompt: string, source?: Source, size?: string) => Promise<Uint8Array>;
 
 export class ImageError extends Error {
   constructor(
@@ -64,13 +66,19 @@ const NO_MODEL = /does not exist|model_not_found|not have access to (the )?model
 export function imageClient(): MakeImage | null {
   const key = process.env.OPENAI_API_KEY;
   if (!key) return null;
-  const call = async (body: object) => {
-    const res = await fetch("https://api.openai.com/v1/images/generations", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(180_000),
-    });
+  // With a source photo, OpenAI's edits endpoint makes the new picture from it.
+  const call = async (body: Record<string, string | number>, source?: Source) => {
+    let init: RequestInit;
+    if (source) {
+      const form = new FormData();
+      for (const [k, v] of Object.entries(body)) form.append(k, String(v));
+      const ext = source.mime === "image/png" ? "png" : source.mime === "image/webp" ? "webp" : "jpg";
+      form.append("image", new Blob([new Uint8Array(source.data)], { type: source.mime }), `photo.${ext}`);
+      init = { method: "POST", headers: { Authorization: `Bearer ${key}` }, body: form, signal: AbortSignal.timeout(180_000) };
+    } else {
+      init = { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(180_000) };
+    }
+    const res = await fetch(`https://api.openai.com/v1/images/${source ? "edits" : "generations"}`, init);
     const json = (await res.json().catch(() => ({}))) as { data?: { b64_json?: string; url?: string }[]; error?: { message?: string } };
     const got = json.data?.[0];
     if (!res.ok || !(got?.b64_json || got?.url)) throw new ImageError(json.error?.message ?? `OpenAI images: HTTP ${res.status}`, res.status);
@@ -80,18 +88,18 @@ export function imageClient(): MakeImage | null {
     if (!pic.ok) throw new ImageError(`Couldn't fetch the picture OpenAI made (HTTP ${pic.status}).`, pic.status);
     return Buffer.from(await pic.arrayBuffer());
   };
-  return async (prompt) => {
+  return async (prompt, source, size = "1536x1024") => {
     let last: unknown;
     for (const model of await pictureModels(key)) {
       try {
-        return await call({ model, prompt, n: 1, size: "1536x1024", quality: "medium", output_format: "jpeg", output_compression: 82 });
+        return await call({ model, prompt, n: 1, size, quality: "medium", output_format: "jpeg", output_compression: 82 }, source);
       } catch (err) {
         last = err;
         if (!(err instanceof ImageError)) throw err;
         // A newer model may not take every setting: ask again with just the size.
         if (/unknown parameter|unsupported|invalid value/i.test(err.message)) {
           try {
-            return await call({ model, prompt, n: 1, size: "1536x1024" });
+            return await call({ model, prompt, n: 1, size }, source);
           } catch (again) {
             last = again;
             if (!(again instanceof ImageError)) throw again;
@@ -102,7 +110,8 @@ export function imageClient(): MakeImage | null {
         console.warn(`Picture model ${model} isn't available, trying the next:`, err2.message);
       }
     }
-    // The last resort, for older accounts.
+    // The last resort, for older accounts. DALL·E 3 can't start from a photo.
+    if (source) throw last;
     try {
       return await call({ model: "dall-e-3", prompt, n: 1, size: "1792x1024", quality: "standard" });
     } catch {
@@ -146,6 +155,24 @@ export function imagePrompt(a: { title: string; keyword: string; summary: string
     .join(" ");
 }
 
+// Building a scene around the merchant's photo: the product stays exactly as
+// it is, and only what's around it is made.
+export function scenePrompt(scene: string) {
+  return [
+    `Make a natural, high-quality photograph of the product in the attached photo, placed in this scene: ${scene.trim()}.`,
+    "Keep the product exactly as it is: the same shape, size, colours, pattern, materials and any printed details. Don't redraw or restyle it.",
+    "Light it to match the scene, with soft natural light and space around it.",
+    "No added text, letters, logos, watermarks or borders.",
+  ].join(" ");
+}
+
+// A JPEG or PNG for OpenAI, no bigger than it needs, from any picture.
+export async function sourcePhoto(data: Uint8Array): Promise<Source> {
+  const { default: sharp } = await import("sharp");
+  const out = await sharp(data).rotate().resize({ width: 1536, height: 1536, fit: "inside", withoutEnlargement: true }).png().toBuffer();
+  return { data: new Uint8Array(out), mime: "image/png" };
+}
+
 export const imageUrl = (articleId: string) => `${process.env.SHOPIFY_APP_URL || ""}/images/${articleId}.jpg`;
 
 // TikTok refuses photos bigger than 1080 pixels on a side
@@ -166,12 +193,25 @@ export async function tiktokCopy(data: Uint8Array) {
 
 // Makes (or remakes) the picture for an article. Failures are kept on the
 // article, which can still be sent without one.
-export async function makeArticleImage(shop: string, articleId: string, make: MakeImage | null = imageClient()) {
+// With a scene, the picture is built around the article's current picture
+// (the one made or uploaded for it, or the linked product's photo).
+export async function makeArticleImage(shop: string, articleId: string, make: MakeImage | null = imageClient(), scene = "", sourceUrl: string | null = null) {
   if (!make) return { error: "Article images aren't switched on for this app yet." };
   const a = await db.blogArticle.findFirst({ where: { id: articleId, shop } });
   if (!a) return { error: "That article isn't there any more." };
   try {
-    const data = new Uint8Array(await make(imagePrompt(a)));
+    let source: Source | undefined;
+    if (scene.trim()) {
+      const own = a.imageAlt ? await db.articleImage.findUnique({ where: { articleId } }) : null;
+      let raw = own?.data ? new Uint8Array(own.data) : null;
+      if (!raw && sourceUrl) {
+        const res = await fetch(sourceUrl, { signal: AbortSignal.timeout(30_000) });
+        if (res.ok) raw = new Uint8Array(await res.arrayBuffer());
+      }
+      if (!raw) return { error: "There's no picture to build a scene around yet. Upload a photo first." };
+      source = await sourcePhoto(raw);
+    }
+    const data = new Uint8Array(await make(source ? scenePrompt(scene) : imagePrompt(a), source));
     const mime = imageMime(data);
     await db.articleImage.upsert({ where: { articleId }, update: { data, mime, createdAt: new Date() }, create: { articleId, shop, data, mime } });
     await db.blogArticle.update({ where: { id: articleId }, data: { imageAlt: a.title.slice(0, 200), imageError: null } });

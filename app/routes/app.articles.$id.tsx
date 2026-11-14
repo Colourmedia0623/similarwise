@@ -6,8 +6,8 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { compact } from "../lib/format";
-import { atOrigin, blogArticle, deleteArticle, editArticle, sendArticle, storeOrigin, updateOnShopify } from "../lib/ideas/articles.server";
-import { makeArticleImage, uploadArticleImage } from "../lib/ideas/images.server";
+import { articlePicture, atOrigin, blogArticle, deleteArticle, editArticle, sendArticle, storeOrigin, updateOnShopify } from "../lib/ideas/articles.server";
+import { imageClient, makeArticleImage, uploadArticleImage } from "../lib/ideas/images.server";
 import type { Graphql } from "../lib/prices/prices.server";
 import { STATUS, TONE } from "../lib/ideas/article-status";
 import { articleShares, checkTikTokPosts, shareArticle, socialAccounts, tiktokAccount, writeCaptions } from "../lib/social/social.server";
@@ -63,10 +63,16 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     if ("error" in gone) return { intent, at, error: gone.error };
     return redirect("/app/articles");
   }
-  if (intent === "image" || intent === "upload") {
+  if (intent === "image" || intent === "upload" || intent === "scene") {
     const file = form.get("file");
+    const scene = String(form.get("scene") ?? "").slice(0, 600);
+    const now = intent === "scene" ? await db.blogArticle.findFirst({ where: { id, shop } }) : null;
     const res =
-      intent === "image"
+      intent === "scene"
+        ? !scene.trim()
+          ? { error: "Describe the scene to put it in." }
+          : await makeArticleImage(shop, id, imageClient(), scene, now ? ((await articlePicture(shop, now))?.url ?? null) : null)
+        : intent === "image"
         ? await makeArticleImage(shop, id)
         : file instanceof File
           ? await uploadArticleImage(shop, id, file)
@@ -151,6 +157,7 @@ export default function ArticleEditor() {
   const result = save.state === "idle" ? save.data : undefined;
   const picResult = picture.state === "idle" ? picture.data : undefined;
   const picBusy = picture.state !== "idle";
+  const [scene, setScene] = useState("");
 
   return (
     <s-page heading={a.title}>
@@ -213,10 +220,28 @@ export default function ArticleEditor() {
                   e.currentTarget.value = "";
                 }}
               />
-              {picBusy && picture.formData?.get("intent") === "image" && <s-text color="subdued">Making a picture takes up to a minute.</s-text>}
+              {picBusy && picture.formData?.get("intent") !== "upload" && <s-text color="subdued">Making a picture takes up to a minute.</s-text>}
               {picResult && "error" in picResult && <s-text tone="critical">{picResult.error}</s-text>}
               {(a.imageError && !picResult) && <s-text tone="critical">{a.imageError}</s-text>}
             </s-stack>
+            {imagesOn && a.picture && (
+              <s-stack direction="inline" gap="small" alignItems="end">
+                <s-text-field
+                  label="Make a scene with this picture"
+                  details="The product stays exactly as it is, in a new setting. For example: on a picnic table in a summer garden."
+                  placeholder="on a picnic table in a summer garden"
+                  value={scene}
+                  onInput={(e) => setScene((e.currentTarget as unknown as HTMLInputElement).value)}
+                />
+                <s-button
+                  loading={picBusy && picture.formData?.get("intent") === "scene"}
+                  disabled={picBusy || !scene.trim()}
+                  onClick={() => picture.submit({ intent: "scene", scene }, { method: "post" })}
+                >
+                  Make a scene
+                </s-button>
+              </s-stack>
+            )}
           </s-stack>
         </s-section>
 
