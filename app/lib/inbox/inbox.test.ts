@@ -5,7 +5,8 @@ import { saveAccounts, socialAccounts, disconnectAccount } from "../social/socia
 import { authorizeUrl } from "../social/networks.server";
 import { answer, assign, draftReply, inboxOpen, inboxView, inboxWebhook, saveMember, saveRule, setStatus, subscribeWebhooks, syncShop, syncShopIfStale, type RuleInput } from "./inbox.server";
 import { createHmac } from "node:crypto";
-import { action as webhookAction, loader as webhookLoader, signedByMeta, webhookIds } from "../../routes/meta.webhook";
+import { action as webhookAction, loader as webhookLoader } from "../../routes/meta.webhook";
+import { signedByMeta, webhookIds } from "./webhook.server";
 import { fillReply, matchesWords } from "./inbox";
 
 const SHOP = "inbox.myshopify.com";
@@ -328,11 +329,14 @@ describe("social inbox", () => {
     await connect();
     const calls: Call[] = [];
     const opts = { f: fakeFetch(world().routes, calls), now: later(5), ask: null };
-    expect(await inboxWebhook(["999"], opts)).toBe(0);
-    expect(await inboxWebhook(["p1"], opts)).toBe(1);
-    await expect.poll(() => db.inboxMessage.count({ where: { shop: SHOP } })).toBe(3);
+    expect((await inboxWebhook(["999"], opts)).shops).toBe(0);
+    // Other test files may connect a page with the same id, so wait for every read.
+    const hook = await inboxWebhook(["p1"], opts);
+    expect(hook.shops).toBeGreaterThanOrEqual(1);
+    await hook.reading;
+    expect(await db.inboxMessage.count({ where: { shop: SHOP } })).toBe(3);
     process.env.INBOX_APPROVED = "";
-    expect(await inboxWebhook(["p1"], opts)).toBe(0);
+    expect((await inboxWebhook(["p1"], opts)).shops).toBe(0);
   });
 
   it("asks Meta to send each connected Page's comments and messages to the webhook", async () => {
