@@ -20,6 +20,8 @@ export class ImageError extends Error {
 // gpt-image-1 only works once the OpenAI organisation is verified, so an
 // unverified account falls back to DALL·E 3, which doesn't need it.
 const NEEDS_VERIFYING = /verif/i;
+// A project without access to the model is told it "does not exist".
+const NO_MODEL = /does not exist|model_not_found|not have access to (the )?model/i;
 
 export function imageClient(): MakeImage | null {
   const key = process.env.OPENAI_API_KEY;
@@ -40,7 +42,8 @@ export function imageClient(): MakeImage | null {
     try {
       return await call({ model: MODEL, prompt, n: 1, size: "1536x1024", quality: "medium", output_format: "jpeg", output_compression: 82 });
     } catch (err) {
-      if (!(err instanceof ImageError) || !(NEEDS_VERIFYING.test(err.message) || (err.status === 404 && MODEL !== "dall-e-3"))) throw err;
+      const fallBack = err instanceof ImageError && MODEL !== "dall-e-3" && (NEEDS_VERIFYING.test(err.message) || NO_MODEL.test(err.message) || err.status === 404);
+      if (!fallBack) throw err;
       console.warn("Falling back to dall-e-3 for article images:", err.message);
       return call({ model: "dall-e-3", prompt, n: 1, size: "1792x1024", quality: "standard", response_format: "b64_json" });
     }
@@ -55,6 +58,8 @@ export function imageProblem(err: unknown) {
     return "The OpenAI key isn't working. Make a new key on platform.openai.com and update the OPENAI_API_KEY secret.";
   if (/billing|quota|credit|hard limit/i.test(message))
     return "Your OpenAI account is out of credit. Add some under Settings, Billing on platform.openai.com, then try again.";
+  if (NO_MODEL.test(message))
+    return "Your OpenAI account can't use the picture models yet. Verify your organisation under Settings, Organization, General on platform.openai.com (it can take up to 15 minutes to apply), then try again.";
   if (NEEDS_VERIFYING.test(message)) return "OpenAI needs your organisation verified first. Do it under Settings, Organization, General on platform.openai.com.";
   if (status === 429) return "OpenAI is busy just now. Try again in a minute.";
   if (/safety|content policy|moderation|rejected/i.test(message)) return "OpenAI wouldn't make a picture for this one. Try again, or upload your own.";
