@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import sharp from "sharp";
-import { ImageError, TIKTOK_MAX, forgetPictureModels, imageClient, imageProblem, newestFirst, tiktokCopy } from "./images.server";
+import { ImageError, TIKTOK_MAX, forgetPictureModels, imageClient, imageProblem, newestFirst, scenePrompt, sourcePhoto, tiktokCopy } from "./images.server";
 
 describe("pictures for TikTok", () => {
   it("shrinks big pictures to a JPEG TikTok accepts, and leaves small ones their size", async () => {
@@ -73,5 +73,33 @@ describe("making article pictures", () => {
     expect(models.at(-1)).toBe("dall-e-3");
     expect(models).toContain("gpt-image-1");
     expect(imageProblem(new ImageError("The model 'dall-e-3' does not exist.", 400))).toMatch(/Verify your organisation/);
+  });
+});
+
+describe("making a scene around a photo", () => {
+  afterEach(() => {
+    forgetPictureModels();
+    vi.unstubAllGlobals();
+    delete process.env.OPENAI_API_KEY;
+  });
+
+  it("sends the photo to OpenAI's edits, keeping the product as it is", async () => {
+    process.env.OPENAI_API_KEY = "sk-test";
+    const seen: { url: string; form: FormData | null }[] = [];
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/v1/models")) return new Response(JSON.stringify({ data: [{ id: "gpt-image-2.6-flare" }] }));
+      seen.push({ url, form: init?.body instanceof FormData ? init.body : null });
+      return new Response(JSON.stringify({ data: [{ b64_json: Buffer.from("scene").toString("base64") }] }));
+    });
+    const bag = await sharp({ create: { width: 300, height: 400, channels: 3, background: "#4cc" } }).jpeg().toBuffer();
+    const source = await sourcePhoto(new Uint8Array(bag));
+    expect(source.mime).toBe("image/png");
+    const out = await imageClient()!(scenePrompt("on a picnic table"), source, "1024x1536");
+    expect(Buffer.from(out).toString()).toBe("scene");
+    expect(seen[0].url).toBe("https://api.openai.com/v1/images/edits");
+    expect(seen[0].form?.get("model")).toBe("gpt-image-2.6-flare");
+    expect(seen[0].form?.get("size")).toBe("1024x1536");
+    expect(String(seen[0].form?.get("prompt"))).toMatch(/on a picnic table.*Keep the product exactly as it is/);
+    expect(seen[0].form?.get("image")).toBeInstanceOf(Blob);
   });
 });

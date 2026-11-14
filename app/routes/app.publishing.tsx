@@ -13,6 +13,7 @@ import {
   deleteCampaign,
   deleteSocialPost,
   duplicatePost,
+  makeSocialScene,
   movePost,
   readPostInput,
   retryPost,
@@ -76,6 +77,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     today,
     now: now.toISOString(),
     ai: !!process.env.ANTHROPIC_API_KEY,
+    scenes: !!process.env.OPENAI_API_KEY,
   };
 };
 
@@ -117,6 +119,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       ...(await movePost(shop, id, text("day"), text("time"), text("tz"))),
     };
   if (intent === "canva-new") return { intent, ...(await newCanvaDesign(shop, text("size"), text("title"))) };
+  if (intent === "scene") {
+    const made = await makeSocialScene(shop, text("imageId"), text("scene"));
+    return { intent, ...("image" in made ? { images: [made.image], from: text("imageId") } : made) };
+  }
   if (intent === "canva-edit") return { intent, ...(await editCanvaDesign(shop, text("designId"))) };
   if (intent === "canva-returned") return { intent, ...(await takeCanvaReturn(shop, text("token"))) };
   if (intent === "canva-designs") return { intent, ...(await recentCanvaDesigns(shop)) };
@@ -176,6 +182,7 @@ type Answer = {
   editUrl?: string;
   token?: string;
   replace?: string;
+  from?: string;
   designs?: CanvaDesign[];
   more?: boolean;
   captions?: Record<string, string>;
@@ -2786,6 +2793,24 @@ function Composer({
   const ai = useFetcher<Answer>();
   const fileRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
+  // Making a new picture by putting one of the post's pictures in a scene.
+  const sceneMaker = useFetcher<Answer>();
+  const [sceneFor, setSceneFor] = useState<string | null>(null);
+  const [scene, setScene] = useState("");
+  const madeScene = sceneMaker.state === "idle" ? sceneMaker.data : undefined;
+  const [seenScene, setSeenScene] = useState(madeScene);
+  if (madeScene !== seenScene) {
+    setSeenScene(madeScene);
+    if (madeScene?.images?.length) {
+      const made = madeScene.images;
+      setImages((now) => {
+        const at = now.findIndex((x) => x.id === madeScene.from);
+        return (at < 0 ? [...now, ...made] : [...now.slice(0, at + 1), ...made, ...now.slice(at + 1)]).slice(0, MAX_PICTURES);
+      });
+      setSceneFor(null);
+      setScene("");
+    }
+  }
 
   const pickedAccounts = accounts.filter((a) => picked.includes(a.id));
   const networks = NETWORKS.filter((n) => pickedAccounts.some((a) => a.network === n));
@@ -3017,6 +3042,11 @@ function Composer({
                     >
                       <img src={img.url} alt="" draggable={false} />
                       <span className="pc-pic-n">{i + 1}</span>
+                      {data.scenes && images.length < MAX_PICTURES && (
+                        <button type="button" className="pc-pic-scene" onClick={() => setSceneFor(sceneFor === img.id ? null : img.id)}>
+                          Make a scene
+                        </button>
+                      )}
                       {img.canva && data.canva?.connected && (
                         <button type="button" className="pc-pic-edit" onClick={() => editInCanva.current?.(img.canva!)}>
                           Edit in Canva
@@ -3056,6 +3086,37 @@ function Composer({
               )}
               {images.length > 5 && pickedAccounts.some((a) => a.network === "pinterest") && (
                 <small className="pc-muted">Pinterest carousels take up to 5 pictures, so the pin gets the first 5.</small>
+              )}
+              {sceneFor && images.some((x) => x.id === sceneFor) && (
+                <div className="pc-scene">
+                  <img src={images.find((x) => x.id === sceneFor)!.url} alt="" />
+                  <div>
+                    <label htmlFor="pc-scene-text">Put picture {images.findIndex((x) => x.id === sceneFor) + 1} in a scene</label>
+                    <textarea
+                      id="pc-scene-text"
+                      rows={2}
+                      maxLength={600}
+                      value={scene}
+                      placeholder="on a picnic table in a sunny summer garden, with a bottle of rosé"
+                      onChange={(e) => setScene(e.currentTarget.value)}
+                    />
+                    <small className="pc-muted">The product stays exactly as it is. The new picture is added next to it.</small>
+                    <div className="pc-scene-buttons">
+                      <button
+                        type="button"
+                        className="pc-btn"
+                        disabled={!scene.trim() || sceneMaker.state !== "idle"}
+                        onClick={() => sceneMaker.submit({ intent: "scene", imageId: sceneFor, scene }, { method: "post" })}
+                      >
+                        {sceneMaker.state !== "idle" ? "Making it… up to a minute" : "Make the picture"}
+                      </button>
+                      <button type="button" className="pc-link-btn" onClick={() => setSceneFor(null)}>
+                        Cancel
+                      </button>
+                    </div>
+                    {madeScene?.error && <s-text tone="critical">{madeScene.error}</s-text>}
+                  </div>
+                </div>
               )}
               {data.canva && (
                 <CanvaTools
@@ -3613,6 +3674,14 @@ const CSS = `
 .pc-pic-one { width: min(100%, 420px); height: auto; }
 .pc-pic-one img { height: auto; max-height: 520px; }
 .pc-pic-add { width: 92px; height: 92px; }
+.pc-pic-scene { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 4px 10px; border: 0; border-radius: 14px; background: rgba(0,0,0,.65); color: #fff; font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer; opacity: 0; transition: opacity .15s; }
+.pc-pic:hover .pc-pic-scene, .pc-pic-scene:focus { opacity: 1; }
+.pc-scene { display: flex; gap: 12px; margin-top: 10px; padding: 10px; border: 1px solid #e3e3e3; border-radius: 10px; background: #fafafa; }
+.pc-scene > img { width: 72px; height: 72px; object-fit: contain; border-radius: 8px; background: #fff; flex: none; }
+.pc-scene > div { display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.pc-scene label { font-weight: 600; font-size: 13px; }
+.pc-scene textarea { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #c9c9c9; border-radius: 8px; font: inherit; resize: vertical; }
+.pc-scene-buttons { display: flex; gap: 12px; align-items: center; }
 .pc-pic-edit { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); padding: 4px 10px; border: 0; border-radius: 14px; background: #7d2ae8; color: #fff; font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,.25); }
 .pc-pic-dragging { opacity: .4; }
 .pc-pic-n { position: absolute; left: 5px; top: 5px; min-width: 18px; padding: 1px 5px; border-radius: 9px; background: rgba(0,0,0,.6); color: #fff; font-size: 11px; text-align: center; }

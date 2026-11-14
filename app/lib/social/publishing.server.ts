@@ -1,6 +1,7 @@
 import db from "../../db.server";
 import { claudeJson, type AskJson } from "../ideas/claude.server";
 import { isFreeShop } from "../waitlist.server";
+import { imageClient, imageMime, imageProblem, scenePrompt, sourcePhoto, type MakeImage } from "../ideas/images.server";
 import { NETWORK_NAME, PROVIDER, postLink, providerApproved, type Fetch, type Network, type TikTokChoices } from "./networks.server";
 import { readStats, sendTo } from "./social.server";
 import { fromZoned, validZone } from "./when";
@@ -521,6 +522,27 @@ export async function uploadSocialImage(shop: string, file: { type: string; size
   } catch (err) {
     console.error("Couldn't read an uploaded picture", shop, err);
     return { error: "Couldn't read that picture. Try another one." };
+  }
+}
+
+// A new picture for a post, made by building a scene around one of its
+// pictures (a product photo, say), at the same shape as that picture.
+export async function makeSocialScene(shop: string, imageId: string, scene: string, make: MakeImage | null = imageClient()) {
+  if (!make) return { error: "Making pictures isn't switched on for this app yet." };
+  if (!scene.trim()) return { error: "Describe the scene to put it in." };
+  const from = await db.socialImage.findFirst({ where: { id: imageId, shop } });
+  if (!from) return { error: "That picture isn't there any more." };
+  const ratio = from.width / from.height;
+  const size = ratio > 1.2 ? "1536x1024" : ratio < 0.83 ? "1024x1536" : "1024x1024";
+  try {
+    const made = await make(scenePrompt(scene.slice(0, 600)), await sourcePhoto(new Uint8Array(from.data)), size);
+    const data = new Uint8Array(made);
+    const up = await uploadSocialImage(shop, { type: imageMime(data), size: data.byteLength, arrayBuffer: async () => data.slice().buffer });
+    if (!("imageId" in up) || !up.imageId) return { error: up.error ?? "Couldn't keep the new picture." };
+    return { image: { id: up.imageId, url: up.url } };
+  } catch (err) {
+    console.error("Couldn't make a scene", shop, err);
+    return { error: imageProblem(err) };
   }
 }
 
