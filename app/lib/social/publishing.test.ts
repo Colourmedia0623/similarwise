@@ -14,6 +14,7 @@ import {
   saveCampaign,
   savePost,
   sendDuePosts,
+  setPostDetails,
   uploadSocialImage,
   type PostInput,
 } from "./publishing.server";
@@ -340,6 +341,21 @@ describe("social calendar", () => {
     data = await calendarData(SHOP, NOW);
     expect(data.posts.find((p) => p.status === "sent")!.results.map((r) => r.account)).toEqual(["Candle Co", "@candleco"]);
     expect(data.posts.find((p) => "id" in later && p.id === later.id)!.accountIds).toEqual([fresh.facebook]);
+  });
+
+  it("sets a post's campaign and note from its card", async () => {
+    const ids = await accounts();
+    const saved = await savePost(SHOP, input({ accountIds: [ids.facebook] }), { now: NOW });
+    const id = "id" in saved ? saved.id! : "";
+    const { id: campaignId } = (await saveCampaign(SHOP, { name: "Launch", color: "#e8590c", startDay: "", endDay: "", note: "" })) as { id: string };
+    expect(await setPostDetails(SHOP, id, { campaignId, note: "  Check the code  " })).toEqual({ ok: true });
+    let post = (await calendarData(SHOP, NOW)).posts.find((p) => p.id === id)!;
+    expect([post.campaignId, post.note]).toEqual([campaignId, "Check the code"]);
+    expect(await setPostDetails(SHOP, id, { campaignId: "nope" })).toEqual({ error: "That campaign isn't there any more." });
+    expect(await setPostDetails("other.myshopify.com", id, { note: "x" })).toEqual({ error: "That post isn't there any more." });
+    await setPostDetails(SHOP, id, { campaignId: "", note: "" });
+    post = (await calendarData(SHOP, NOW)).posts.find((p) => p.id === id)!;
+    expect([post.campaignId, post.note]).toEqual([null, null]);
   });
 
   it("records follower counts once a day for the report", async () => {

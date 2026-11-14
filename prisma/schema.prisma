@@ -606,6 +606,7 @@ model ScheduledPost {
   imageIds    String    @default("[]") // JSON: every picture in order, for a carousel
   link        String?
   campaignId  String?
+  note        String?   // The team's own note on the post; never sent
   status      String    // draft | scheduled | sending | sent | partial | failed
   scheduledAt DateTime?
   sentAt      DateTime?
