@@ -82,7 +82,7 @@ export default function AdIdeas() {
           <s-stack gap="base">
             <s-stack direction="inline" gap="small" alignItems="center">
               <s-badge>{PLATFORM[i.platform] ?? i.platform}</s-badge>
-              {i.productId ? (
+              {i.productId?.startsWith("gid://") ? (
                 <s-link href={`shopify://admin/products/${i.productId.split("/").pop()}`} target="_blank">
                   {i.product}
                 </s-link>

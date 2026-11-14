@@ -84,3 +84,28 @@ describe("web logins", () => {
     delete process.env.WEB_SIGNUP;
   });
 });
+
+describe("super admins", () => {
+  it("can sign up, get every page free, and give other workspaces free access", async () => {
+    const { isAdminEmail, setWorkspaceFree, adminOverview } = await import("./admin.server");
+    process.env.ADMIN_EMAILS = "boss@example.com, Other@Example.com";
+    expect(isAdminEmail("BOSS@example.com")).toBe(true);
+    expect(isAdminEmail("other@example.com")).toBe(true);
+    expect(isAdminEmail("someone@example.com")).toBe(false);
+    expect(await signupAllowed("boss@example.com")).toBe(true);
+
+    const boss = await db.webUser.upsert({ where: { email: "boss@example.com" }, create: { email: "boss@example.com" }, update: {} });
+    const cookie = cookieOf(await startSession(boss.id, null));
+    const account = await webAccount(new Request("https://x/app", { headers: { cookie } }));
+    const own = await createWorkspace(account!, { name: "Colourmedia", website: null, platform: "none", country: "GB" });
+    expect((await workspaceSubscriptions(own.id))[0]).toMatchObject({ id: "free", name: "Advertise (yearly)" });
+
+    const client = await db.workspace.create({ data: { name: "Client", shop: newWebShop(`cl${Date.now()}`) } });
+    expect(await workspaceSubscriptions(client.id)).toEqual([]);
+    await setWorkspaceFree(client.id, true);
+    expect((await workspaceSubscriptions(client.id))[0]?.id).toBe("free");
+    const overview = await adminOverview();
+    expect(overview.workspaces.find((w) => w.id === client.id)?.status).toBe("Free");
+    delete process.env.ADMIN_EMAILS;
+  });
+});

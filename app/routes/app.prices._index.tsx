@@ -2,6 +2,7 @@ import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "re
 import { useFetcher, useLoaderData, useSearchParams } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
+import { isWebShop } from "../lib/web/shop";
 import { formatPrice } from "../lib/format";
 import { describeGap } from "../lib/prices/match";
 import { confirmMatch, priceComparison, suggestMatches, syncIfStale, syncShopProducts, type Graphql } from "../lib/prices/prices.server";
@@ -22,7 +23,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     await syncIfStale(session.shop, graphqlFor(admin));
   } catch (e) {
     console.error("Product sync failed", session.shop, e);
-    syncError = "Similarwise couldn't read your products. Reopen the app and approve product access, then try again.";
+    syncError = isWebShop(session.shop)
+      ? e instanceof Error ? e.message : "Couldn't read your products from your website."
+      : "Similarwise couldn't read your products. Reopen the app and approve product access, then try again.";
   }
   await suggestMatches(session.shop);
   return { syncError, ...(await priceComparison(session.shop)) };
