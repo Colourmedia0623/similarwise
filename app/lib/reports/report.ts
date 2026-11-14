@@ -224,5 +224,158 @@ export type Report = {
       changes: number;
     }[];
     events: { kind: string; count: number }[];
+    spendCurrency?: string; // The currency of paidCostCents; US dollars unless converted
   } | null;
 };
+
+// --- Currency ----------------------------------------------------------------
+
+// The currencies a report can be shown in.
+export const REPORT_CURRENCIES = [
+  "GBP",
+  "USD",
+  "EUR",
+  "CAD",
+  "AUD",
+  "NZD",
+  "CHF",
+  "SEK",
+  "NOK",
+  "DKK",
+  "PLN",
+  "JPY",
+  "INR",
+  "SGD",
+  "HKD",
+  "ZAR",
+];
+
+export const parseCurrency = (v: string | null | undefined) => {
+  const c = (v ?? "").trim().toUpperCase();
+  return /^[A-Z]{3}$/.test(c) ? c : null;
+};
+
+// Exchange rates as units of each currency to one US dollar, e.g. { GBP: 0.79, EUR: 0.92 }.
+export type Rates = { date: string; perUsd: Record<string, number> };
+
+// An amount in one currency in another, or null when either rate is unknown.
+export function convert(
+  amount: number,
+  from: string,
+  to: string,
+  rates: Rates | null,
+): number | null {
+  const f = from.toUpperCase();
+  const t = to.toUpperCase();
+  if (f === t) return amount;
+  const a = f === "USD" ? 1 : rates?.perUsd[f];
+  const b = t === "USD" ? 1 : rates?.perUsd[t];
+  return a && b ? (amount / a) * b : null;
+}
+
+const scaleMetrics = <M extends { spend: number; value: number }>(
+  m: M,
+  k: number,
+): M => ({ ...m, spend: m.spend * k, value: m.value * k });
+
+// The report with every amount of money in one currency. Amounts that can't
+// be converted (no rate) keep their own currency, and are listed in `unconverted`.
+export function inCurrency(
+  r: Report,
+  to: string,
+  rates: Rates | null,
+): Report & {
+  currency: string;
+  ratesDate: string | null;
+  unconverted: string[];
+} {
+  const missing = new Set<string>();
+  const factor = (from: string) => {
+    const k = convert(1, from, to, rates);
+    if (k == null) missing.add(from.toUpperCase());
+    return k;
+  };
+  const paid = r.paid.map((a) => {
+    const k = factor(a.currency);
+    return k == null
+      ? a
+      : {
+          ...a,
+          currency: to,
+          current: scaleMetrics(a.current, k),
+          previous: scaleMetrics(a.previous, k),
+          campaigns: a.campaigns.map((c) => scaleMetrics(c, k)),
+        };
+  });
+  let google = r.google;
+  if (google) {
+    const a = google.analytics;
+    const g = google.ads;
+    const ka = a ? factor(a.currency) : null;
+    const kg = g ? factor(g.currency) : null;
+    google = {
+      ...google,
+      analytics:
+        a && ka != null
+          ? {
+              ...a,
+              currency: to,
+              revenue: a.revenue * ka,
+              prevRevenue: a.prevRevenue * ka,
+              channels: a.channels.map((c) => ({
+                ...c,
+                revenue: c.revenue * ka,
+              })),
+            }
+          : a,
+      ads:
+        g && kg != null
+          ? {
+              ...g,
+              currency: to,
+              spend: g.spend * kg,
+              value: g.value * kg,
+              prevSpend: g.prevSpend * kg,
+              prevValue: g.prevValue * kg,
+            }
+          : g,
+    };
+  }
+  let competitors = r.competitors;
+  if (competitors) {
+    // Search ad spend estimates come in US cents; they're kept in cents of the chosen currency.
+    const k = factor("USD");
+    const cents = (v: number | null) =>
+      v == null || k == null ? v : Math.round(v * k);
+    competitors = {
+      ...competitors,
+      spendCurrency: k == null ? "USD" : to,
+      rows: competitors.rows.map((x) => ({
+        ...x,
+        paidCostCents: cents(x.paidCostCents),
+        prevPaidCostCents: cents(x.prevPaidCostCents),
+      })),
+    };
+  }
+  return {
+    ...r,
+    paid,
+    google,
+    competitors,
+    currency: to,
+    ratesDate:
+      missing.size === 0 && rates && paidOrForeign(r, to) ? rates.date : null,
+    unconverted: [...missing],
+  };
+}
+
+// Whether anything in the report was in another currency, so the rates date is worth showing.
+function paidOrForeign(r: Report, to: string) {
+  const t = to.toUpperCase();
+  return (
+    r.paid.some((a) => a.currency.toUpperCase() !== t) ||
+    (r.google?.analytics && r.google.analytics.currency.toUpperCase() !== t) ||
+    (r.google?.ads && r.google.ads.currency.toUpperCase() !== t) ||
+    (!!r.competitors && t !== "USD")
+  );
+}
