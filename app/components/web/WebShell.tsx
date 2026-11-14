@@ -63,7 +63,7 @@ function useInPlaceLinks() {
         const tag = el.tagName.toLowerCase();
         if (tag !== "s-link" && tag !== "s-button" && tag !== "s-clickable") continue;
         const href = el.getAttribute("href");
-        if (!href || !href.startsWith("/") || href.startsWith("//") || el.getAttribute("target") === "_blank") return;
+        if (!href || !href.startsWith("/") || href.startsWith("//") || el.hasAttribute("target")) return;
         e.preventDefault();
         navigate(href);
         return;

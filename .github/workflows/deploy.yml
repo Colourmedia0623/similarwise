@@ -72,6 +72,11 @@ jobs:
           # only waitlisted emails and those in WEB_INVITES (comma-separated) can sign up.
           WEB_SIGNUP: ${{ vars.WEB_SIGNUP }}
           WEB_INVITES: ${{ vars.WEB_INVITES }}
+          # Card payments for web workspaces (lib/web/stripe.server.ts). The webhook
+          # endpoint is https://APP_HOST/webhooks/stripe. STRIPE_TAX=on turns on Stripe Tax.
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          STRIPE_TAX: ${{ vars.STRIPE_TAX }}
         run: |
           scopes=$(sed -n 's/^scopes = "\(.*\)"/\1/p' shopify.app.toml)
           {
@@ -112,6 +117,9 @@ jobs:
             echo "APP_STORE_URL=$APP_STORE_URL"
             echo "WEB_SIGNUP=$WEB_SIGNUP"
             echo "WEB_INVITES=$WEB_INVITES"
+            echo "STRIPE_SECRET_KEY=$STRIPE_SECRET_KEY"
+            echo "STRIPE_WEBHOOK_SECRET=$STRIPE_WEBHOOK_SECRET"
+            echo "STRIPE_TAX=$STRIPE_TAX"
           } > deploy/.env
 
       # The private, free copy for 7fa72e-da.myshopify.com runs beside the
@@ -130,7 +138,7 @@ jobs:
           if [ -n "$SHOPIFY_DSS_API_SECRET" ] && [ "$own_id" != REPLACE_WITH_DSS_CLIENT_ID ]; then
             scopes=$(sed -n 's/^scopes = "\(.*\)"/\1/p' shopify.app.dss.toml)
             {
-              grep -vE '^(SHOPIFY_API_KEY|SHOPIFY_API_SECRET|SHOPIFY_APP_URL|SCOPES|APP_HOST|APP_STORE_URL)=' deploy/.env
+              grep -vE '^(SHOPIFY_API_KEY|SHOPIFY_API_SECRET|SHOPIFY_APP_URL|SCOPES|APP_HOST|APP_STORE_URL|STRIPE_[A-Z_]+|WEB_SIGNUP|WEB_INVITES)=' deploy/.env
               echo "SHOPIFY_API_KEY=$own_id"
               echo "SHOPIFY_API_SECRET=$SHOPIFY_DSS_API_SECRET"
               echo "SHOPIFY_APP_URL=$own_url"

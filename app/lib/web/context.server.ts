@@ -71,11 +71,16 @@ export async function webAdminContext(request: Request) {
         if (!appSubscriptions.length) throw await onFailure(new Error("No plan"));
         return { hasActivePayment: true, appSubscriptions, oneTimePurchases: [] };
       },
-      // Stripe checkout arrives in the next stage; until then the trial stands in.
-      request: async () => {
-        throw redirect("/app/plans?billing=soon");
+      // Paid by card through Stripe (lib/web/stripe.server.ts).
+      request: async ({ plan }: { plan: string }) => {
+        const { stripeOn, choosePlan } = await import("./stripe.server");
+        if (!stripeOn()) throw redirect("/app/plans?billing=soon");
+        throw redirect(await choosePlan(ws.id, account.user.email, plan));
       },
-      cancel: async () => ({}),
+      // Cancelling is on Stripe's billing page (/billing/portal).
+      cancel: async () => {
+        throw redirect("/billing/portal");
+      },
     },
   };
 }
