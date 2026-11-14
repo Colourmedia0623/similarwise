@@ -2,10 +2,11 @@ import db from "../../db.server";
 import { hostOf } from "../tracker/url";
 import { shopMarket } from "../traffic/refresh.server";
 import { PLATFORM_LABEL } from "./platforms";
+import { linkedInAdsClient, sameAdvertiser, type LinkedInAdsClient } from "./linkedin.server";
 import { adsClient, type AdsClient, type AdsPage, type LibraryAd, type MetaPage, type Platform } from "./scrapecreators.server";
 
-// The ads each competitor runs on Meta (Facebook and Instagram), TikTok and
-// Google, from the platforms' public ad libraries. Refreshed weekly.
+// The ads each competitor runs on Meta (Facebook and Instagram), TikTok,
+// Google and LinkedIn, from the platforms' public ad libraries. Refreshed weekly.
 
 const WEEK = 7 * 24 * 3600_000;
 
@@ -78,9 +79,14 @@ async function saveAds(competitorId: string, platform: Platform, page: AdsPage, 
 
 export async function refreshAds(
   id: string,
-  { client = adsClient(), force = false, now = new Date() }: { client?: AdsClient | null; force?: boolean; now?: Date } = {},
+  {
+    client = adsClient(),
+    linkedin = linkedInAdsClient(),
+    force = false,
+    now = new Date(),
+  }: { client?: AdsClient | null; linkedin?: LinkedInAdsClient | null; force?: boolean; now?: Date } = {},
 ) {
-  if (!client) return;
+  if (!client && !linkedin) return;
   const c = await db.competitor.findUnique({ where: { id } });
   if (!c) return;
   const market = await shopMarket(c.shop);
@@ -93,7 +99,7 @@ export async function refreshAds(
   const update: Record<string, unknown> = {};
 
   // Meta: find their page the first time, then read its running ads.
-  try {
+  if (client) try {
     let pageId = c.metaPageId;
     if (!pageId && c.metaCandidates === "[]") {
       let pages = await client.metaPages(c.name === domain ? domain.split(".")[0] : c.name);
@@ -118,7 +124,7 @@ export async function refreshAds(
   }
 
   // TikTok: search by advertiser name, keeping only that advertiser's ads.
-  try {
+  if (client) try {
     const result = await client.tiktokAds(c.tiktokAdvertiser ?? (update.metaPageName as string | undefined) ?? c.metaPageName ?? c.name);
     update.tiktokCandidates = JSON.stringify(result.matches);
     const who = c.tiktokAdvertiser ?? result.resolved;
@@ -132,10 +138,26 @@ export async function refreshAds(
   }
 
   // Google: by their website's domain.
-  try {
+  if (client) try {
     added.google = await saveAds(id, "google", await client.googleAds(domain, market.code), now);
   } catch (err) {
     errors.push(`Google: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // LinkedIn: by the competitor's name (and their Facebook page's, or their
+  // domain's), keeping only ads from an advertiser with exactly that name.
+  if (linkedin) try {
+    const names = [c.name, (update.metaPageName as string | undefined) ?? c.metaPageName, stem(domain)].filter((x): x is string => !!x);
+    const found: LibraryAd[] = [];
+    let complete = true;
+    for (const name of [...new Set(names)].slice(0, 2)) {
+      const page = await linkedin.ads(name);
+      found.push(...page.ads.filter((a) => sameAdvertiser(a, names) && !found.some((f) => f.adId === a.adId)));
+      complete &&= page.complete;
+    }
+    added.linkedin = await saveAds(id, "linkedin", { ads: found, complete }, now);
+  } catch (err) {
+    errors.push(`LinkedIn: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   const events = firstRun
@@ -162,7 +184,7 @@ export async function refreshAds(
       data: {
         ...update,
         // Partly failed runs still count as done; the error shows on the page.
-        adsAt: errors.length === 3 ? c.adsAt : now,
+        adsAt: errors.length === (client ? 3 : 0) + (linkedin ? 1 : 0) ? c.adsAt : now,
         adsMarket: market.code,
         adsError: errors.length ? errors.join(" · ").slice(0, 500) : null,
       },
@@ -270,7 +292,7 @@ export async function adsOverview(shop: string, filter: { competitorId?: string;
       error: c.adsError,
       meta: { id: c.metaPageId, name: c.metaPageName, candidates: parseList<MetaPage>(c.metaCandidates).filter((p) => p.id) },
       tiktok: { name: c.tiktokAdvertiser, candidates: parseList<string>(c.tiktokCandidates) },
-      counts: { meta: count(c.id, "meta"), tiktok: count(c.id, "tiktok"), google: count(c.id, "google") },
+      counts: { meta: count(c.id, "meta"), tiktok: count(c.id, "tiktok"), google: count(c.id, "google"), linkedin: count(c.id, "linkedin") },
     })),
     ads: ads.map((a) => ({
       id: a.id,

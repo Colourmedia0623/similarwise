@@ -7,20 +7,21 @@ import db from "../db.server";
 import { timeAgo } from "../lib/format";
 import { adsOverview, findMetaPage, refreshAds, setMetaPage, setTiktokAdvertiser } from "../lib/ads/ads.server";
 import { PLATFORM_LABEL } from "../lib/ads/platforms";
+import { linkedInAdsOn } from "../lib/ads/linkedin.server";
 import { adsClient, type Platform } from "../lib/ads/scrapecreators.server";
 import { HowTo } from "../components/HowTo";
 
-// The ads competitors are running on Meta, TikTok and Google, from the
+// The ads competitors are running on Meta, TikTok, Google and LinkedIn, from the
 // platforms' public ad libraries, and which accounts are theirs.
 
-const PLATFORMS: Platform[] = ["meta", "tiktok", "google"];
+const PLATFORMS: Platform[] = ["meta", "tiktok", "google", "linkedin"];
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const url = new URL(request.url);
   const platform = PLATFORMS.find((p) => p === url.searchParams.get("platform"));
   const competitorId = url.searchParams.get("competitor") || undefined;
-  return { on: adsClient() != null, ...(await adsOverview(session.shop, { platform, competitorId })) };
+  return { on: adsClient() != null || linkedInAdsOn(), ...(await adsOverview(session.shop, { platform, competitorId })) };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -83,6 +84,7 @@ export default function Ads() {
                 <s-table-header format="numeric">Meta</s-table-header>
                 <s-table-header format="numeric">TikTok</s-table-header>
                 <s-table-header format="numeric">Google</s-table-header>
+                <s-table-header format="numeric">LinkedIn</s-table-header>
                 <s-table-header>Checked</s-table-header>
               </s-table-header-row>
               <s-table-body>
@@ -92,6 +94,7 @@ export default function Ads() {
                     <s-table-cell>{c.meta.id ? c.counts.meta : "–"}</s-table-cell>
                     <s-table-cell>{c.tiktok.name ? c.counts.tiktok : "–"}</s-table-cell>
                     <s-table-cell>{c.counts.google}</s-table-cell>
+                    <s-table-cell>{c.counts.linkedin}</s-table-cell>
                     <s-table-cell>{c.checked ? timeAgo(c.checked) : "Not yet"}</s-table-cell>
                   </s-table-row>
                 ))}
@@ -136,7 +139,7 @@ export default function Ads() {
               <s-paragraph>
                 <s-text color="subdued">
                   Similarwise finds each competitor&apos;s Facebook page and TikTok advertiser by name. Correct them here if
-                  they&apos;re wrong. Google ads are found by their website.
+                  they&apos;re wrong. Google ads are found by their website, and LinkedIn ads by their company name.
                 </s-text>
               </s-paragraph>
               {competitors.map((c) => (

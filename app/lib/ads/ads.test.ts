@@ -187,7 +187,7 @@ describe("refreshing ads", () => {
     expect((await db.competitorAd.findFirstOrThrow({ where: { adId: "m1" } })).active).toBe(false);
 
     const overview = await adsOverview(SHOP);
-    expect(overview.competitors[0].counts).toEqual({ meta: 2, tiktok: 1, google: 1 });
+    expect(overview.competitors[0].counts).toEqual({ meta: 2, tiktok: 1, google: 1, linkedin: 0 });
     expect((await adsOverview(SHOP, { platform: "google" })).ads.map((a) => a.platform)).toEqual(["google"]);
     row = await db.competitor.findUniqueOrThrow({ where: { id: c.id } });
     expect(row.adsMarket).toBe("GB");
