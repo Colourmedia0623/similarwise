@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs, ShouldRevalidateFunction } from "react-router";
 import { Link, useFetcher, useFetchers, useLoaderData, useRevalidator } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
@@ -19,6 +19,7 @@ import {
   saveCampaign,
   savePost,
   sendNow,
+  setPostDetails,
   uploadSocialImage,
   writeSocialCaptions,
 } from "../lib/social/publishing.server";
@@ -117,6 +118,15 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   if (intent === "canva-designs") return { intent, ...(await recentCanvaDesigns(shop)) };
   if (intent === "canva-import") return { intent, ...(await importCanvaDesign(shop, text("designId"), Math.min(MAX_PICTURES, Number(text("max")) || MAX_PICTURES))) };
   if (intent === "duplicate") return { intent, ...(await duplicatePost(shop, id)) };
+  if (intent === "card")
+    return {
+      intent,
+      id,
+      ...(await setPostDetails(shop, id, {
+        campaignId: form.has("campaignId") ? text("campaignId") : undefined,
+        note: form.has("note") ? text("note") : undefined,
+      })),
+    };
   if (intent === "delete") return { intent, id, ...(await deleteSocialPost(shop, id)) };
   if (intent === "stats") return { intent, read: await refreshStats({ shop, scheduleId: id }) };
   if (intent === "retry") return { intent, id, ...(await retryPost(shop, id)) };
@@ -250,6 +260,10 @@ const Glyph = ({ d, size = 14 }: { d: string; size?: number }) => (
   </svg>
 );
 const G = {
+  more: "M4 8.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3Zm6 0a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3Zm6 0a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3Z",
+  tag: "M2 3a1 1 0 0 1 1-1h6.6a1 1 0 0 1 .7.3l7.4 7.4a1 1 0 0 1 0 1.4l-6.6 6.6a1 1 0 0 1-1.4 0L2.3 10.3a1 1 0 0 1-.3-.7V3Zm4 1.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z",
+  note: "M3 3h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-7l-4 3.5V14H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Zm1 2v7h4v1.6L9.8 12H16V5H4Z",
+  trash: "M7 2h6l1 2h4v2H2V4h4l1-2ZM4 7h12l-1 11H5L4 7Zm4 2v7h1.5V9H8Zm2.5 0v7H12V9h-1.5Z",
   chart: "M3 3h2v12h12v2H3V3Zm4 7h2v4H7v-4Zm4-4h2v8h-2V6Zm4 2h2v6h-2V8Z",
   heart: "M10 17.5 8.9 16.5C4.6 12.6 2 10.3 2 7.4 2 5 3.9 3 6.3 3c1.4 0 2.7.6 3.7 1.7C11 3.6 12.3 3 13.7 3 16.1 3 18 5 18 7.4c0 2.9-2.6 5.2-6.9 9.1L10 17.5Z",
   eye: "M10 4c4.2 0 7.3 3.4 8.5 6-1.2 2.6-4.3 6-8.5 6S2.7 12.6 1.5 10C2.7 7.4 5.8 4 10 4Zm0 2c-2.8 0-5.1 2-6.3 4 1.2 2 3.5 4 6.3 4s5.1-2 6.3-4c-1.2-2-3.5-4-6.3-4Zm0 1.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5Z",
@@ -410,6 +424,7 @@ export default function Publishing() {
           {notice.text}
         </s-banner>
       )}
+      <CardCampaigns.Provider value={campaigns}>
       <div className="pc-shell">
         <nav className="pc-rail" aria-label="Social calendar sections">
           <button type="button" className="pc-rail-new" onClick={() => newPost()}>
@@ -523,6 +538,7 @@ export default function Publishing() {
           )}
         </div>
       </div>
+      </CardCampaigns.Provider>
 
       {composer && (
         <Composer
@@ -784,9 +800,31 @@ const itemStatus = (i: Item) =>
 
 // A post on the calendar: its networks, time, caption, picture and campaign.
 type CardAction = "preview" | "edit" | "duplicate";
+// The calendar's campaigns, for the tag menu on each card.
+const CardCampaigns = createContext<Campaign[]>([]);
 
 function Card({ item, campaign, onOpen }: { item: Item; campaign?: Campaign; onOpen: (i: Item, action?: CardAction) => void }) {
   const status = itemStatus(item);
+  const campaigns = useContext(CardCampaigns);
+  const fx = useFetcher<Answer>();
+  const [pop, setPop] = useState<{ kind: "menu" | "tag" | "note"; x: number; y: number } | null>(null);
+  const [note, setNote] = useState("");
+  const [sure, setSure] = useState(false);
+  const popRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!pop) return;
+    const close = (e: MouseEvent) => {
+      if (!popRef.current?.contains(e.target as Node)) setPop(null);
+    };
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setPop(null);
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", esc);
+    window.addEventListener("scroll", () => setPop(null), { once: true, capture: true });
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", esc);
+    };
+  }, [pop]);
   if (item.kind === "blog") {
     return (
       <Link to="/app/calendar" className="pc-card pc-card-blog">
@@ -799,30 +837,56 @@ function Card({ item, campaign, onOpen }: { item: Item; campaign?: Campaign; onO
       </Link>
     );
   }
-  const caption = item.kind === "post" ? item.post.caption || Object.values(item.post.captions)[0] || "" : item.share.title;
-  const image = item.kind === "post" ? item.post.image : item.share.image;
-  const draggable = item.kind === "post" && (status === "draft" || status === "scheduled");
-  const editable = item.kind === "post" && ["draft", "scheduled", "failed"].includes(status);
-  const sentStats = addStats((item.kind === "post" ? item.post.results : item.share.results).map((r) => r.stats));
+  const post = item.kind === "post" ? item.post : null;
+  const caption = post ? post.caption || Object.values(post.captions)[0] || "" : item.kind === "share" ? item.share.title : "";
+  const image = post ? post.image : item.kind === "share" ? item.share.image : null;
+  const draggable = !!post && (status === "draft" || status === "scheduled");
+  const editable = !!post && ["draft", "scheduled", "failed"].includes(status);
+  const sentStats = addStats((post ? post.results : item.kind === "share" ? item.share.results : []).map((r) => r.stats));
   const total = sentStats ? engagement(sentStats) : undefined;
+  const rate = total !== undefined && sentStats?.reach ? (total / sentStats.reach) * 100 : undefined;
+  // The post's note and campaign as they'll be once a change from here is saved.
+  const pending = fx.state !== "idle" && fx.formData?.get("intent") === "card" ? fx.formData : null;
+  const shownNote = pending?.has("note") ? String(pending.get("note")) : (post?.note ?? "");
+  const shownCampaign = pending?.has("campaignId") ? campaigns.find((c) => c.id === pending.get("campaignId")) : campaign;
+  const busy = fx.state !== "idle";
   // Small buttons along the bottom; a click on them doesn't open the card.
   const act = (action: CardAction) => (e: React.MouseEvent) => {
     e.stopPropagation();
     onOpen(item, action);
   };
+  const openPop = (kind: "menu" | "tag" | "note") => (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    if (pop?.kind === kind) return setPop(null);
+    const r = e.currentTarget.getBoundingClientRect();
+    setPop({ kind, x: Math.min(r.left, window.innerWidth - 236), y: r.bottom + 4 });
+    setNote(post?.note ?? "");
+    setSure(false);
+  };
+  const send = (data: Record<string, string>) => {
+    if (post) fx.submit({ id: post.id, ...data }, { method: "post" });
+    setPop(null);
+  };
+  const menu: { label: string; icon: string; run: () => void; bad?: boolean }[] = [
+    { label: "Preview", icon: G.eye, run: () => onOpen(item, "preview") },
+    ...(editable ? [{ label: "Edit", icon: G.draft, run: () => onOpen(item, "edit") }] : []),
+    ...(post ? [{ label: "Duplicate", icon: G.copy, run: () => onOpen(item, "duplicate") }] : []),
+    ...(post && status === "scheduled" ? [{ label: "Send now", icon: G.send, run: () => send({ intent: "send-now" }) }] : []),
+    ...(post && (status === "failed" || status === "partial") ? [{ label: "Retry the accounts that failed", icon: G.send, run: () => send({ intent: "retry" }) }] : []),
+  ];
   return (
     <div
       role="button"
       tabIndex={0}
-      className={`pc-card pc-card-${status}`}
-      draggable={draggable}
+      className={`pc-card pc-card-${status}${busy ? " pc-card-busy" : ""}`}
+      draggable={draggable && !pop}
       onDragStart={(e) => {
         e.dataTransfer.setData("text/plain", `${item.key}|${item.time}`);
         e.dataTransfer.effectAllowed = "move";
       }}
-      onClick={() => onOpen(item)}
+      onClick={() => !pop && onOpen(item)}
       onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
+        if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
           e.preventDefault();
           onOpen(item);
         }
@@ -843,37 +907,143 @@ function Card({ item, campaign, onOpen }: { item: Item; campaign?: Campaign; onO
         <span className="pc-card-text">{caption || <i>No caption yet</i>}</span>
         {image && <img src={image} alt="" loading="lazy" />}
       </span>
-      {(campaign || item.kind === "share" || status === "failed" || status === "partial") && (
+      {(shownCampaign || item.kind === "share" || status === "failed" || status === "partial") && (
         <span className="pc-card-foot">
-          {campaign && (
-            <span className="pc-tag" style={{ ["--c" as string]: campaign.color }}>
-              {campaign.name}
+          {shownCampaign && (
+            <span className="pc-tag" style={{ ["--c" as string]: shownCampaign.color }}>
+              {shownCampaign.name}
             </span>
           )}
           {item.kind === "share" && <span className="pc-tag pc-tag-plain">Blog article share</span>}
           {(status === "failed" || status === "partial") && <span className="pc-tag pc-tag-bad">{STATUS_LABEL[status]}</span>}
         </span>
       )}
+      {shownNote && <span className="pc-card-note">{shownNote}</span>}
+      {fx.state === "idle" && fx.data?.error && <span className="pc-card-err">{fx.data.error}</span>}
       <span className="pc-card-acts">
-        {total !== undefined && (
-          <span className="pc-card-eng" title="Engagement: likes, comments, shares, saves and clicks">
-            <Glyph d={G.heart} size={12} /> {total.toLocaleString("en-GB")}
-          </span>
+        {post && (
+          <button type="button" title="More" aria-label="More actions" aria-expanded={pop?.kind === "menu"} onClick={openPop("menu")}>
+            <Glyph d={G.more} size={14} />
+          </button>
+        )}
+        {post && (
+          <button type="button" className={shownCampaign ? "pc-on" : ""} title={shownCampaign ? `Campaign: ${shownCampaign.name}` : "Add to a campaign"} aria-label="Campaign" onClick={openPop("tag")}>
+            <Glyph d={G.tag} size={14} />
+          </button>
+        )}
+        {post && (
+          <button type="button" className={shownNote ? "pc-on" : ""} title={shownNote ? `Note: ${shownNote}` : "Add a note"} aria-label="Note" onClick={openPop("note")}>
+            <Glyph d={G.note} size={14} />
+          </button>
         )}
         <button type="button" title="Preview" aria-label="Preview" onClick={act("preview")}>
           <Glyph d={G.eye} size={14} />
         </button>
-        {item.kind === "post" && (
-          <button type="button" title="Duplicate" aria-label="Duplicate" onClick={act("duplicate")}>
-            <Glyph d={G.copy} size={14} />
-          </button>
-        )}
         {editable && (
           <button type="button" title="Edit" aria-label="Edit" onClick={act("edit")}>
             <Glyph d={G.draft} size={14} />
           </button>
         )}
+        {total !== undefined && (
+          <span
+            className={`pc-card-eng${rate !== undefined ? " pc-card-rate" : ""}`}
+            title={rate !== undefined ? `Engagement rate: ${fmt(total)} engagements from ${fmt(sentStats?.reach)} reached` : "Engagements: likes, comments, shares, saves and clicks"}
+          >
+            {rate !== undefined ? `${rate < 10 ? rate.toFixed(1) : Math.round(rate)}%` : (
+              <>
+                <Glyph d={G.heart} size={12} /> {total.toLocaleString("en-GB")}
+              </>
+            )}
+          </span>
+        )}
       </span>
+      {pop && post && (
+        <div
+          ref={popRef}
+          className="pc-pop"
+          style={{ left: pop.x, top: pop.y }}
+          role="dialog"
+        >
+          {pop.kind === "menu" && (
+            <>
+              {menu.map((m) => (
+                <button
+                  key={m.label}
+                  type="button"
+                  className="pc-pop-item"
+                  onClick={() => {
+                    setPop(null);
+                    m.run();
+                  }}
+                >
+                  <Glyph d={m.icon} size={14} /> {m.label}
+                </button>
+              ))}
+              {status !== "sending" &&
+                (sure ? (
+                  <div className="pc-pop-sure">
+                    <span>{status === "sent" || status === "partial" ? "Remove it from the calendar? It stays on the networks." : "Delete this post?"}</span>
+                    <span>
+                      <button type="button" className="pc-pop-bad" onClick={() => send({ intent: "delete" })}>
+                        Delete
+                      </button>
+                      <button type="button" onClick={() => setSure(false)}>
+                        Keep
+                      </button>
+                    </span>
+                  </div>
+                ) : (
+                  <button type="button" className="pc-pop-item pc-pop-bad" onClick={() => setSure(true)}>
+                    <Glyph d={G.trash} size={14} /> Delete
+                  </button>
+                ))}
+            </>
+          )}
+          {pop.kind === "tag" && (
+            <>
+              <div className="pc-pop-title">Campaign</div>
+              {campaigns.filter((c) => !c.archived || c.id === shownCampaign?.id).length === 0 && <p className="pc-pop-empty">No campaigns yet. Make one under Campaigns.</p>}
+              {campaigns
+                .filter((c) => !c.archived || c.id === shownCampaign?.id)
+                .map((c) => (
+                  <button key={c.id} type="button" className={`pc-pop-item${c.id === shownCampaign?.id ? " pc-pop-on" : ""}`} onClick={() => send({ intent: "card", campaignId: c.id })}>
+                    <i className="pc-pop-dot" style={{ background: c.color }} /> {c.name}
+                    {c.id === shownCampaign?.id && <Glyph d={G.tick} size={14} />}
+                  </button>
+                ))}
+              {shownCampaign && (
+                <button type="button" className="pc-pop-item" onClick={() => send({ intent: "card", campaignId: "" })}>
+                  Take it out of {shownCampaign.name}
+                </button>
+              )}
+            </>
+          )}
+          {pop.kind === "note" && (
+            <>
+              <div className="pc-pop-title">Note for your team</div>
+              <textarea
+                value={note}
+                maxLength={1000}
+                rows={4}
+                placeholder="Only you and your team see this. It isn't posted."
+                onChange={(e) => setNote(e.target.value)}
+                // eslint-disable-next-line jsx-a11y/no-autofocus
+                autoFocus
+              />
+              <span className="pc-pop-row">
+                {post.note && (
+                  <button type="button" onClick={() => send({ intent: "card", note: "" })}>
+                    Remove
+                  </button>
+                )}
+                <button type="button" className="pc-pop-save" disabled={note.trim() === (post.note ?? "")} onClick={() => send({ intent: "card", note })}>
+                  Save note
+                </button>
+              </span>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -3019,9 +3189,33 @@ const CSS = `
 .pc-card-time { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; font-weight: 600; white-space: nowrap; color: #3459d6; }
 .pc-time-draft { color: #8a8a8a; } .pc-time-sent { color: #0f7a4f; } .pc-time-failed, .pc-time-partial { color: #c4291c; } .pc-time-sending { color: #8a5a00; }
 .pc-card-body { display: flex; gap: 6px; align-items: flex-start; }
-.pc-card-acts { display: flex; justify-content: flex-end; gap: 2px; margin-top: 2px; opacity: .55; transition: opacity .15s; }
+.pc-card-acts { display: flex; align-items: center; gap: 1px; margin-top: 2px; }
+.pc-card-acts button { opacity: .6; transition: opacity .15s; }
+.pc-card-acts button.pc-on { opacity: 1; color: #3459d6; }
+.pc-card:hover .pc-card-acts button, .pc-card:focus-within .pc-card-acts button { opacity: 1; }
+.pc-card-busy { opacity: .6; }
+.pc-card-note { font-size: 11px; line-height: 1.35; color: #5c4a00; background: #fff8db; border-radius: 6px; padding: 4px 6px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.pc-card-err { font-size: 11px; color: #c4290e; }
+.pc-card-eng.pc-card-rate { padding: 1px 6px; border-radius: 999px; background: #eef3ff; color: #3459d6; }
+.pc-pop { position: fixed; z-index: 1000; width: 230px; padding: 6px; border: 1px solid #e1e1e1; border-radius: 10px; background: #fff; box-shadow: 0 8px 24px rgba(0,0,0,.16); cursor: default; display: flex; flex-direction: column; gap: 2px; }
+.pc-pop-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 8px; border: 0; border-radius: 6px; background: none; font: inherit; font-size: 13px; color: #303030; text-align: left; cursor: pointer; }
+.pc-pop-item:hover { background: #f1f1f1; }
+.pc-pop-item svg:last-child:not(:first-child) { margin-left: auto; }
+.pc-pop-on { font-weight: 600; }
+.pc-pop-bad { color: #c4290e !important; }
+.pc-pop-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+.pc-pop-title { padding: 4px 8px 6px; font-size: 12px; font-weight: 600; color: #616161; }
+.pc-pop-empty { margin: 0; padding: 4px 8px 8px; font-size: 12px; color: #616161; }
+.pc-pop textarea { box-sizing: border-box; width: 100%; padding: 8px; border: 1px solid #c9c9c9; border-radius: 8px; font: inherit; font-size: 13px; resize: vertical; }
+.pc-pop-row { display: flex; justify-content: flex-end; gap: 6px; padding-top: 6px; }
+.pc-pop-row button, .pc-pop-sure button { padding: 5px 10px; border: 1px solid #c9c9c9; border-radius: 7px; background: #fff; font: inherit; font-size: 12px; cursor: pointer; }
+.pc-pop-save { background: #303030 !important; border-color: #303030 !important; color: #fff; }
+.pc-pop-save:disabled { opacity: .4; cursor: default; }
+.pc-pop-sure { display: flex; flex-direction: column; gap: 6px; padding: 8px; font-size: 12px; }
+.pc-pop-sure span:last-child { display: flex; gap: 6px; }
+.pc-pop-sure .pc-pop-bad { border-color: #c4290e; }
 .pc-card:hover .pc-card-acts, .pc-card:focus-within .pc-card-acts { opacity: 1; }
-.pc-card-eng { display: inline-flex; align-items: center; gap: 3px; margin-right: auto; color: #c4314b; font-size: 11px; font-weight: 600; }
+.pc-card-eng { display: inline-flex; align-items: center; gap: 3px; margin-left: auto; color: #c4314b; font-size: 11px; font-weight: 600; }
 .pc-card-acts button { display: inline-flex; padding: 3px; border: 0; border-radius: 6px; background: none; color: #4a4a4a; cursor: pointer; }
 .pc-card-acts button:hover { background: rgba(0,0,0,.07); color: #1a1a1a; }
 .pc-card-text { flex: 1; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }

@@ -103,6 +103,7 @@ export async function calendarData(shop: string, now = new Date()) {
       images: postImages(p).map((id) => ({ id, url: `/social-images/${id}.jpg` })),
       link: p.link,
       campaignId: p.campaignId,
+      note: p.note,
       status: p.status as Status,
       at: p.scheduledAt?.toISOString() ?? null,
       sentAt: p.sentAt?.toISOString() ?? null,
@@ -414,6 +415,21 @@ export async function movePost(shop: string, id: string, day: string, time: stri
   if (!at) return { error: "Choose a day for the post." };
   if (post.status === "scheduled" && at.getTime() < now.getTime() + 60_000) return { error: "That time has passed. Move it to a later day." };
   await db.scheduledPost.update({ where: { id }, data: { scheduledAt: at } });
+  return { ok: true as const };
+}
+
+// Changes made from a card on the calendar: the post's campaign, or the
+// team's note on it. Either can be set on a post that has already gone out.
+export async function setPostDetails(shop: string, id: string, details: { campaignId?: string; note?: string }) {
+  const post = await db.scheduledPost.findFirst({ where: { id, shop } });
+  if (!post) return { error: "That post isn't there any more." };
+  const data: { campaignId?: string | null; note?: string | null } = {};
+  if (details.campaignId !== undefined) {
+    if (details.campaignId && !(await db.socialCampaign.findFirst({ where: { id: details.campaignId, shop } }))) return { error: "That campaign isn't there any more." };
+    data.campaignId = details.campaignId || null;
+  }
+  if (details.note !== undefined) data.note = details.note.trim().slice(0, 1000) || null;
+  await db.scheduledPost.update({ where: { id }, data });
   return { ok: true as const };
 }
 
