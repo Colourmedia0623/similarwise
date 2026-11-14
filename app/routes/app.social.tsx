@@ -7,6 +7,7 @@ import { authenticate } from "../shopify.server";
 import { NETWORK_NAME } from "../lib/social/networks";
 import { authorizeUrl, providerApproved, providerOn, type Provider } from "../lib/social/networks.server";
 import { isFreeShop } from "../lib/waitlist.server";
+import { inboxOpen } from "../lib/inbox/inbox.server";
 import { signState } from "../lib/social/seal.server";
 import { canvaAccount, canvaAuthorizeUrl, canvaOn, disconnectCanva } from "../lib/social/canva.server";
 import { createPinterestBoard, disconnectAccount, setSocialAuto, socialAccounts } from "../lib/social/social.server";
@@ -21,7 +22,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
   const open = (p: Provider) => providerOn(p) && (providerApproved(p) || isFreeShop(shop));
-  const link = (p: Provider) => (open(p) ? authorizeUrl(p, signState({ shop, network: p, exp: Date.now() + SIGN_IN_FOR })) : null);
+  // Where the social inbox is open, signing in also asks to read and answer comments and messages.
+  const inbox = (p: Provider) => (p === "meta" ? inboxOpen(shop, "facebook") || inboxOpen(shop, "instagram") : inboxOpen(shop, p));
+  const link = (p: Provider) => (open(p) ? authorizeUrl(p, signState({ shop, network: p, exp: Date.now() + SIGN_IN_FOR }), { inbox: inbox(p) }) : null);
   const [accounts, settings, canvaUser] = await Promise.all([socialAccounts(shop), db.shopSettings.findUnique({ where: { shop } }), canvaAccount(shop)]);
   return {
     accounts,

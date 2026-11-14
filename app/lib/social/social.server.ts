@@ -78,6 +78,10 @@ export async function socialAccounts(shop: string) {
 
 export async function disconnectAccount(shop: string, id: string) {
   await db.socialAccount.deleteMany({ where: { id, shop } });
+  // Its inbox goes with it: the conversations can't be answered any more.
+  const threads = await db.inboxThread.findMany({ where: { shop, accountId: id }, select: { id: true } });
+  await db.inboxMessage.deleteMany({ where: { shop, threadId: { in: threads.map((t) => t.id) } } });
+  await db.inboxThread.deleteMany({ where: { shop, accountId: id } });
 }
 
 // A board the merchant names in SimilarWise, made on their connected
@@ -154,7 +158,7 @@ export async function writeCaptions(shop: string, articleId: string, ask: AskJso
 // A fresh TikTok or Pinterest token when the old one has run out (TikTok's
 // last a day, Pinterest's 30 days). Pinterest boards share one token, so all
 // of the merchant's boards get the new one.
-async function liveToken(account: { id: string; shop?: string; network: string; token: string; refreshToken: string | null; tokenExpiresAt: Date | null }, f: Fetch, now: Date) {
+export async function liveToken(account: { id: string; shop?: string; network: string; token: string; refreshToken: string | null; tokenExpiresAt: Date | null }, f: Fetch, now: Date) {
   // LinkedIn's can't be refreshed: the merchant connects again.
   if (account.network === "linkedin" && account.tokenExpiresAt && account.tokenExpiresAt.getTime() <= now.getTime() + 60_000)
     throw new Error("Your LinkedIn sign-in has run out. Connect LinkedIn again in Social accounts.");

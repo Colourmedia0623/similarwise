@@ -16,11 +16,12 @@ import { refreshAllGoogle } from "../google/google.server";
 import { checkSpendLimits } from "../paidsocial/paid.server";
 import { sendDuePosts } from "../social/publishing.server";
 import { recordFollowers, refreshStats } from "../social/social.server";
+import { syncAllInboxes } from "../inbox/inbox.server";
 
 // Every hour, re-checks the competitors nobody has checked in a day, one at
 // a time, and their search traffic and keyword gap, ads and link gap when they're a week old.
 // Then reads the shops' own storefronts daily, finds similar sites weekly, writes the blog posts due on the content calendar, asks AI assistants the shops' questions weekly, collects what people say about the shops and their competitors every three days, checks the shops' tracked Google rankings daily, audits the shops' own storefronts weekly, reads their own Google Analytics and Ads figures daily, checks their paid social spend against its monthly limits,
-// and every minute sends the social calendar posts that are due, and hourly reads how sent posts are doing,
+// and every minute sends the social calendar posts that are due, every five minutes reads new comments and messages into the social inbox, and hourly reads how sent posts are doing,
 // and emails what changed, and on Mondays the weekly summary.
 
 const HOUR = 3600_000;
@@ -70,4 +71,6 @@ export function startTrackerSchedule() {
   ).unref();
   // Social calendar posts go out on the minute they're due.
   setInterval(() => void sendDuePosts().catch((err) => console.error("Couldn't send scheduled social posts", err)), 60_000).unref();
+  // New comments and messages for the social inbox.
+  setInterval(() => void syncAllInboxes().catch((err) => console.error("Couldn't read the social inbox", err)), 5 * 60_000).unref();
 }
