@@ -1,7 +1,8 @@
 import db from "../../db.server";
 import { claudeJson, type AskJson } from "../ideas/claude.server";
 import { isFreeShop } from "../waitlist.server";
-import { NETWORK_NAME, postLink, type Fetch } from "../social/networks.server";
+import { NETWORK_NAME, graph, postLink, type Fetch } from "../social/networks.server";
+import { unseal } from "../social/seal.server";
 import { liveToken } from "../social/social.server";
 import { INBOX_NETWORKS, NEEDS_ACTION_AFTER, REPLY_LIMIT, STARTER_TAGS, fillReply, isInboxNetwork, matchesWords, type InboxNetwork, type Kind, type Sentiment } from "./inbox";
 import { permissionError, readInbox, sendReply, type Conversation } from "./networks.server";
@@ -134,7 +135,7 @@ async function settle(threadId: string, extra: { status?: string; resolvedAt?: D
 
 // Reads every open account of the shop, then lets Claude and the automations
 // at what came in.
-export async function syncShop(shop: string, opts: Opts = {}) {
+async function runSync(shop: string, opts: Opts) {
   const accounts = (await db.socialAccount.findMany({ where: { shop } })).filter((a) => inboxOpen(shop, a.network));
   const fresh: Fresh[] = [];
   for (const a of accounts) fresh.push(...(await syncAccount(a, opts)).fresh);
@@ -142,6 +143,68 @@ export async function syncShop(shop: string, opts: Opts = {}) {
   await automate(shop, fresh, opts);
   await route(shop, fresh.map((x) => x.id));
   return { accounts: accounts.length, fresh: fresh.length };
+}
+
+// One read at a time per shop, so the scheduler and an open inbox page
+// don't both save the same new messages.
+// A read asked for while one is running (say, a webhook for a message that
+// arrived mid-read) runs once more straight after, so nothing waits for the next round.
+const busy = new Set<string>();
+const again = new Set<string>();
+
+export async function syncShop(shop: string, opts: Opts = {}) {
+  if (busy.has(shop)) {
+    again.add(shop);
+    return { accounts: 0, fresh: 0, busy: true as const };
+  }
+  busy.add(shop);
+  try {
+    let result = await runSync(shop, opts);
+    while (again.delete(shop)) result = await runSync(shop, opts);
+    return result;
+  } finally {
+    busy.delete(shop);
+  }
+}
+
+// Meta's webhook: something changed on a Page or Instagram account (a new
+// comment or message). Reads the shops that have it connected straight away.
+export async function inboxWebhook(ids: string[], opts: Opts = {}) {
+  if (!ids.length) return 0;
+  const accounts = await db.socialAccount.findMany({ where: { network: { in: ["facebook", "instagram"] }, accountId: { in: ids } }, select: { shop: true, network: true } });
+  const shops = [...new Set(accounts.filter((a) => inboxOpen(a.shop, a.network)).map((a) => a.shop))];
+  for (const shop of shops) void syncShop(shop, opts).catch((err) => console.error("Couldn't read the social inbox after a webhook", shop, err));
+  return shops.length;
+}
+
+// Asks Meta to send each connected Page's (and its Instagram's) new comments
+// and messages to the webhook. Needs pages_manage_metadata; without it the
+// inbox still reads every few minutes.
+export async function subscribeWebhooks(shop: string, f: Fetch = fetch) {
+  if (!inboxOpen(shop, "facebook") && !inboxOpen(shop, "instagram")) return 0;
+  const pages = await db.socialAccount.findMany({ where: { shop, network: "facebook" } });
+  let done = 0;
+  for (const p of pages) {
+    try {
+      await graph(f, `/${p.accountId}/subscribed_apps`, { subscribed_fields: "feed,messages", access_token: unseal(p.token) }, "POST");
+      done++;
+    } catch (err) {
+      console.error("Couldn't subscribe a Page to inbox webhooks", shop, p.accountId, err instanceof Error ? err.message : err);
+    }
+  }
+  return done;
+}
+
+// While the inbox page is open it asks every minute; this reads again only
+// when the last read is older than maxAge, so several open tabs cost one read.
+export async function syncShopIfStale(shop: string, maxAge = 45_000, opts: Opts = {}) {
+  const now = opts.now ?? new Date();
+  const accounts = (await db.socialAccount.findMany({ where: { shop }, select: { network: true, inboxSyncedAt: true } })).filter((a) => inboxOpen(shop, a.network));
+  if (!accounts.length) return { synced: false };
+  const oldest = Math.min(...accounts.map((a) => a.inboxSyncedAt?.getTime() ?? 0));
+  if (now.getTime() - oldest < maxAge) return { synced: false };
+  await syncShop(shop, opts);
+  return { synced: true };
 }
 
 let syncing = false;
