@@ -16,6 +16,8 @@ export async function redactShop(shop: string) {
   await db.outreach.deleteMany({ where: { shop } });
   await db.aiAnswer.deleteMany({ where: { shop } });
   await db.aiPrompt.deleteMany({ where: { shop } });
+  await db.listenMention.deleteMany({ where: { shop } });
+  await db.listenTopic.deleteMany({ where: { shop } });
   await db.keywordRank.deleteMany({ where: { shop } });
   await db.trackedKeyword.deleteMany({ where: { shop } });
   await db.socialPost.deleteMany({ where: { shop } });
