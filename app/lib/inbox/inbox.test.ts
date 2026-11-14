@@ -274,6 +274,19 @@ describe("social inbox", () => {
     expect(v.accounts.find((a) => a.network === "facebook")!.error).toMatch(/Connect Facebook and Instagram again/);
   });
 
+  it("shows Instagram comments when its direct messages are refused, and says which part is missing", async () => {
+    await connect();
+    const w = world();
+    const routes = (): [RegExp, unknown, number?][] => [[/platform=instagram/, { error: { message: "(#3) Application does not have the capability to make this API call." } }, 400], ...w.routes()];
+    await syncShop(SHOP, { f: fakeFetch(routes, []), now: later(5), ask: null });
+    const v = await inboxView(SHOP, { network: "instagram" }, later(5));
+    expect(v.threads.map((t) => t.contactName)).toEqual(["@cara"]);
+    const ig = v.accounts.find((a) => a.network === "instagram")!;
+    expect(ig.error).toMatch(/read direct messages/);
+    expect(ig.error).toMatch(/does not have the capability/);
+    expect(v.accounts.find((a) => a.network === "facebook")!.error).toBeNull();
+  });
+
   it("drafts a reply with Claude and clears the inbox when an account is disconnected", async () => {
     const ids = await connect();
     await syncShop(SHOP, { f: fakeFetch(world().routes, []), now: later(5), ask: null });

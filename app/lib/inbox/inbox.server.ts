@@ -42,7 +42,10 @@ type Fresh = { id: string; text: string };
 export async function syncAccount(account: Account, { f = fetch, now = new Date() }: Opts = {}) {
   const network = account.network as InboxNetwork;
   const first = !account.inboxSyncedAt;
+  const refused = (message: string) =>
+    permissionError(message) ? `Connect ${network === "linkedin" ? "LinkedIn" : "Facebook and Instagram"} again in Social accounts and allow them. ${NETWORK_NAME[network]} said: ${message}` : `${NETWORK_NAME[network]} said: ${message}`;
   let found: Conversation[];
+  let partial: string | null = null;
   try {
     const token = await liveToken(account, f, now);
     const posts =
@@ -55,12 +58,18 @@ export async function syncAccount(account: Account, { f = fetch, now = new Date(
             })
           ).map((p) => ({ remoteId: p.remoteId!, url: postLink(p), text: p.caption }))
         : [];
-    found = await readInbox({ network, accountId: account.accountId, token }, { f, now, posts });
+    const read = await readInbox({ network, accountId: account.accountId, token }, { f, now, posts });
+    const what = (part: string) => (part === "messages" ? "direct messages" : "comments");
+    if (read.failed.length && !read.conversations.length && read.failed.length === (network === "linkedin" ? 1 : 2)) {
+      const m = read.failed[0].message;
+      throw new Error(read.failed.length > 1 && read.failed[1].message !== m ? `${m} / ${read.failed[1].message}` : m);
+    }
+    // One part refused: show the rest, and say which part is missing and why.
+    partial = read.failed.length ? `${NETWORK_NAME[network]} hasn't let SimilarWise read ${read.failed.map((x) => what(x.part)).join(" or ")} yet. ${refused(read.failed[0].message)}` : null;
+    found = read.conversations;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    const error = permissionError(message)
-      ? `${NETWORK_NAME[network]} hasn't let SimilarWise read comments and messages yet. Connect ${network === "linkedin" ? "LinkedIn" : "Facebook and Instagram"} again in Social accounts and allow them.`
-      : `${NETWORK_NAME[network]} said: ${message}`;
+    const error = permissionError(message) ? `${NETWORK_NAME[network]} hasn't let SimilarWise read comments and messages yet. ${refused(message)}` : refused(message);
     await db.socialAccount.update({ where: { id: account.id }, data: { inboxError: error.slice(0, 400) } });
     return { error, fresh: [] as Fresh[] };
   }
@@ -105,7 +114,7 @@ export async function syncAccount(account: Account, { f = fetch, now = new Date(
       if (!first) fresh.push({ id: thread.id, text: theirsNew.map((m) => m.text).join("\n") });
     }
   }
-  await db.socialAccount.update({ where: { id: account.id }, data: { inboxSyncedAt: now, inboxError: null } });
+  await db.socialAccount.update({ where: { id: account.id }, data: { inboxSyncedAt: now, inboxError: partial?.slice(0, 400) ?? null } });
   return { fresh };
 }
 
@@ -390,7 +399,8 @@ export async function toggleRule(shop: string, id: string, on: boolean) {
   await db.inboxRule.updateMany({ where: { id, shop }, data: { on } });
 }
 
-// Ready-made automations to start from.
+// Ready-made automations to start from. Their words have no commas: the
+// page splits the words box on commas, so "thanks, that's all" would become a bare "thanks".
 export const RULE_TEMPLATES: (Omit<RuleInput, "assignTo"> & { key: string })[] = [
   {
     key: "goodbye",
@@ -398,7 +408,7 @@ export const RULE_TEMPLATES: (Omit<RuleInput, "assignTo"> & { key: string })[] =
     on: true,
     networks: [],
     kinds: ["message"],
-    words: ["goodbye", "bye", "thanks, that's all", "that's all", "all sorted", "cheers"],
+    words: ["goodbye", "bye", "that's all", "all sorted", "cheers"],
     sentiment: "",
     addTags: [],
     reply: "",

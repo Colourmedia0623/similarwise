@@ -139,11 +139,33 @@ async function linkedinComments(f: Fetch, memberId: string, token: string, posts
   return out;
 }
 
-// Everything new enough to show for one account. LinkedIn needs the posts sent from SimilarWise.
-export async function readInbox(a: InboxAccount, { f = fetch, now = new Date(), posts = [] }: { f?: Fetch; now?: Date; posts?: { remoteId: string; url: string | null; text: string }[] } = {}): Promise<Conversation[]> {
-  if (a.network === "facebook") return [...(await facebookComments(f, a.accountId, a.token, now)), ...(await conversations(f, "messenger", a.accountId, a.token))];
-  if (a.network === "instagram") return [...(await instagramComments(f, a.accountId, a.token)), ...(await conversations(f, "instagram", a.accountId, a.token))];
-  return linkedinComments(f, a.accountId, a.token, posts);
+// Everything new enough to show for one account: its comments and its direct
+// messages, read separately so one being refused doesn't hold back the other.
+export type Part = "comments" | "messages";
+export type Read = { conversations: Conversation[]; failed: { part: Part; message: string }[] };
+
+export async function readInbox(a: InboxAccount, { f = fetch, now = new Date(), posts = [] }: { f?: Fetch; now?: Date; posts?: { remoteId: string; url: string | null; text: string }[] } = {}): Promise<Read> {
+  const parts: [Part, () => Promise<Conversation[]>][] =
+    a.network === "facebook"
+      ? [
+          ["comments", () => facebookComments(f, a.accountId, a.token, now)],
+          ["messages", () => conversations(f, "messenger", a.accountId, a.token)],
+        ]
+      : a.network === "instagram"
+        ? [
+            ["comments", () => instagramComments(f, a.accountId, a.token)],
+            ["messages", () => conversations(f, "instagram", a.accountId, a.token)],
+          ]
+        : [["comments", () => linkedinComments(f, a.accountId, a.token, posts)]];
+  const out: Read = { conversations: [], failed: [] };
+  for (const [part, read] of parts) {
+    try {
+      out.conversations.push(...(await read()));
+    } catch (err) {
+      out.failed.push({ part, message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  return out;
 }
 
 export type Reply = { kind: Kind; remoteId: string; contactId: string | null; postId: string | null; text: string; lastTheirsAt: Date | null };
