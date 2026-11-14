@@ -292,6 +292,7 @@ export async function sendPost(id: string, { f = fetch, now = new Date(), onlyFa
               shop: post.shop,
               scheduleId: id,
               accountId,
+              accountRef: account?.accountId,
               network,
               caption,
               ...data,

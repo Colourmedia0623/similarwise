@@ -36,7 +36,38 @@ export async function saveAccounts(shop: string, accounts: Connected[]) {
     const data = { name: a.name.slice(0, 200), token: seal(a.token), refreshToken: a.refreshToken ? seal(a.refreshToken) : null, tokenExpiresAt: a.expiresAt ?? null };
     await db.socialAccount.upsert({ where: { shop_network_accountId: { shop, network: a.network, accountId: a.accountId } }, update: data, create: { shop, network: a.network, accountId: a.accountId, ...data } });
   }
+  await relinkPosts(shop);
   return accounts.length;
+}
+
+// An account disconnected and connected again gets a new record, so posts
+// sent from it (and posts waiting to go to it) are pointed at the new one:
+// by the network's id for the account, by the Page id a Facebook post's id
+// starts with, or, failing those, when the shop has just one account on
+// that network.
+export async function relinkPosts(shop: string) {
+  const accounts = await db.socialAccount.findMany({ where: { shop }, select: { id: true, network: true, accountId: true } });
+  const live = new Set(accounts.map((a) => a.id));
+  const orphans = await db.socialPost.findMany({ where: { shop, accountId: { notIn: [...live] } }, select: { id: true, accountId: true, accountRef: true, network: true, remoteId: true } });
+  const moved = new Map<string, string>();
+  for (const p of orphans) {
+    const same = accounts.filter((a) => a.network === p.network);
+    const to =
+      same.find((a) => p.accountRef && a.accountId === p.accountRef) ??
+      (p.network === "facebook" ? same.find((a) => p.remoteId?.startsWith(`${a.accountId}_`)) : undefined) ??
+      (!p.accountRef && same.length === 1 ? same[0] : undefined);
+    if (!to) continue;
+    await db.socialPost.update({ where: { id: p.id }, data: { accountId: to.id, accountRef: to.accountId } });
+    moved.set(p.accountId, to.id);
+  }
+  if (!moved.size) return 0;
+  const waiting = await db.scheduledPost.findMany({ where: { shop, status: { in: ["draft", "scheduled", "failed", "partial"] } }, select: { id: true, accountIds: true } });
+  for (const w of waiting) {
+    const ids: string[] = JSON.parse(w.accountIds || "[]");
+    if (!ids.some((x) => moved.has(x))) continue;
+    await db.scheduledPost.update({ where: { id: w.id }, data: { accountIds: JSON.stringify([...new Set(ids.map((x) => moved.get(x) ?? x))]) } });
+  }
+  return moved.size;
 }
 
 export async function socialAccounts(shop: string) {
@@ -179,7 +210,7 @@ export async function shareArticle(shop: string, articleId: string, picks: Pick[
       const network = account.network as Network;
       const caption = pick.caption.trim();
       const fail = async (error: string) => {
-        await db.socialPost.create({ data: { shop, articleId, accountId: account.id, network, caption, status: "failed", error: error.slice(0, 300) } });
+        await db.socialPost.create({ data: { shop, articleId, accountId: account.id, accountRef: account.accountId, network, caption, status: "failed", error: error.slice(0, 300) } });
         return { accountId: account.id, error };
       };
       if (!caption) return fail(`Write a caption for ${NETWORK_NAME[network]}.`);
@@ -189,7 +220,7 @@ export async function shareArticle(shop: string, articleId: string, picks: Pick[
         // TikTok gets a copy small enough for it to accept.
         const picture = image && network === "tiktok" ? `${image}${image.includes("?") ? "&" : "?"}for=tiktok` : image;
         const done = await sendTo(account, { caption, title: a.title, link, imageUrl: picture ?? "" }, pick.tiktok, f, now);
-        await db.socialPost.create({ data: { shop, articleId, accountId: account.id, network, caption, status: done.processing ? "processing" : "posted", remoteId: done.remoteId, url: done.url } });
+        await db.socialPost.create({ data: { shop, articleId, accountId: account.id, accountRef: account.accountId, network, caption, status: done.processing ? "processing" : "posted", remoteId: done.remoteId, url: done.url } });
         return { accountId: account.id, ok: true as const };
       } catch (err) {
         console.error("Couldn't post to social", shop, network, err);
