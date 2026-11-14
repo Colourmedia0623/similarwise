@@ -6,7 +6,7 @@ import { verifyUnsubscribe } from "../lib/email/send.server";
 // The "turn this email off" link in every email. Mail apps can also post here
 // directly (one-click unsubscribe), so the change happens on POST.
 
-const LABEL = { alerts: "competitor alerts", digest: "the weekly summary" } as const;
+const LABEL = { alerts: "competitor alerts", digest: "the weekly summary", report: "the monthly performance report" } as const;
 
 function check(url: URL) {
   const shop = url.searchParams.get("shop") ?? "";
@@ -25,7 +25,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   if (!found) throw new Response("This link isn't valid.", { status: 400 });
   await db.shopSettings.updateMany({
     where: { shop: found.shop },
-    data: found.list === "alerts" ? { alertsOn: false } : { digestOn: false },
+    data: found.list === "alerts" ? { alertsOn: false } : found.list === "digest" ? { digestOn: false } : { reportOn: false },
   });
   return { done: true };
 };

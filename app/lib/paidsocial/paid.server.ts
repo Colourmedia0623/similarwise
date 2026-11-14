@@ -104,6 +104,40 @@ export async function paidOverview(shop: string, period: Period, { f = fetch, no
   );
 }
 
+// Each ad account's totals for a report's period and the period before, and
+// its biggest spending campaigns in the period. Read live from the networks.
+export async function paidReport(
+  shop: string,
+  r: { since: string; until: string; prevSince: string; prevUntil: string },
+  { f = fetch, now = new Date() }: { f?: Fetch; now?: Date } = {},
+) {
+  const rows = await db.adAccount.findMany({ where: { shop }, orderBy: [{ network: "asc" }, { name: "asc" }] });
+  return Promise.all(
+    rows.map(async (a) => {
+      const base = { network: a.network as AdNetwork, name: a.name, currency: a.currency };
+      try {
+        const token = liveToken(a, now);
+        const [campaigns, cur, prev] = await Promise.all([
+          campaignsOf(a, token, f),
+          insightsOf(a, token, r.since, r.until, f),
+          insightsOf(a, token, r.prevSince, r.prevUntil, f),
+        ]);
+        const names = new Map(campaigns.map((c) => [c.id, c.name]));
+        const top = [...cur.entries()]
+          .map(([id, m]) => ({ name: names.get(id) ?? "Deleted campaign", ...m }))
+          .filter((c) => c.spend > 0)
+          .sort((x, y) => y.spend - x.spend)
+          .slice(0, 5);
+        const sum = (m: Map<string, Metrics>) => [...m.values()].reduce(addMetrics, NO_METRICS);
+        return { ...base, error: null, current: sum(cur), previous: sum(prev), campaigns: top };
+      } catch (err) {
+        console.error("Couldn't read ad account for a report", shop, a.network, a.accountId, err);
+        return { ...base, error: said(a, err), current: NO_METRICS, previous: NO_METRICS, campaigns: [] };
+      }
+    }),
+  );
+}
+
 async function account(shop: string, id: string) {
   const a = await db.adAccount.findFirst({ where: { id, shop } });
   if (!a) throw new Problem("That ad account isn't connected any more.");

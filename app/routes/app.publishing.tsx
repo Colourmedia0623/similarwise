@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs, ShouldRevalidateFunction } from "react-router";
-import { Link, useFetcher, useFetchers, useLoaderData, useRevalidator } from "react-router";
+import { Link, useFetcher, useFetchers, useLoaderData, useRevalidator, useSearchParams } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { NETWORK_NAME, type Network, type PostStats } from "../lib/social/networks";
@@ -291,7 +291,9 @@ const G = {
 export default function Publishing() {
   const data = useLoaderData<typeof loader>();
   const { accounts, posts, campaigns, tz, today } = data;
-  const [section, setSection] = useState<Section>("calendar");
+  const [params] = useSearchParams();
+  // Other pages can open a section directly, e.g. ?section=reports from the Reports page.
+  const [section, setSection] = useState<Section>(params.get("section") === "reports" ? "reports" : "calendar");
   const [mode, setMode] = useState<Mode>("week");
   const [anchor, setAnchor] = useState(today);
   const [nets, setNets] = useState<Network[]>(NETWORKS);
@@ -1689,7 +1691,10 @@ function Reports({
       <div className="pc-sent-head">
         <div>
           <h2>Reports</h2>
-          <p className="pc-muted">How your posts did across every channel, against the period before. Figures update every hour.</p>
+          <p className="pc-muted">
+            How your posts did across every channel, against the period before. Figures update every hour. For a printable report with your ads, website and
+            rankings too, open <Link to="/app/reports">Reports</Link>.
+          </p>
         </div>
         <div className="pc-toggle" role="group" aria-label="Period">
           {PERIODS.map((d) => (

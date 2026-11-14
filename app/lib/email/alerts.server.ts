@@ -67,7 +67,7 @@ function groupByCompetitor(events: Event[]) {
 
 // Shared look for both emails: a heading, sections, and a footer with the
 // link that turns this email off.
-function layout(heading: string, sections: { title: string; html: string; text: string }[], footer: { shop: string; unsubscribe: string; what: string }) {
+export function layout(heading: string, sections: { title: string; html: string; text: string }[], footer: { shop: string; unsubscribe: string; what: string }) {
   const settings = adminUrl(footer.shop, "/app/settings");
   const html = `<!doctype html><html><body style="margin:0;padding:24px;background:#f4f6fa;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;color:#0f1b2d">
 <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:12px;padding:24px">
@@ -88,7 +88,7 @@ ${sections.map((s) => `<h2 style="margin:24px 0 8px;font-size:16px">${escapeHtml
   return { html, text };
 }
 
-const list = (items: string[]) => ({
+export const list = (items: string[]) => ({
   html: `<ul style="margin:0;padding-left:20px;line-height:1.6">${items.map((i) => `<li>${escapeHtml(i)}</li>`).join("")}</ul>`,
   text: items.map((i) => `- ${i}`).join("\n"),
 });
