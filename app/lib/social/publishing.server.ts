@@ -90,6 +90,10 @@ export async function calendarData(shop: string, now = new Date()) {
     const key = `${s.articleId}:${Math.floor(s.createdAt.getTime() / 600_000)}`;
     shared.set(key, [...(shared.get(key) ?? []), s]);
   }
+  // Which pictures came from a Canva design, so they can be changed there.
+  const fromCanva = new Map(
+    (await db.socialImage.findMany({ where: { shop, id: { in: posts.flatMap((p) => postImages(p)) }, canvaDesignId: { not: null } }, select: { id: true, canvaDesignId: true } })).map((i) => [i.id, i.canvaDesignId!]),
+  );
   return {
     accounts: accounts.filter((a) => networkOpen(shop, a.network as Network)).map((a) => ({ id: a.id, network: a.network as Network, name: a.name })),
     posts: posts.map((p) => ({
@@ -100,7 +104,7 @@ export async function calendarData(shop: string, now = new Date()) {
       tiktok: json<Record<string, TikTokChoices>>(p.tiktok, {}),
       image: p.imageId ? `/social-images/${p.imageId}.jpg` : null,
       imageId: p.imageId,
-      images: postImages(p).map((id) => ({ id, url: `/social-images/${id}.jpg` })),
+      images: postImages(p).map((id) => ({ id, url: `/social-images/${id}.jpg`, canva: fromCanva.get(id) ?? null })),
       link: p.link,
       campaignId: p.campaignId,
       note: p.note,

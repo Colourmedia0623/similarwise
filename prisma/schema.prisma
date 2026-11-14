@@ -632,6 +632,8 @@ model SocialImage {
   mime      String
   width     Int
   height    Int
+  // The Canva design it was exported from, so it can be opened and changed again.
+  canvaDesignId String?
   createdAt DateTime @default(now())
 
   @@index([shop])
