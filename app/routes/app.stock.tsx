@@ -4,6 +4,7 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { formatPrice, timeAgo } from "../lib/format";
 import { checkStockNow, soldOutProducts } from "../lib/tracker/stock.server";
+import { HowTo } from "../components/HowTo";
 
 // What's showing out of stock at competitors right now, sold out entirely or
 // in some sizes and options, with the products the shop sells too first:
@@ -47,6 +48,7 @@ export default function Stock() {
 
   return (
     <s-page heading="Out of stock at competitors">
+      <HowTo video="out-of-stock" />
       <s-button
         slot="primary-action"
         loading={check.state !== "idle"}

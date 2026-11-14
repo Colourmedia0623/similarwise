@@ -4,6 +4,7 @@ import { useFetcher, useLoaderData, useRevalidator } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { MAX_KEYWORDS, addFromGap, addKeywords, rankOverview, removeKeyword, serpClient, startRankCheck } from "../lib/ranks/ranks.server";
+import { HowTo } from "../components/HowTo";
 
 // Rank tracker: where the shop ranks on Google for the searches it chooses,
 // checked every day, next to its competitors.
@@ -128,6 +129,7 @@ export default function Ranks() {
 
   return (
     <s-page heading="Rank tracker">
+      <HowTo video="rank-tracker" />
       {d.on && (
         <s-button slot="primary-action" variant="primary" loading={checking} disabled={!d.keywords.length || !d.domain} onClick={() => check.submit({ intent: "check" }, { method: "post" })}>
           Check now

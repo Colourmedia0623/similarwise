@@ -38,6 +38,7 @@ import {
 } from "../lib/social/canva.server";
 import { addDays, dayLabel, timeLabel, validZone, weekStart, zoned } from "../lib/social/when";
 import { TikTokPost } from "../components/TikTokPost";
+import { HowTo } from "../components/HowTo";
 
 // Social calendar: every post to the shop's Facebook Pages, Instagram and
 // TikTok accounts on a week or month calendar, with a composer for posts
@@ -411,6 +412,7 @@ export default function Publishing() {
 
   return (
     <s-page heading="Social calendar" inlineSize="large">
+      <HowTo video="social-calendar" />
       <s-button slot="primary-action" variant="primary" onClick={() => newPost()}>
         New post
       </s-button>

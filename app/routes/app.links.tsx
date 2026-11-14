@@ -6,6 +6,7 @@ import db from "../db.server";
 import { linkGap, linksClient, refreshLinks } from "../lib/links/links.server";
 import { outreachByDomain, startOutreach } from "../lib/links/outreach.server";
 import { claudeJson } from "../lib/ideas/claude.server";
+import { HowTo } from "../components/HowTo";
 
 // The link gap: websites that link to competitors but not to the shop, with
 // an outreach email for each on request.
@@ -42,6 +43,7 @@ export default function Links() {
   const waiting = competitors.some((c) => !c.ready && !c.error);
   return (
     <s-page heading="Link gap">
+      <HowTo video="link-gap" />
       {on && domain && competitors.length > 0 && (
         <s-button slot="primary-action" loading={refresh.state !== "idle"} onClick={() => refresh.submit({ intent: "refresh" }, { method: "post" })}>
           Refresh

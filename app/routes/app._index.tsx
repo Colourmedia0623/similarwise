@@ -4,6 +4,7 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { overview } from "../lib/dashboard.server";
 import { EVENT_LABEL, EVENT_TONE, compact, formatPrice, timeAgo } from "../lib/format";
+import { HowTo } from "../components/HowTo";
 
 // Overview: a tile for each page with its headline number, what the shop's
 // competitors changed this week, and the latest activity.
@@ -124,6 +125,7 @@ export default function Index() {
 
   return (
     <s-page heading="Similarwise">
+      <HowTo video="overview" />
       <style>{CSS}</style>
       <s-stack gap="large">
         <div className="sw-hero">

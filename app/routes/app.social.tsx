@@ -10,6 +10,7 @@ import { isFreeShop } from "../lib/waitlist.server";
 import { signState } from "../lib/social/seal.server";
 import { canvaAccount, canvaAuthorizeUrl, canvaOn, disconnectCanva } from "../lib/social/canva.server";
 import { createPinterestBoard, disconnectAccount, setSocialAuto, socialAccounts } from "../lib/social/social.server";
+import { HowTo } from "../components/HowTo";
 
 // Social accounts: the Facebook Pages, Instagram business accounts, TikTok
 // accounts and Pinterest boards that posts and blog articles can be shared to.
@@ -58,6 +59,7 @@ export default function Social() {
 
   return (
     <s-page heading="Social accounts">
+      <HowTo video="social-accounts" />
       <s-section>
         <s-stack gap="base">
           <s-paragraph>

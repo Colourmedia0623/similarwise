@@ -3,6 +3,7 @@ import { useFetcher, useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { refreshOwnTech, techOverview } from "../lib/tracker/tech.server";
+import { HowTo } from "../components/HowTo";
 
 // Website technologies: the theme, apps and ad pixels each competitor's
 // store runs, beside the shop's own, grouped by what the apps do.
@@ -27,6 +28,7 @@ export default function Tech() {
   const name = new Map(stores.map((s) => [s.id, s.name]));
   return (
     <s-page heading="Website technologies">
+      <HowTo video="website-technologies" />
       {domain && (
         <s-button slot="primary-action" loading={refresh.state !== "idle"} onClick={() => refresh.submit({}, { method: "post" })}>
           Re-read my store

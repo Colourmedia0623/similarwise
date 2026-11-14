@@ -4,6 +4,7 @@ import { useFetcher, useLoaderData, useRevalidator } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { auditOverview, startAudit } from "../lib/audit/audit.server";
+import { HowTo } from "../components/HowTo";
 
 // Site audit: the SEO problems on the shop's own storefront, worst first,
 // with how to fix each one.
@@ -47,6 +48,7 @@ export default function Audit() {
 
   return (
     <s-page heading="Site audit">
+      <HowTo video="site-audit" />
       {d.domain && (
         <s-button slot="primary-action" variant="primary" loading={checking} onClick={() => check.submit({}, { method: "post" })}>
           Check now

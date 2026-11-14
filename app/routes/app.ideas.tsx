@@ -7,6 +7,7 @@ import { ideasClient, keywordIdeas, refreshIdeas } from "../lib/ideas/ideas.serv
 import { Copyable } from "../components/Copyable";
 import { syncIfStale, type Graphql } from "../lib/prices/prices.server";
 import { writeArticle } from "../lib/ideas/articles.server";
+import { HowTo } from "../components/HowTo";
 
 // Keyword ideas: which page to point at each search competitors win, with
 // the words to put on it.
@@ -47,6 +48,7 @@ export default function Ideas() {
   const error = write.data && "error" in write.data && !("idea" in write.data) ? write.data.error : null;
   return (
     <s-page heading="Keyword ideas">
+      <HowTo video="keyword-ideas" />
       {on && (
         <s-button slot="primary-action" loading={busy} onClick={() => write.submit({}, { method: "post" })}>
           {ideas.length ? "Write new ideas" : "Write ideas"}

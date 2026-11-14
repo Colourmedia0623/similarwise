@@ -16,6 +16,7 @@ import {
   startAiCheck,
   suggestPrompts,
 } from "../lib/ai/mentions.server";
+import { HowTo } from "../components/HowTo";
 
 // AI mentions: whether ChatGPT, Gemini and Perplexity name the shop when
 // shoppers ask them for what it sells, next to its competitors, and the
@@ -85,6 +86,7 @@ export default function AiMentions() {
 
   return (
     <s-page heading="AI mentions">
+      <HowTo video="ai-mentions" />
       {d.on && (
         <s-button
           slot="primary-action"

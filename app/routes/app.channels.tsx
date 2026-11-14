@@ -10,6 +10,7 @@ import { channelsOverview, refreshOwnTraffic, refreshShopSources } from "../lib/
 import { sourcesClient } from "../lib/traffic/sources.server";
 import { SOURCES, SOURCE_LABEL, type Source } from "../lib/traffic/sources";
 import { CHANNEL_LABEL, type Channel } from "../lib/traffic/channels";
+import { HowTo } from "../components/HowTo";
 
 // Marketing channels: Google search visits, organic and from ads, for the
 // shop and each competitor, and the other channels each is set up for.
@@ -169,6 +170,7 @@ export default function Channels() {
   const measured = sites.some((s) => s.organic != null);
   return (
     <s-page heading="Marketing channels">
+      <HowTo video="marketing-channels" />
       {(on || sourcesOn) && sites.length > 0 && (
         <s-button slot="primary-action" loading={refresh.state !== "idle"} onClick={() => refresh.submit({}, { method: "post" })}>
           Refresh

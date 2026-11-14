@@ -8,6 +8,7 @@ import { timeAgo } from "../lib/format";
 import { adsOverview, findMetaPage, refreshAds, setMetaPage, setTiktokAdvertiser } from "../lib/ads/ads.server";
 import { PLATFORM_LABEL } from "../lib/ads/platforms";
 import { adsClient, type Platform } from "../lib/ads/scrapecreators.server";
+import { HowTo } from "../components/HowTo";
 
 // The ads competitors are running on Meta, TikTok and Google, from the
 // platforms' public ad libraries, and which accounts are theirs.
@@ -52,6 +53,7 @@ export default function Ads() {
 
   return (
     <s-page heading="Ads">
+      <HowTo video="ads" />
       {on && competitors.length > 0 && (
         <s-button slot="primary-action" loading={refresh.state !== "idle"} onClick={() => refresh.submit({ intent: "refresh" }, { method: "post" })}>
           Refresh

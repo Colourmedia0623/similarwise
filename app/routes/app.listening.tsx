@@ -8,6 +8,7 @@ import { detectAiBrand } from "../lib/ai/mentions.server";
 import { listenClients } from "../lib/listening/sources.server";
 import { SOURCES } from "../lib/listening/sources";
 import { addKeyword, askListening, deleteKeyword, editTopic, listeningView, startListening, suggestKeywords, syncTopics } from "../lib/listening/listening.server";
+import { HowTo } from "../components/HowTo";
 
 // Social listening: what people say on Reddit, YouTube, TikTok and across the
 // web about the shop, its competitors and the keywords it follows, with
@@ -100,6 +101,7 @@ export default function Listening() {
 
   return (
     <s-page heading="Social listening">
+      <HowTo video="social-listening" />
       {d.on && (
         <s-button slot="primary-action" variant="primary" loading={checking} disabled={!d.topics.length} onClick={() => check.submit({ intent: "check" }, { method: "post" })}>
           Check now

@@ -7,6 +7,7 @@ import db from "../db.server";
 import { compact, formatPrice } from "../lib/format";
 import { gapClient } from "../lib/traffic/dataforseo.server";
 import { keywordGap, refreshGap, setShopDomain, type GapRow } from "../lib/traffic/gap.server";
+import { HowTo } from "../components/HowTo";
 
 // The keyword gap: Google searches that bring competitors visits where the
 // shop's website doesn't rank, or ranks below them.
@@ -48,6 +49,7 @@ export default function Keywords() {
 
   return (
     <s-page heading="Keyword gap">
+      <HowTo video="keyword-gap" />
       {searchOn && domain && competitors.length > 0 && (
         <s-button
           slot="primary-action"
