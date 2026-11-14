@@ -1,11 +1,11 @@
 import type { LoaderFunctionArgs } from "react-router";
 import { useLoaderData } from "react-router";
 import { readState } from "../lib/social/seal.server";
-import { connectMeta, connectPinterest, connectTikTok } from "../lib/social/networks.server";
+import { connectLinkedIn, connectMeta, connectPinterest, connectTikTok } from "../lib/social/networks.server";
 import { saveAccounts } from "../lib/social/social.server";
 import { connectCanva } from "../lib/social/canva.server";
 
-// Where Meta, TikTok and Pinterest send the merchant back after they sign in. Opened in
+// Where Meta, TikTok, Pinterest and LinkedIn send the merchant back after they sign in. Opened in
 // its own tab, since neither sign-in page works inside Shopify's admin.
 
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
@@ -25,11 +25,18 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       return { ok: false as const, message: `Canva wasn't connected. ${err instanceof Error ? err.message : String(err)}` };
     }
   }
-  if (!state || (provider !== "meta" && provider !== "tiktok" && provider !== "pinterest") || state.network !== provider)
+  if (!state || (provider !== "meta" && provider !== "tiktok" && provider !== "pinterest" && provider !== "linkedin") || state.network !== provider)
     return { ok: false as const, message: "This sign-in link has expired. Go back to SimilarWise and press Connect again." };
   if (!code) return { ok: false as const, message: "You didn't finish signing in, so nothing was connected. You can try again from SimilarWise." };
   try {
-    const accounts = provider === "meta" ? await connectMeta(code) : provider === "pinterest" ? await connectPinterest(code) : await connectTikTok(code);
+    const accounts =
+      provider === "meta"
+        ? await connectMeta(code)
+        : provider === "pinterest"
+          ? await connectPinterest(code)
+          : provider === "linkedin"
+            ? await connectLinkedIn(code)
+            : await connectTikTok(code);
     const count = await saveAccounts(state.shop, accounts);
     if (!count)
       return {
@@ -39,7 +46,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
             ? "No Facebook Pages came through. Make sure you picked your shop's Page when signing in, and that its Instagram is a business account linked to the Page."
             : provider === "pinterest"
               ? "No Pinterest boards came through. Make a board on Pinterest, then connect again."
-              : "No TikTok account came through. Try connecting again.",
+              : `No ${provider === "linkedin" ? "LinkedIn" : "TikTok"} account came through. Try connecting again.`,
       };
     return { ok: true as const, message: `Connected ${accounts.map((a) => a.name).join(", ")}.` };
   } catch (err) {

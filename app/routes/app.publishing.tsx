@@ -205,7 +205,7 @@ type Item =
       blog: Data["blog"][number];
     };
 
-const NETWORKS: Network[] = ["facebook", "instagram", "tiktok", "pinterest"];
+const NETWORKS: Network[] = ["facebook", "instagram", "tiktok", "pinterest", "linkedin"];
 const STATUS_LABEL: Record<string, string> = {
   draft: "Draft",
   scheduled: "Scheduled",
@@ -222,6 +222,7 @@ const NET_COLOR: Record<Network, string> = {
   instagram: "#d6249f",
   tiktok: "#111111",
   pinterest: "#e60023",
+  linkedin: "#0a66c2",
 };
 
 function NetIcon({ n, size = 16 }: { n: Network; size?: number }) {
@@ -243,6 +244,9 @@ function NetIcon({ n, size = 16 }: { n: Network; size?: number }) {
             fill="#fff"
             d="M11.3 0c.3 2 1.4 3.2 3.4 3.3v2.4c-1.2.1-2.3-.3-3.4-1v4.4c0 5.6-6.1 7.3-8.5 3.3-1.6-2.6-.6-7 4.5-7.2v2.5c-.4.1-.8.2-1.1.3-1.2.4-1.8 1.1-1.6 2.3.4 2.3 4.6 3 4.2-1.5V0h2.5Z"
           />
+        )}
+        {n === "linkedin" && (
+          <path fill="#fff" d="M1.5 5.5h2.9V15H1.5V5.5ZM3 1a1.7 1.7 0 1 1 0 3.4A1.7 1.7 0 0 1 3 1Zm3.3 4.5h2.8v1.3c.4-.7 1.4-1.5 2.8-1.5 3 0 3.6 2 3.6 4.5V15h-2.9v-4.6c0-1.1 0-2.5-1.5-2.5s-1.8 1.2-1.8 2.4V15H6.3V5.5Z" />
         )}
         {n === "pinterest" && (
           <path
@@ -1571,6 +1575,7 @@ const CHART_COLOR: Record<Network, string> = {
   instagram: "#eb6834",
   pinterest: "#1baf7a",
   tiktok: "#eda100",
+  linkedin: "#8a4fc7",
 };
 const PERIODS = [7, 30, 60] as const;
 
@@ -2615,7 +2620,7 @@ function Composer({
     setSeenWritten(written);
     if (written) {
       setCaption(written.caption);
-      setCaptions({ facebook: written.facebook, instagram: written.instagram, tiktok: written.tiktok, pinterest: written.pinterest });
+      setCaptions({ facebook: written.facebook, instagram: written.instagram, tiktok: written.tiktok, pinterest: written.pinterest, linkedin: written.linkedin });
       setBrief(null);
     }
   }
@@ -2845,7 +2850,7 @@ function Composer({
                   }}
                 >
                   {upload.state !== "idle" ? "Uploading…" : "Drop pictures here, or choose them"}
-                  <small>JPG, PNG or WebP. Instagram, Pinterest and TikTok need one. Add up to {MAX_PICTURES} for a carousel.</small>
+                  <small>JPG, PNG or WebP. Instagram, Pinterest and TikTok need one; Facebook and LinkedIn don&apos;t. Add up to {MAX_PICTURES} for a carousel.</small>
                 </button>
               )}
               {images.length > 5 && pickedAccounts.some((a) => a.network === "pinterest") && (
@@ -2878,7 +2883,7 @@ function Composer({
                 label="Link (optional)"
                 value={link}
                 placeholder="https://"
-                details="Added under the Facebook post and opened from the Pinterest pin. Instagram and TikTok don't allow links in captions."
+                details="Added under the Facebook and LinkedIn posts and opened from the Pinterest pin. Instagram and TikTok don't allow links in captions."
                 onInput={(e) => setLink(e.currentTarget.value)}
               />
               <s-select label="Campaign" value={campaignId} onChange={(e) => setCampaignId(e.currentTarget.value)}>
@@ -3156,6 +3161,7 @@ const CSS = `
 .pc-net-instagram { background: radial-gradient(circle at 30% 107%, #fdf497 0%, #fd5949 45%, #d6249f 60%, #285aeb 90%); border-radius: 30%; }
 .pc-net-tiktok { background: #111; }
 .pc-net-pinterest { background: #e60023; }
+.pc-net-linkedin { background: #0a66c2; border-radius: 22%; }
 .pc-pv-pin { padding: 10px; border: 0; background: transparent; }
 .pc-pv-pin img, .pc-pv-pin .pc-pv-noimg { display: block; width: 100%; border-radius: 16px; aspect-ratio: auto; max-height: 420px; object-fit: cover; }
 .pc-pv-pin .pc-pv-noimg { aspect-ratio: 2 / 3; }

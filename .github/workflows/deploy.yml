@@ -47,6 +47,8 @@ jobs:
           PINTEREST_APP_SECRET: ${{ secrets.PINTEREST_APP_SECRET }}
           PINTEREST_API: ${{ vars.PINTEREST_API }}
           PINTEREST_SANDBOX_TOKEN: ${{ secrets.PINTEREST_SANDBOX_TOKEN }}
+          LINKEDIN_CLIENT_ID: ${{ secrets.LINKEDIN_CLIENT_ID }}
+          LINKEDIN_CLIENT_SECRET: ${{ secrets.LINKEDIN_CLIENT_SECRET }}
           # Designing a post's pictures in Canva; off until both are set.
           CANVA_CLIENT_ID: ${{ secrets.CANVA_CLIENT_ID }}
           CANVA_CLIENT_SECRET: ${{ secrets.CANVA_CLIENT_SECRET }}
@@ -91,6 +93,8 @@ jobs:
             echo "PINTEREST_APP_SECRET=$PINTEREST_APP_SECRET"
             echo "PINTEREST_API=$PINTEREST_API"
             echo "PINTEREST_SANDBOX_TOKEN=$PINTEREST_SANDBOX_TOKEN"
+            echo "LINKEDIN_CLIENT_ID=$LINKEDIN_CLIENT_ID"
+            echo "LINKEDIN_CLIENT_SECRET=$LINKEDIN_CLIENT_SECRET"
             echo "CANVA_CLIENT_ID=$CANVA_CLIENT_ID"
             echo "CANVA_CLIENT_SECRET=$CANVA_CLIENT_SECRET"
             echo "META_ADS_CONFIG_ID=$META_ADS_CONFIG_ID"

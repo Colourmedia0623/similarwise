@@ -191,7 +191,7 @@ async function problems(shop: string, input: PostInput, hasImage: boolean) {
     if (!caption) return `Write a caption for ${NETWORK_NAME[n]}.`;
     if (caption.length > LIMITS[n]) return `The ${NETWORK_NAME[n]} caption is too long. Keep it under ${LIMITS[n].toLocaleString("en-GB")} characters.`;
     if (n === "instagram" && (caption.match(/#[\p{L}\p{N}_]+/gu) ?? []).length > 30) return "Instagram allows up to 30 hashtags in a caption.";
-    if (n !== "facebook" && !hasImage) return `${NETWORK_NAME[n]} needs a picture. Add one to the post.`;
+    if (n !== "facebook" && n !== "linkedin" && !hasImage) return `${NETWORK_NAME[n]} needs a picture. Add one to the post.`;
     if (n === "tiktok" && !input.tiktok[a.id]?.privacy) return `Choose who can see the post on TikTok (${a.name}).`;
   }
   return null;
@@ -591,13 +591,14 @@ export async function deleteCampaign(shop: string, id: string) {
 const SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["caption", "facebook", "instagram", "tiktok", "pinterest"],
+  required: ["caption", "facebook", "instagram", "tiktok", "pinterest", "linkedin"],
   properties: {
     caption: { type: "string" },
     facebook: { type: "string" },
     instagram: { type: "string" },
     tiktok: { type: "string" },
     pinterest: { type: "string" },
+    linkedin: { type: "string" },
   },
 };
 
@@ -607,6 +608,7 @@ const SYSTEM = `You write social media posts for a small online shop. You get th
 - instagram: 2 to 4 short lines with a line break between them, then 5 to 8 relevant hashtags on the last line. Say "link in bio" if there's somewhere to go.
 - tiktok: a short, punchy caption under 300 characters ending with 3 to 5 hashtags.
 - pinterest: a pin description of 1 to 3 sentences, under 500 characters, using the words people would search for, with 2 to 4 hashtags at the end.
+- linkedin: 2 to 4 short sentences in a professional but warm voice. At most 3 hashtags. Any link is added separately, so don't include one.
 No emojis unless they add something; at most two per post.`;
 
 // Captions from a short brief, for the composer's Write with AI button.
@@ -632,6 +634,7 @@ export async function writeSocialCaptions(shop: string, brief: string, draft: st
       instagram: text("instagram", 2200),
       tiktok: text("tiktok", 2200),
       pinterest: text("pinterest", 800),
+      linkedin: text("linkedin", 3000),
     };
     if (!captions.caption) return { error: "Couldn't write captions just now. Try again." };
     return { captions };

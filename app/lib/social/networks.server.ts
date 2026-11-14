@@ -3,7 +3,9 @@
 // v5): signing in, and
 // posting an article's picture with its caption. Each is off until its app
 // keys are set: META_APP_ID and META_APP_SECRET, TIKTOK_CLIENT_KEY and
-// TIKTOK_CLIENT_SECRET, PINTEREST_APP_ID and PINTEREST_APP_SECRET. A Business app signs in with a Facebook Login for
+// TIKTOK_CLIENT_SECRET, PINTEREST_APP_ID and PINTEREST_APP_SECRET, LINKEDIN_CLIENT_ID and
+// LINKEDIN_CLIENT_SECRET (LinkedIn's Share on LinkedIn and Sign In with LinkedIn
+// using OpenID Connect products). A Business app signs in with a Facebook Login for
 // Business configuration (META_CONFIG_ID) that holds the permissions.
 
 export const GRAPH = "https://graph.facebook.com/v23.0";
@@ -16,6 +18,11 @@ const TIKTOK = "https://open.tiktokapis.com/v2";
 // token from the app's page on developers.pinterest.com (PINTEREST_SANDBOX_TOKEN).
 const PINTEREST_LIVE = "https://api.pinterest.com/v5";
 const PINTEREST = () => process.env.PINTEREST_API || PINTEREST_LIVE;
+const LINKEDIN_AUTH = "https://www.linkedin.com/oauth/v2";
+const LINKEDIN = "https://api.linkedin.com";
+// LinkedIn's versioned API takes the month it was built against; each version
+// is supported for about a year. LINKEDIN_VERSION moves it on without a release.
+const LINKEDIN_VERSION = () => process.env.LINKEDIN_VERSION || "202610";
 
 import type { Network, PostStats } from "./networks";
 
@@ -23,15 +30,17 @@ export { NETWORK_NAME, type Network } from "./networks";
 export type Fetch = typeof fetch;
 
 // Signing in to Meta connects Facebook Pages and the Instagram accounts linked to them.
-export const PROVIDER = { facebook: "meta", instagram: "meta", tiktok: "tiktok", pinterest: "pinterest" } as const;
-export type Provider = "meta" | "tiktok" | "pinterest";
+export const PROVIDER = { facebook: "meta", instagram: "meta", tiktok: "tiktok", pinterest: "pinterest", linkedin: "linkedin" } as const;
+export type Provider = "meta" | "tiktok" | "pinterest" | "linkedin";
 
 export const providerOn = (p: Provider) =>
   p === "meta"
     ? !!(process.env.META_APP_ID && process.env.META_APP_SECRET)
     : p === "pinterest"
       ? !!(process.env.PINTEREST_APP_ID && process.env.PINTEREST_APP_SECRET)
-      : !!(process.env.TIKTOK_CLIENT_KEY && process.env.TIKTOK_CLIENT_SECRET);
+      : p === "linkedin"
+        ? !!(process.env.LINKEDIN_CLIENT_ID && process.env.LINKEDIN_CLIENT_SECRET)
+        : !!(process.env.TIKTOK_CLIENT_KEY && process.env.TIKTOK_CLIENT_SECRET);
 
 // Until Meta or TikTok approves SimilarWise, only people added to its app
 // can sign in, so the Connect button is shown only to Colourmedia's own and free
@@ -46,6 +55,8 @@ const META_SCOPES = ["pages_show_list", "pages_read_engagement", "pages_manage_p
 const META_INSIGHT_SCOPES = ["read_insights", "instagram_manage_insights"];
 const TIKTOK_SCOPES = ["user.info.basic", "video.publish"];
 const PINTEREST_SCOPES = ["user_accounts:read", "boards:read", "boards:write", "pins:read", "pins:write"];
+// The member's name and picture (OpenID Connect), and posting as them.
+const LINKEDIN_SCOPES = ["openid", "profile", "w_member_social"];
 
 export function authorizeUrl(p: Provider, state: string) {
   if (p === "meta") {
@@ -57,6 +68,10 @@ export function authorizeUrl(p: Provider, state: string) {
   if (p === "pinterest") {
     const q = new URLSearchParams({ client_id: process.env.PINTEREST_APP_ID ?? "", redirect_uri: callbackUrl(p), response_type: "code", scope: PINTEREST_SCOPES.join(","), state });
     return `https://www.pinterest.com/oauth/?${q}`;
+  }
+  if (p === "linkedin") {
+    const q = new URLSearchParams({ response_type: "code", client_id: process.env.LINKEDIN_CLIENT_ID ?? "", redirect_uri: callbackUrl(p), state, scope: LINKEDIN_SCOPES.join(" ") });
+    return `${LINKEDIN_AUTH}/authorization?${q}`;
   }
   const q = new URLSearchParams({ client_key: process.env.TIKTOK_CLIENT_KEY ?? "", redirect_uri: callbackUrl(p), state, scope: TIKTOK_SCOPES.join(","), response_type: "code" });
   return `https://www.tiktok.com/v2/auth/authorize/?${q}`;
@@ -404,6 +419,98 @@ export async function readPinterestPin(id: string, token: string, f: Fetch = fet
   const images = Object.values(pin.media?.images ?? {}).filter((i) => i.url);
   const biggest = images.sort((a, b) => (b.width ?? 0) - (a.width ?? 0))[0];
   return { id: pin.id, title: pin.title ?? "", description: pin.description ?? "", link: pin.link ?? null, image: biggest?.url ?? null, createdAt: pin.created_at ?? null };
+}
+
+// LinkedIn: posts go to the merchant's own profile, as Share on LinkedIn
+// allows. Its tokens last 60 days and can't be refreshed without LinkedIn's
+// partner programme, so the merchant connects again when one runs out.
+
+type LinkedInToken = { access_token?: string; expires_in?: number; error?: string; error_description?: string };
+
+export async function connectLinkedIn(code: string, f: Fetch = fetch, now = new Date()): Promise<Connected[]> {
+  const res = await f(`${LINKEDIN_AUTH}/accessToken`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: callbackUrl("linkedin"),
+      client_id: process.env.LINKEDIN_CLIENT_ID ?? "",
+      client_secret: process.env.LINKEDIN_CLIENT_SECRET ?? "",
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  const t = (await res.json().catch(() => ({}))) as LinkedInToken;
+  if (!res.ok || !t.access_token) throw new Error(t.error_description || t.error || `LinkedIn answered ${res.status}`);
+  const me = await f(`${LINKEDIN}/v2/userinfo`, { headers: { authorization: `Bearer ${t.access_token}` }, signal: AbortSignal.timeout(30_000) });
+  const user = (await me.json().catch(() => ({}))) as { sub?: string; name?: string; given_name?: string; family_name?: string };
+  if (!me.ok || !user.sub) throw new Error(`LinkedIn didn't say who signed in (${me.status}).`);
+  const name = user.name || [user.given_name, user.family_name].filter(Boolean).join(" ") || "LinkedIn profile";
+  return [{ network: "linkedin", accountId: user.sub, name, token: t.access_token, refreshToken: null, expiresAt: new Date(now.getTime() + (t.expires_in ?? 60 * 86400) * 1000) }];
+}
+
+async function linkedin<T>(f: Fetch, token: string, path: string, body: object): Promise<{ json: T; id: string | null }> {
+  const res = await f(`${LINKEDIN}/rest${path}`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json", "linkedin-version": LINKEDIN_VERSION(), "x-restli-protocol-version": "2.0.0" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(60_000),
+  });
+  const json = (await res.json().catch(() => ({}))) as T & { message?: string };
+  if (!res.ok) throw new Error(json.message || `LinkedIn answered ${res.status}`);
+  return { json, id: res.headers.get("x-restli-id") };
+}
+
+// LinkedIn reads post text as its "little text" format, where these
+// characters mean something and cut the post short unless escaped. Hashtags
+// are kept as hashtags.
+export function linkedInText(text: string) {
+  return text
+    .split(/(#[\p{L}\p{N}_]+)/u)
+    .map((part, i) => (i % 2 ? `{hashtag|\\#|${part.slice(1)}}` : part.replace(/[\\|{}@[\]()<>#*_~]/g, (c) => `\\${c}`)))
+    .join("");
+}
+
+// A picture, uploaded to LinkedIn for the member's post: LinkedIn gives an
+// address to send it to, and the image's id to post with.
+async function linkedInImage(f: Fetch, token: string, owner: string, url: string) {
+  const pic = await f(url, { signal: AbortSignal.timeout(60_000) });
+  if (!pic.ok) throw new Error(`Couldn't fetch the picture (${pic.status}).`);
+  const bytes = await pic.arrayBuffer();
+  const { json } = await linkedin<{ value?: { uploadUrl?: string; image?: string } }>(f, token, "/images?action=initializeUpload", { initializeUploadRequest: { owner } });
+  if (!json.value?.uploadUrl || !json.value.image) throw new Error("LinkedIn didn't give an address for the picture.");
+  const put = await f(json.value.uploadUrl, { method: "PUT", headers: { authorization: `Bearer ${token}` }, body: bytes, signal: AbortSignal.timeout(120_000) });
+  if (!put.ok) throw new Error(`LinkedIn didn't take the picture (${put.status}).`);
+  return json.value.image;
+}
+
+// A post on the member's profile: the caption, with the pictures (several make
+// a multi-image post) and the link under it, or with no picture, a link card.
+export async function postLinkedIn(memberId: string, token: string, post: Post, f: Fetch = fetch): Promise<Posted> {
+  const author = `urn:li:person:${memberId}`;
+  const pics = pictures(post).slice(0, 20);
+  const images: string[] = [];
+  for (const url of pics) images.push(await linkedInImage(f, token, author, url));
+  const text = linkedInText(images.length && post.link ? `${post.caption}\n\n${post.link}` : post.caption);
+  const content =
+    images.length > 1
+      ? { multiImage: { images: images.map((id) => ({ id, altText: post.title.slice(0, 4000) })) } }
+      : images.length === 1
+        ? { media: { id: images[0], title: post.title.slice(0, 400) } }
+        : post.link
+          ? { article: { source: post.link, title: post.title.slice(0, 400) } }
+          : undefined;
+  const { id } = await linkedin(f, token, "/posts", {
+    author,
+    commentary: text,
+    visibility: "PUBLIC",
+    distribution: { feedDistribution: "MAIN_FEED", targetEntities: [], thirdPartyDistributionChannels: [] },
+    ...(content ? { content } : {}),
+    lifecycleState: "PUBLISHED",
+    isReshareDisabledByAuthor: false,
+  });
+  if (!id) throw new Error("LinkedIn didn't say where the post went.");
+  return { remoteId: id, url: `https://www.linkedin.com/feed/update/${id}/` };
 }
 
 const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
