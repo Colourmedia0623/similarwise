@@ -30,7 +30,8 @@ export async function stripe<T = Record<string, unknown>>(method: "GET" | "POST"
   const url = method === "GET" && [...body].length ? `${API}${path}?${body}` : `${API}${path}`;
   const res = await f(url, {
     method,
-    headers: { authorization: `Bearer ${process.env.STRIPE_SECRET_KEY ?? ""}`, "content-type": "application/x-www-form-urlencoded" },
+    // Pinned, so an old account default can't change what Stripe answers.
+    headers: { authorization: `Bearer ${process.env.STRIPE_SECRET_KEY ?? ""}`, "content-type": "application/x-www-form-urlencoded", "stripe-version": "2024-06-20" },
     body: method === "GET" ? undefined : body,
     signal: AbortSignal.timeout(30_000),
   });
