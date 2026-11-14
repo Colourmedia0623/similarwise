@@ -37,6 +37,7 @@ import {
   type CanvaDesign,
 } from "../lib/social/canva.server";
 import { addDays, dayLabel, timeLabel, validZone, weekStart, zoned } from "../lib/social/when";
+import { MIN_POSTS, bestTimes, postingHeatmap, type BestTimes, type SentPost, type TimeCell } from "../lib/social/best-times";
 import { TikTokPost } from "../components/TikTokPost";
 import { HowTo } from "../components/HowTo";
 
@@ -1581,6 +1582,7 @@ const PERIODS = [7, 30, 60] as const;
 
 type ReportPost = {
   key: string;
+  at: string;
   day: string;
   network: Network;
   account: string;
@@ -1639,6 +1641,7 @@ function Reports({
         .filter((x) => x.status !== "failed")
         .map((x) => ({
           key: `${p.id}:${x.id}`,
+          at: p.sentAt ?? p.at ?? p.updatedAt,
           day: zoned(new Date(p.sentAt ?? p.at ?? p.updatedAt), tz).day,
           network: x.network,
           account: x.account,
@@ -1653,6 +1656,7 @@ function Reports({
         .filter((x) => x.status !== "failed")
         .map((x) => ({
           key: `${s.id}:${x.id}`,
+          at: s.at,
           day: zoned(new Date(s.at), tz).day,
           network: x.network,
           account: x.account,
@@ -1743,6 +1747,13 @@ function Reports({
         <FollowerLines followers={followers} days={days} />
       </section>
 
+      <section className="pc-report">
+        <div className="pc-report-head">
+          <h3>When your posts do best</h3>
+        </div>
+        <TimeHeatmap posts={current} tz={tz} table={table} />
+      </section>
+
       <div className="pc-report-pair">
         <section className="pc-report">
           <div className="pc-report-head">
@@ -1799,6 +1810,100 @@ function Reports({
             </table>
           )}
         </section>
+      </div>
+    </div>
+  );
+}
+
+// Light to dark for a bigger average, one hue, in five steps.
+const HEAT = ["#dbe9fb", "#a9cbf4", "#6ea6ea", "#2a78d6", "#1a4f94"];
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const hourLabel = (h: number) => `${String(h).padStart(2, "0")}:00`;
+
+// Average reach of a post by the day and hour it went out.
+function TimeHeatmap({ posts, tz, table }: { posts: ReportPost[]; tz: string; table: boolean }) {
+  const [hover, setHover] = useState<TimeCell | null>(null);
+  const map = postingHeatmap(posts, tz);
+  if (!map.cells.length) return <div className="pc-empty">Once your posts have likes and reach, this shows which days and hours do best.</div>;
+  const what = map.measure === "reach" ? "reach" : "engagements";
+  const max = Math.max(1, ...map.cells.map((c) => c.average));
+  const step = (v: number) => Math.min(HEAT.length - 1, Math.floor((v / max) * HEAT.length));
+  const bands = HEAT.map((_, i) => `${fmt(Math.round((max * i) / HEAT.length))}–${fmt(Math.round((max * (i + 1)) / HEAT.length))}`);
+  const hours = Array.from({ length: map.to - map.from + 1 }, (_, i) => map.from + i);
+  const at = (w: number, h: number) => map.cells.find((c) => c.weekday === w && c.hour === h);
+  if (table)
+    return (
+      <table className="pc-table">
+        <thead>
+          <tr>
+            <th>Day</th>
+            <th>Hour</th>
+            <th>Posts</th>
+            <th>Average {what}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {[...map.cells]
+            .sort((a, b) => b.average - a.average)
+            .map((c) => (
+              <tr key={`${c.weekday}:${c.hour}`}>
+                <td>{WEEKDAYS[c.weekday]}</td>
+                <td>{hourLabel(c.hour)}</td>
+                <td>{fmt(c.posts)}</td>
+                <td>{fmt(Math.round(c.average))}</td>
+              </tr>
+            ))}
+        </tbody>
+      </table>
+    );
+  return (
+    <div className="pc-heat-wrap">
+      <p className="pc-muted pc-heat-note">Average {what} of a post by when it went out, on your shop&apos;s clock. Darker is better.</p>
+      <div className="pc-heat" style={{ gridTemplateColumns: `40px repeat(${hours.length}, minmax(22px, 1fr))` }} onMouseLeave={() => setHover(null)}>
+        {WEEKDAYS.map((d, w) => (
+          <div key={d} className="pc-heat-row">
+            <span className="pc-heat-day">{d}</span>
+            {hours.map((h) => {
+              const c = at(w, h);
+              return (
+                <span
+                  key={h}
+                  className={`pc-heat-cell${c ? "" : " pc-heat-none"}${hover && hover.weekday === w && hover.hour === h ? " pc-heat-on" : ""}`}
+                  style={c ? { background: HEAT[step(c.average)] } : undefined}
+                  title={c ? `${d} ${hourLabel(h)}: ${fmt(Math.round(c.average))} average ${what} from ${c.posts} post${c.posts === 1 ? "" : "s"}` : `${d} ${hourLabel(h)}: no posts`}
+                  onMouseEnter={() => setHover(c ?? null)}
+                />
+              );
+            })}
+          </div>
+        ))}
+        <div className="pc-heat-row">
+          <span />
+          {hours.map((h) => (
+            <span key={h} className="pc-heat-hour">
+              {h % 2 === 0 ? String(h).padStart(2, "0") : ""}
+            </span>
+          ))}
+        </div>
+      </div>
+      <div className="pc-heat-foot">
+        <div className="pc-heat-legend" aria-label={`Average ${what}`}>
+          {HEAT.map((c, i) => (
+            <span key={c}>
+              <i style={{ background: c }} />
+              {bands[i]}
+            </span>
+          ))}
+          <span>
+            <i className="pc-heat-none" />
+            No posts
+          </span>
+        </div>
+        <span className="pc-heat-tip" aria-live="polite">
+          {hover
+            ? `${WEEKDAYS[hover.weekday]} ${hourLabel(hover.hour)}: ${fmt(Math.round(hover.average))} average ${what} from ${hover.posts} post${hover.posts === 1 ? "" : "s"}`
+            : ""}
+        </span>
       </div>
     </div>
   );
@@ -2324,12 +2429,6 @@ function CampaignForm({ campaign, onDone }: { campaign?: Campaign; onDone: () =>
 
 // --- Composer -----------------------------------------------------------------
 
-const QUICK_TIMES = [
-  { label: "Morning", time: "09:00" },
-  { label: "Lunchtime", time: "12:30" },
-  { label: "Evening", time: "18:30" },
-];
-
 // Designing pictures in Canva: start a design at a post's size, which opens
 // in a new tab, then bring a design's pages back as the post's pictures.
 function CanvaTools({
@@ -2560,6 +2659,59 @@ function DayPicker({ value, today, onPick }: { value: string; today: string; onP
 
 const hashtags = (s: string) => (s.match(/#[\p{L}\p{N}_]+/gu) ?? []).length;
 
+// Every post that went out, with when it went and how it did.
+function sentPosts(posts: Post[], shares: Share[]): SentPost[] {
+  return [
+    ...posts.flatMap((p) =>
+      p.status === "sent" || p.status === "partial"
+        ? p.results.filter((r) => r.status === "posted").map((r) => ({ network: r.network, at: p.sentAt ?? p.at ?? p.updatedAt, stats: r.stats }))
+        : [],
+    ),
+    ...shares.flatMap((s) => s.results.filter((r) => r.status === "posted").map((r) => ({ network: r.network, at: s.at, stats: r.stats }))),
+  ];
+}
+
+// Three suggested times for the day, best first by stars, like a quick pick.
+function BestTimesPicker({ best, networks, time, onPick }: { best: BestTimes; networks: Network[]; time: string; onPick: (t: string) => void }) {
+  const names = networks.map((n) => NETWORK_NAME[n]);
+  const forWhom = names.length ? ` for ${names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names[0]}` : "";
+  return (
+    <div className="pc-best">
+      <span className="pc-best-head">Best times to post{forWhom}</span>
+      {best.times.length ? (
+        <div className="pc-best-list">
+          {best.times.map((b) => (
+            <button
+              key={b.time}
+              type="button"
+              className={`pc-best-time${time === b.time ? " pc-best-on" : ""}`}
+              aria-pressed={time === b.time}
+              aria-label={`${timeLabel(b.time)}, ${b.stars} out of 5 stars`}
+              onClick={() => onPick(b.time)}
+            >
+              <span>{timeLabel(b.time)}</span>
+              <span className="pc-stars" aria-hidden="true">
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <span key={i} className={i <= b.stars ? "pc-star-on" : ""}>
+                    ★
+                  </span>
+                ))}
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <small className="pc-muted">No good times left today. Try another day.</small>
+      )}
+      <small className="pc-muted">
+        {best.fromPosts
+          ? `From the likes and reach of your last ${best.fromPosts} posts.`
+          : `Typical good times for now. Once ${MIN_POSTS} of your posts have likes and reach, these come from how your own posts did.`}
+      </small>
+    </div>
+  );
+}
+
 function Composer({
   post,
   day,
@@ -2606,6 +2758,17 @@ function Composer({
   const networks = NETWORKS.filter((n) => pickedAccounts.some((a) => a.network === n));
   const captionFor = (n: Network) => captions[n] || caption;
   const shownPreview = preview && networks.includes(preview) ? preview : networks[0];
+  // The best times to post on the day picked, from how the shop's own posts did.
+  const best = bestTimes({
+    sent: sentPosts(data.posts, data.articleShares),
+    networks,
+    day: when.day,
+    tz,
+    now: new Date(data.now),
+    taken: data.posts
+      .filter((p) => p.id !== post?.id && p.at && p.status === "scheduled" && zoned(new Date(p.at), tz).day === when.day)
+      .map((p) => zoned(new Date(p.at!), tz).time),
+  });
 
   // Upload and AI answers land in the form.
   const uploaded = upload.state === "idle" ? upload.data : undefined;
@@ -2925,17 +3088,13 @@ function Composer({
                   value={when.time}
                   onChange={(e) => setWhen({ ...when, time: e.currentTarget.value })}
                 />
-                {QUICK_TIMES.map((q) => (
-                  <button
-                    key={q.time}
-                    type="button"
-                    className={`pc-chip${when.time === q.time ? " pc-chip-on" : ""}`}
-                    onClick={() => setWhen({ ...when, time: q.time })}
-                  >
-                    {q.label}
-                  </button>
-                ))}
               </div>
+              <BestTimesPicker
+                best={best}
+                networks={networks}
+                time={when.time}
+                onPick={(t) => setWhen({ ...when, time: t })}
+              />
               {picking && (
                 <DayPicker
                   value={when.day}
@@ -3428,6 +3587,28 @@ const CSS = `
 .pc-drop-zone:hover, .pc-dragging { border-color: #4f7cff; background: #f5f8ff; }
 .pc-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
 .pc-when-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.pc-heat-note { margin: 0 0 10px; font-size: 12px; }
+.pc-heat { display: grid; gap: 3px; }
+.pc-heat-row { display: contents; }
+.pc-heat-day, .pc-heat-hour { font-size: 11px; color: #616161; }
+.pc-heat-day { align-self: center; }
+.pc-heat-hour { text-align: center; }
+.pc-heat-cell { height: 24px; border-radius: 4px; }
+.pc-heat-none { background: #f3f3f3; }
+.pc-heat-on { outline: 2px solid #303030; outline-offset: 1px; }
+.pc-heat-foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin-top: 12px; font-size: 12px; color: #616161; }
+.pc-heat-legend { display: flex; flex-wrap: wrap; gap: 10px; }
+.pc-heat-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.pc-heat-legend i { width: 14px; height: 14px; border-radius: 3px; }
+.pc-heat-tip { color: #303030; }
+.pc-best { display: grid; gap: 6px; margin-top: 10px; }
+.pc-best-head { font-size: 12px; font-weight: 600; color: #303030; }
+.pc-best-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.pc-best-time { display: inline-flex; align-items: center; gap: 8px; padding: 5px 10px; border: 1px solid #d4d4d4; border-radius: 8px; background: #fff; color: #303030; font: inherit; font-size: 13px; cursor: pointer; }
+.pc-best-time:hover { background: #f7f7f7; }
+.pc-best-on { border-color: #303030; box-shadow: 0 0 0 1px #303030; background: #f4f4f4; }
+.pc-stars { display: inline-flex; gap: 1px; font-size: 12px; color: #d4d4d4; letter-spacing: 0; }
+.pc-star-on { color: #303030; }
 .pc-day { padding: 6px 12px; border: 1px solid #8a8a8a; border-radius: 8px; background: #fff; font: inherit; font-size: 13px; cursor: pointer; }
 .pc-day-open { border-color: #303030; box-shadow: 0 0 0 1px #303030; }
 .pc-picker { width: 280px; margin-top: 8px; scroll-margin-bottom: 130px; padding: 10px; border: 1px solid #e3e3e3; border-radius: 12px; background: #fff; }
