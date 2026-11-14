@@ -19,10 +19,10 @@ const TIKTOK = "https://open.tiktokapis.com/v2";
 const PINTEREST_LIVE = "https://api.pinterest.com/v5";
 const PINTEREST = () => process.env.PINTEREST_API || PINTEREST_LIVE;
 const LINKEDIN_AUTH = "https://www.linkedin.com/oauth/v2";
-const LINKEDIN = "https://api.linkedin.com";
+export const LINKEDIN = "https://api.linkedin.com";
 // LinkedIn's versioned API takes the month it was built against; each version
 // is supported for about a year. LINKEDIN_VERSION moves it on without a release.
-const LINKEDIN_VERSION = () => process.env.LINKEDIN_VERSION || "202610";
+export const LINKEDIN_VERSION = () => process.env.LINKEDIN_VERSION || "202610";
 
 import type { Network, PostStats } from "./networks";
 
@@ -57,11 +57,18 @@ const TIKTOK_SCOPES = ["user.info.basic", "video.publish"];
 const PINTEREST_SCOPES = ["user_accounts:read", "boards:read", "boards:write", "pins:read", "pins:write"];
 // The member's name and picture (OpenID Connect), and posting as them.
 const LINKEDIN_SCOPES = ["openid", "profile", "w_member_social"];
+// The social inbox: reading and answering comments and messages. Each needs
+// its own approval from the network, so they're asked for only where the
+// inbox is open (lib/inbox). With a Facebook Login for Business
+// configuration (META_CONFIG_ID), add the Meta ones to that configuration.
+export const META_INBOX_SCOPES = ["pages_messaging", "pages_manage_engagement", "pages_read_user_content", "instagram_manage_comments", "instagram_manage_messages", "human_agent"];
+const LINKEDIN_INBOX_SCOPES = ["r_member_social"];
 
-export function authorizeUrl(p: Provider, state: string) {
+export function authorizeUrl(p: Provider, state: string, { inbox = false }: { inbox?: boolean } = {}) {
   if (p === "meta") {
     const config = process.env.META_CONFIG_ID;
-    const ask: Record<string, string> = config ? { config_id: config, override_default_response_type: "true" } : { scope: [...META_SCOPES, ...META_INSIGHT_SCOPES].join(",") };
+    const scopes = [...META_SCOPES, ...META_INSIGHT_SCOPES, ...(inbox ? META_INBOX_SCOPES : [])];
+    const ask: Record<string, string> = config ? { config_id: config, override_default_response_type: "true" } : { scope: scopes.join(",") };
     const q = new URLSearchParams({ client_id: process.env.META_APP_ID ?? "", redirect_uri: callbackUrl(p), state, ...ask, response_type: "code" });
     return `https://www.facebook.com/v23.0/dialog/oauth?${q}`;
   }
@@ -70,7 +77,7 @@ export function authorizeUrl(p: Provider, state: string) {
     return `https://www.pinterest.com/oauth/?${q}`;
   }
   if (p === "linkedin") {
-    const q = new URLSearchParams({ response_type: "code", client_id: process.env.LINKEDIN_CLIENT_ID ?? "", redirect_uri: callbackUrl(p), state, scope: LINKEDIN_SCOPES.join(" ") });
+    const q = new URLSearchParams({ response_type: "code", client_id: process.env.LINKEDIN_CLIENT_ID ?? "", redirect_uri: callbackUrl(p), state, scope: [...LINKEDIN_SCOPES, ...(inbox ? LINKEDIN_INBOX_SCOPES : [])].join(" ") });
     return `${LINKEDIN_AUTH}/authorization?${q}`;
   }
   const q = new URLSearchParams({ client_key: process.env.TIKTOK_CLIENT_KEY ?? "", redirect_uri: callbackUrl(p), state, scope: TIKTOK_SCOPES.join(","), response_type: "code" });
@@ -81,7 +88,7 @@ export type Connected = { network: Network; accountId: string; name: string; tok
 
 type GraphError = { error?: { message?: string } };
 
-async function graph<T>(f: Fetch, path: string, params: Record<string, string>, method: "GET" | "POST" = "GET"): Promise<T> {
+export async function graph<T>(f: Fetch, path: string, params: Record<string, string>, method: "GET" | "POST" = "GET"): Promise<T> {
   const url = `${GRAPH}${path}`;
   const body = new URLSearchParams(params);
   const res = method === "GET" ? await f(`${url}?${body}`, { signal: AbortSignal.timeout(30_000) }) : await f(url, { method, body, signal: AbortSignal.timeout(60_000) });

@@ -531,6 +531,10 @@ model SocialAccount {
   refreshToken   String?   // Encrypted (TikTok)
   tokenExpiresAt DateTime?
   createdAt      DateTime  @default(now())
+  // The social inbox (lib/inbox): when its comments and messages were last
+  // read, and why not, e.g. a permission Facebook held back.
+  inboxSyncedAt  DateTime?
+  inboxError     String?
 
   @@unique([shop, network, accountId])
 }
@@ -802,4 +806,87 @@ model ListenMention {
   @@unique([topicId, source, externalId])
   @@index([shop, foundAt])
   @@index([shop, publishedAt])
+}
+
+// The social inbox (lib/inbox): comments on the shop's posts and private
+// messages, from every connected account, answered from SimilarWise. A
+// conversation is a direct message thread, or a comment with its replies.
+model InboxThread {
+  id           String    @id @default(cuid())
+  shop         String
+  accountId    String    // SocialAccount.id
+  network      String
+  kind         String    // comment | message
+  remoteId     String    // The network's id for the conversation or the top comment
+  contactId    String?   // The person's id on the network, to message them back
+  contactName  String
+  postId       String?   // The post commented on
+  postUrl      String?
+  postText     String?
+  lastText     String    @default("")
+  lastAt       DateTime
+  lastFrom     String    @default("them") // them | us
+  waitingSince DateTime? // Their oldest message not yet answered
+  status       String    @default("open") // open | resolved
+  resolvedAt   DateTime?
+  assignee     String?   // InboxMember.id
+  tags         String    @default("[]") // JSON list of tags
+  sentiment    String?   // positive | neutral | negative, Claude's read
+  read         Boolean   @default(false) // Claude has read its newest message
+  autoReplied  String    @default("[]") // JSON: InboxRule ids that have replied here
+  createdAt    DateTime  @default(now())
+
+  @@unique([accountId, remoteId])
+  @@index([shop, status, lastAt])
+}
+
+// One comment, reply or message in a conversation.
+model InboxMessage {
+  id       String   @id @default(cuid())
+  shop     String
+  threadId String
+  remoteId String
+  fromUs   Boolean  @default(false)
+  author   String
+  text     String
+  at       DateTime
+  auto     Boolean  @default(false) // Sent by an automation
+  sentBy   String?  // InboxMember.id who answered from SimilarWise
+
+  @@unique([threadId, remoteId])
+  @@index([threadId, at])
+}
+
+// A teammate who answers the inbox, with the tags they're best at: new
+// conversations with those tags go to them (skill sets).
+model InboxMember {
+  id        String   @id @default(cuid())
+  shop      String
+  name      String
+  skills    String   @default("[]") // JSON list of tags
+  routing   Boolean  @default(true)  // Takes new conversations
+  createdAt DateTime @default(now())
+
+  @@index([shop])
+}
+
+// An inbox automation: when a new comment or message matches, tag it, give
+// it to a teammate, answer it, or resolve it.
+model InboxRule {
+  id        String   @id @default(cuid())
+  shop      String
+  name      String
+  on        Boolean  @default(true)
+  networks  String   @default("[]") // JSON: networks it covers; empty is all
+  kinds     String   @default("[]") // JSON: comment, message; empty is both
+  words     String   @default("[]") // JSON: any of these words or phrases; empty matches everything
+  sentiment String?  // Only when Claude reads it this way
+  addTags   String   @default("[]") // JSON
+  assignTo  String?  // InboxMember.id
+  reply     String?  // Sent once per conversation; {name} is the person's first name
+  resolve   Boolean  @default(false)
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([shop])
 }

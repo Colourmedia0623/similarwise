@@ -1,7 +1,7 @@
 import db from "../db.server";
 
 // Everything the app holds for a shop: its sessions, settings, its own
-// products (for price comparison), its keyword and ad ideas, tracked searches and their rankings, blog articles and content calendar, social and ad accounts, social calendar posts, site audits, its Google connection and figures, similar sites and the
+// products (for price comparison), its keyword and ad ideas, tracked searches and their rankings, blog articles and content calendar, social and ad accounts, social calendar posts, social inbox conversations, site audits, its Google connection and figures, similar sites and the
 // competitors it tracks (their products, keywords, events and snapshots go
 // with them). Nothing about the shop's customers is stored.
 export async function redactShop(shop: string) {
@@ -25,6 +25,10 @@ export async function redactShop(shop: string) {
   await db.socialImage.deleteMany({ where: { shop } });
   await db.socialCampaign.deleteMany({ where: { shop } });
   await db.socialAccount.deleteMany({ where: { shop } });
+  await db.inboxMessage.deleteMany({ where: { shop } });
+  await db.inboxThread.deleteMany({ where: { shop } });
+  await db.inboxRule.deleteMany({ where: { shop } });
+  await db.inboxMember.deleteMany({ where: { shop } });
   await db.canvaConnection.deleteMany({ where: { shop } });
   await db.canvaReturn.deleteMany({ where: { shop } });
   await db.socialFollowers.deleteMany({ where: { shop } });
