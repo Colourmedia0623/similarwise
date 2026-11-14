@@ -33,10 +33,14 @@ export function imageClient(): MakeImage | null {
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(180_000),
     });
-    const json = (await res.json().catch(() => ({}))) as { data?: { b64_json?: string }[]; error?: { message?: string } };
-    const b64 = json.data?.[0]?.b64_json;
-    if (!res.ok || !b64) throw new ImageError(json.error?.message ?? `OpenAI images: HTTP ${res.status}`, res.status);
-    return Buffer.from(b64, "base64");
+    const json = (await res.json().catch(() => ({}))) as { data?: { b64_json?: string; url?: string }[]; error?: { message?: string } };
+    const got = json.data?.[0];
+    if (!res.ok || !(got?.b64_json || got?.url)) throw new ImageError(json.error?.message ?? `OpenAI images: HTTP ${res.status}`, res.status);
+    if (got.b64_json) return Buffer.from(got.b64_json, "base64");
+    // DALL·E 3 answers with a short-lived link to the picture.
+    const pic = await fetch(got.url!, { signal: AbortSignal.timeout(60_000) });
+    if (!pic.ok) throw new ImageError(`Couldn't fetch the picture OpenAI made (HTTP ${pic.status}).`, pic.status);
+    return Buffer.from(await pic.arrayBuffer());
   };
   return async (prompt) => {
     try {
@@ -45,7 +49,8 @@ export function imageClient(): MakeImage | null {
       const fallBack = err instanceof ImageError && MODEL !== "dall-e-3" && (NEEDS_VERIFYING.test(err.message) || NO_MODEL.test(err.message) || err.status === 404);
       if (!fallBack) throw err;
       console.warn("Falling back to dall-e-3 for article images:", err.message);
-      return call({ model: "dall-e-3", prompt, n: 1, size: "1792x1024", quality: "standard", response_format: "b64_json" });
+      // OpenAI now refuses response_format here, so the picture comes as a link.
+      return call({ model: "dall-e-3", prompt, n: 1, size: "1792x1024", quality: "standard" });
     }
   };
 }
