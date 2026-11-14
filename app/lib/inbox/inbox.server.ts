@@ -399,7 +399,8 @@ export async function toggleRule(shop: string, id: string, on: boolean) {
   await db.inboxRule.updateMany({ where: { id, shop }, data: { on } });
 }
 
-// Ready-made automations to start from.
+// Ready-made automations to start from. Their words have no commas: the
+// page splits the words box on commas, so "thanks, that's all" would become a bare "thanks".
 export const RULE_TEMPLATES: (Omit<RuleInput, "assignTo"> & { key: string })[] = [
   {
     key: "goodbye",
@@ -407,7 +408,7 @@ export const RULE_TEMPLATES: (Omit<RuleInput, "assignTo"> & { key: string })[] =
     on: true,
     networks: [],
     kinds: ["message"],
-    words: ["goodbye", "bye", "thanks, that's all", "that's all", "all sorted", "cheers"],
+    words: ["goodbye", "bye", "that's all", "all sorted", "cheers"],
     sentiment: "",
     addTags: [],
     reply: "",
