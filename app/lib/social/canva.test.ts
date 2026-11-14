@@ -103,13 +103,14 @@ describe("Canva", () => {
 
   it("brings a design back with Canva's return button, for the post that started it", async () => {
     await connect();
-    const { publicKey, privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    // Canva signs its return links with Ed25519 (EdDSA).
+    const { publicKey, privateKey } = generateKeyPairSync("ed25519");
     const kid = `k${Date.now()}`;
     const jwk = { ...publicKey.export({ format: "jwk" }), kid };
     const jwt = (claims: object, key = privateKey) => {
       const b = (o: object) => Buffer.from(JSON.stringify(o)).toString("base64url");
-      const body = `${b({ alg: "RS256", kid })}.${b(claims)}`;
-      return `${body}.${sign("RSA-SHA256", Buffer.from(body), key).toString("base64url")}`;
+      const body = `${b({ alg: "EdDSA", kid })}.${b(claims)}`;
+      return `${body}.${sign(null, Buffer.from(body), key).toString("base64url")}`;
     };
     const png = new Uint8Array(await sharp({ create: { width: 200, height: 300, channels: 3, background: "#123456" } }).png().toBuffer());
     const f = fakeFetch(
@@ -126,7 +127,7 @@ describe("Canva", () => {
     expect(made.token.length).toBeLessThanOrEqual(50);
     expect(await takeCanvaReturn(SHOP, made.token)).toEqual({ status: "waiting" });
     // A forged return is turned away.
-    const forged = jwt({ correlation_state: made.token, design_id: "D7", exp: NOW.getTime() / 1000 + 600 }, generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey);
+    const forged = jwt({ correlation_state: made.token, design_id: "D7", exp: NOW.getTime() / 1000 + 600 }, generateKeyPairSync("ed25519").privateKey);
     expect(await finishCanvaReturn(forged, { f, now: NOW })).toMatchObject({ error: expect.stringMatching(/isn't valid/) });
     const real = jwt({ correlation_state: made.token, design_id: "D7", aud: "canva-id", exp: NOW.getTime() / 1000 + 600 });
     expect(await finishCanvaReturn(real, { f, now: NOW, pause: async () => {} })).toEqual({ ok: true, pages: 2 });

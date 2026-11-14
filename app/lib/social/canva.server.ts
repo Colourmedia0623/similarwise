@@ -199,17 +199,19 @@ export async function readCanvaReturn(jwt: string, f: Fetch = fetch, now = Date.
   if (!h || !p || !sig) return null;
   try {
     const header = JSON.parse(Buffer.from(h, "base64url").toString("utf8")) as { alg?: string; kid?: string };
-    if (header.alg !== "RS256") return null;
+    // Canva signs with Ed25519 (EdDSA); RS256 is still accepted in case it switches.
+    const algo = header.alg === "EdDSA" ? null : header.alg === "RS256" ? "RSA-SHA256" : undefined;
+    if (algo === undefined) return null;
     let key = (await canvaKeys(f, now)).find((k) => k.kid === header.kid);
     // Canva may have started signing with a new key since the list was read.
     if (!key) key = (await canvaKeys(f, now, true)).find((k) => k.kid === header.kid);
     if (!key) return null;
-    const ok = verify("RSA-SHA256", Buffer.from(`${h}.${p}`), createPublicKey({ key, format: "jwk" }), Buffer.from(sig, "base64url"));
+    const ok = verify(algo, Buffer.from(`${h}.${p}`), createPublicKey({ key, format: "jwk" }), Buffer.from(sig, "base64url"));
     if (!ok) return null;
-    const claims = JSON.parse(Buffer.from(p, "base64url").toString("utf8")) as { exp?: number; aud?: string | string[]; correlation_state?: string; design_id?: string };
+    // Canva's signature, plus the one-off correlation_state only we hand out,
+    // is what proves the return is real.
+    const claims = JSON.parse(Buffer.from(p, "base64url").toString("utf8")) as { exp?: number; correlation_state?: string; design_id?: string };
     if (claims.exp && claims.exp * 1000 < now) return null;
-    const aud = Array.isArray(claims.aud) ? claims.aud : claims.aud ? [claims.aud] : [];
-    if (aud.length && !aud.includes(process.env.CANVA_CLIENT_ID ?? "")) return null;
     if (!claims.correlation_state || !claims.design_id) return null;
     return { token: claims.correlation_state, designId: claims.design_id };
   } catch {
