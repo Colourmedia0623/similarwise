@@ -1,7 +1,6 @@
 import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
 import { Outlet, useLoaderData, useRouteError } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
-import { AppProvider } from "@shopify/shopify-app-react-router/react";
 // Brings in the JSX types for App Bridge elements such as <s-app-nav>.
 import type {} from "@shopify/app-bridge-react";
 
@@ -11,6 +10,8 @@ import { detectShopDomain } from "../lib/traffic/gap.server";
 import { detectAlertEmail } from "../lib/email/alerts.server";
 import { isFreeShop, isOwnerShop } from "../lib/waitlist.server";
 import { PLAN_KEYS, covers, pageTier, parsePlanKey, type Tier } from "../lib/billing";
+import { webShellAccount } from "../lib/web/context.server";
+import { AppShell } from "../components/web/WebShell";
 
 const RANK: Tier[] = ["watch", "grow", "advertise"];
 
@@ -26,10 +27,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     const need = pageTier(path);
     if (path !== "/app/plans" && !path.startsWith("/app/help") && (!tier || !covers(tier, need))) throw redirect(`/app/plans?need=${need}`);
   }
+  // The standalone web version: the workspace's details stand in for the store's.
+  const web = await webShellAccount(request, session.shop);
   // Read once, and only when a new shop's country, website or email is needed.
   let shopInfo: Promise<{ country: string | null; host: string | null; email: string | null }> | undefined;
   const readShop = () =>
-    (shopInfo ??= admin
+    (shopInfo ??= web ? Promise.resolve(web.shopInfo) : admin
       .graphql(`{ shop { billingAddress { countryCodeV2 } primaryDomain { host } email } }`)
       .then((res) => res.json())
       .then(({ data }) => ({
@@ -41,14 +44,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   await detectShopDomain(session.shop, async () => (await readShop()).host);
   await detectAlertEmail(session.shop, async () => (await readShop()).email);
   // eslint-disable-next-line no-undef
-  return { apiKey: process.env.SHOPIFY_API_KEY || "", owner };
+  return { apiKey: process.env.SHOPIFY_API_KEY || "", owner, web: web?.shell ?? null };
 };
 
 export default function App() {
-  const { apiKey, owner } = useLoaderData<typeof loader>();
+  const { apiKey, owner, web } = useLoaderData<typeof loader>();
 
   return (
-    <AppProvider apiKey={apiKey}>
+    <AppShell apiKey={apiKey} web={web}>
       <s-app-nav>
         <s-link href="/app">Overview</s-link>
         <s-link href="/app/competitors">Competitors</s-link>
@@ -80,7 +83,7 @@ export default function App() {
         {owner && <s-link href="/app/waitlist">Waitlist</s-link>}
       </s-app-nav>
       <Outlet />
-    </AppProvider>
+    </AppShell>
   );
 }
 

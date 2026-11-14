@@ -225,6 +225,7 @@ export default function App() {
           <a href="#features">Features</a>
           <a href="#how">How it works</a>
           <a href="#faq">FAQ</a>
+          <a href="/login">Log in</a>
           <a className={styles.navCta} href={cta.href}>
             {cta.label}
           </a>

@@ -801,3 +801,70 @@ model ListenMention {
   @@index([shop, foundAt])
   @@index([shop, publishedAt])
 }
+
+// The standalone web version (lib/web): people who sign up at the website
+// instead of installing from Shopify. Each workspace has its own made-up shop
+// key (see lib/web/shop.ts), stored in the shop column of every table above,
+// so every page and background job works for it unchanged.
+model WebUser {
+  id           String            @id @default(cuid())
+  email        String            @unique // Lower case
+  name         String?
+  passwordHash String? // scrypt; null for people who only use Google
+  googleId     String?           @unique
+  createdAt    DateTime          @default(now())
+  memberships  WorkspaceMember[]
+  sessions     WebSession[]
+}
+
+model Workspace {
+  id        String            @id @default(cuid())
+  shop      String            @unique // The key used in every shop column, e.g. "ws-k3j9x2.web.similarwise"
+  name      String
+  website   String? // Their own site, e.g. giftbags.co.uk; empty for agencies with no site of their own
+  platform  String? // shopify, woocommerce, wix, other or none
+  country   String? // Two-letter market code
+  createdAt DateTime          @default(now())
+  members   WorkspaceMember[]
+
+  // Billing (lib/web/billing.server.ts). trialEndsAt opens every page until then.
+  trialEndsAt          DateTime?
+  plan                 String? // A plan key from lib/billing, e.g. "Grow (yearly)"
+  planStatus           String? // Stripe's subscription status: trialing, active, past_due, canceled...
+  stripeCustomerId     String?   @unique
+  stripeSubscriptionId String?   @unique
+  periodEndsAt         DateTime?
+}
+
+model WorkspaceMember {
+  userId      String
+  workspaceId String
+  role        String    @default("owner") // owner or member
+  createdAt   DateTime  @default(now())
+  user        WebUser   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@id([userId, workspaceId])
+  @@index([workspaceId])
+}
+
+// A signed-in browser. The cookie holds the token; only its hash is stored.
+model WebSession {
+  id          String   @id // sha256 of the cookie token
+  userId      String
+  workspaceId String? // The workspace being looked at; null until one is made
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  user        WebUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// A one-time link for resetting a password, emailed. Only the hash is stored.
+model WebToken {
+  id        String   @id // sha256 of the token
+  userId    String
+  kind      String // "reset"
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
