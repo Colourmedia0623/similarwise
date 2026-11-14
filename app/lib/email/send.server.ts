@@ -31,7 +31,7 @@ export function mailer(): Mailer | null {
   };
 }
 
-export type EmailList = "alerts" | "digest";
+export type EmailList = "alerts" | "digest" | "report";
 
 const sign = (shop: string, list: EmailList) =>
   createHmac("sha256", process.env.SHOPIFY_API_SECRET || "dev").update(`${shop}:${list}`).digest("base64url");
@@ -43,7 +43,7 @@ export function unsubscribeUrl(shop: string, list: EmailList) {
 }
 
 export function verifyUnsubscribe(shop: string, list: string, sig: string): list is EmailList {
-  if (list !== "alerts" && list !== "digest") return false;
+  if (list !== "alerts" && list !== "digest" && list !== "report") return false;
   const want = Buffer.from(sign(shop, list));
   const got = Buffer.from(sig);
   return want.length === got.length && timingSafeEqual(want, got);

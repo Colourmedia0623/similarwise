@@ -4,9 +4,50 @@ import db from "../../db.server";
 // article's title and search, stored here and served at /images/<id>.jpg for
 // Shopify to fetch as the post's featured image. Off unless OPENAI_API_KEY is set.
 
-const MODEL = process.env.OPENAI_IMAGE_MODEL || "gpt-image-1";
+// SimilarWise uses the newest picture model the OpenAI account has: it reads
+// the account's models (the key needs "List models" set to Read) once a day
+// and puts the newest gpt-image first. If the list can't be read, it uses
+// the newest models known here. OPENAI_IMAGE_MODEL, if set, goes first.
+const KNOWN = ["gpt-image-2.6-sunburst", "gpt-image-2.6-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare", "gpt-image-1"];
+const DAY = 86400_000;
+let listed: { at: number; models: string[] } | null = null;
 
-export type MakeImage = (prompt: string) => Promise<Uint8Array>;
+// Newest version first; a model's plain name before its dated snapshots.
+export function newestFirst(ids: string[]) {
+  const version = (id: string) => (id.match(/^gpt-image-(\d+(?:\.\d+)*)/)?.[1] ?? "0").split(".").map(Number);
+  const dated = (id: string) => /-\d{4}-\d{2}-\d{2}$/.test(id);
+  return ids
+    .filter((id) => /^gpt-image-\d/.test(id) && !/mini/.test(id))
+    .sort((a, b) => {
+      const [va, vb] = [version(a), version(b)];
+      for (let i = 0; i < Math.max(va.length, vb.length); i++) if ((vb[i] ?? 0) !== (va[i] ?? 0)) return (vb[i] ?? 0) - (va[i] ?? 0);
+      if (dated(a) !== dated(b)) return dated(a) ? 1 : -1;
+      return dated(a) ? b.localeCompare(a) : a.localeCompare(b);
+    });
+}
+
+async function pictureModels(key: string, now = Date.now()) {
+  if (!listed || now - listed.at > DAY) {
+    let models: string[] = [];
+    try {
+      const res = await fetch("https://api.openai.com/v1/models", { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(20_000) });
+      const json = (await res.json().catch(() => ({}))) as { data?: { id?: string }[] };
+      if (res.ok) models = newestFirst((json.data ?? []).map((m) => m.id ?? ""));
+    } catch {
+      // Falls back to the known models below.
+    }
+    listed = { at: now, models };
+  }
+  return [...new Set([process.env.OPENAI_IMAGE_MODEL, ...listed.models, ...KNOWN].filter((m): m is string => !!m))];
+}
+
+export const forgetPictureModels = () => {
+  listed = null;
+};
+
+// source: a photo to build the picture around (a product, say), kept as it is.
+export type Source = { data: Uint8Array; mime: string };
+export type MakeImage = (prompt: string, source?: Source, size?: string) => Promise<Uint8Array>;
 
 export class ImageError extends Error {
   constructor(
@@ -17,8 +58,7 @@ export class ImageError extends Error {
   }
 }
 
-// gpt-image-1 only works once the OpenAI organisation is verified, so an
-// unverified account falls back to DALL·E 3, which doesn't need it.
+// Some picture models only work once the OpenAI organisation is verified.
 const NEEDS_VERIFYING = /verif/i;
 // A project without access to the model is told it "does not exist".
 const NO_MODEL = /does not exist|model_not_found|not have access to (the )?model/i;
@@ -26,26 +66,56 @@ const NO_MODEL = /does not exist|model_not_found|not have access to (the )?model
 export function imageClient(): MakeImage | null {
   const key = process.env.OPENAI_API_KEY;
   if (!key) return null;
-  const call = async (body: object) => {
-    const res = await fetch("https://api.openai.com/v1/images/generations", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(180_000),
-    });
-    const json = (await res.json().catch(() => ({}))) as { data?: { b64_json?: string }[]; error?: { message?: string } };
-    const b64 = json.data?.[0]?.b64_json;
-    if (!res.ok || !b64) throw new ImageError(json.error?.message ?? `OpenAI images: HTTP ${res.status}`, res.status);
-    return Buffer.from(b64, "base64");
+  // With a source photo, OpenAI's edits endpoint makes the new picture from it.
+  const call = async (body: Record<string, string | number>, source?: Source) => {
+    let init: RequestInit;
+    if (source) {
+      const form = new FormData();
+      for (const [k, v] of Object.entries(body)) form.append(k, String(v));
+      const ext = source.mime === "image/png" ? "png" : source.mime === "image/webp" ? "webp" : "jpg";
+      form.append("image", new Blob([new Uint8Array(source.data)], { type: source.mime }), `photo.${ext}`);
+      init = { method: "POST", headers: { Authorization: `Bearer ${key}` }, body: form, signal: AbortSignal.timeout(180_000) };
+    } else {
+      init = { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(180_000) };
+    }
+    const res = await fetch(`https://api.openai.com/v1/images/${source ? "edits" : "generations"}`, init);
+    const json = (await res.json().catch(() => ({}))) as { data?: { b64_json?: string; url?: string }[]; error?: { message?: string } };
+    const got = json.data?.[0];
+    if (!res.ok || !(got?.b64_json || got?.url)) throw new ImageError(json.error?.message ?? `OpenAI images: HTTP ${res.status}`, res.status);
+    if (got.b64_json) return Buffer.from(got.b64_json, "base64");
+    // DALL·E 3 answers with a short-lived link to the picture.
+    const pic = await fetch(got.url!, { signal: AbortSignal.timeout(60_000) });
+    if (!pic.ok) throw new ImageError(`Couldn't fetch the picture OpenAI made (HTTP ${pic.status}).`, pic.status);
+    return Buffer.from(await pic.arrayBuffer());
   };
-  return async (prompt) => {
+  return async (prompt, source, size = "1536x1024") => {
+    let last: unknown;
+    for (const model of await pictureModels(key)) {
+      try {
+        return await call({ model, prompt, n: 1, size, quality: "medium", output_format: "jpeg", output_compression: 82 }, source);
+      } catch (err) {
+        last = err;
+        if (!(err instanceof ImageError)) throw err;
+        // A newer model may not take every setting: ask again with just the size.
+        if (/unknown parameter|unsupported|invalid value/i.test(err.message)) {
+          try {
+            return await call({ model, prompt, n: 1, size }, source);
+          } catch (again) {
+            last = again;
+            if (!(again instanceof ImageError)) throw again;
+          }
+        }
+        const err2 = last as ImageError;
+        if (!(NEEDS_VERIFYING.test(err2.message) || NO_MODEL.test(err2.message) || err2.status === 404 || /unknown parameter|unsupported|invalid value/i.test(err2.message))) throw err2;
+        console.warn(`Picture model ${model} isn't available, trying the next:`, err2.message);
+      }
+    }
+    // The last resort, for older accounts. DALL·E 3 can't start from a photo.
+    if (source) throw last;
     try {
-      return await call({ model: MODEL, prompt, n: 1, size: "1536x1024", quality: "medium", output_format: "jpeg", output_compression: 82 });
-    } catch (err) {
-      const fallBack = err instanceof ImageError && MODEL !== "dall-e-3" && (NEEDS_VERIFYING.test(err.message) || NO_MODEL.test(err.message) || err.status === 404);
-      if (!fallBack) throw err;
-      console.warn("Falling back to dall-e-3 for article images:", err.message);
-      return call({ model: "dall-e-3", prompt, n: 1, size: "1792x1024", quality: "standard", response_format: "b64_json" });
+      return await call({ model: "dall-e-3", prompt, n: 1, size: "1792x1024", quality: "standard" });
+    } catch {
+      throw last;
     }
   };
 }
@@ -85,6 +155,24 @@ export function imagePrompt(a: { title: string; keyword: string; summary: string
     .join(" ");
 }
 
+// Building a scene around the merchant's photo: the product stays exactly as
+// it is, and only what's around it is made.
+export function scenePrompt(scene: string) {
+  return [
+    `Make a natural, high-quality photograph of the product in the attached photo, placed in this scene: ${scene.trim()}.`,
+    "Keep the product exactly as it is: the same shape, size, colours, pattern, materials and any printed details. Don't redraw or restyle it.",
+    "Light it to match the scene, with soft natural light and space around it.",
+    "No added text, letters, logos, watermarks or borders.",
+  ].join(" ");
+}
+
+// A JPEG or PNG for OpenAI, no bigger than it needs, from any picture.
+export async function sourcePhoto(data: Uint8Array): Promise<Source> {
+  const { default: sharp } = await import("sharp");
+  const out = await sharp(data).rotate().resize({ width: 1536, height: 1536, fit: "inside", withoutEnlargement: true }).png().toBuffer();
+  return { data: new Uint8Array(out), mime: "image/png" };
+}
+
 export const imageUrl = (articleId: string) => `${process.env.SHOPIFY_APP_URL || ""}/images/${articleId}.jpg`;
 
 // TikTok refuses photos bigger than 1080 pixels on a side
@@ -105,12 +193,25 @@ export async function tiktokCopy(data: Uint8Array) {
 
 // Makes (or remakes) the picture for an article. Failures are kept on the
 // article, which can still be sent without one.
-export async function makeArticleImage(shop: string, articleId: string, make: MakeImage | null = imageClient()) {
+// With a scene, the picture is built around the article's current picture
+// (the one made or uploaded for it, or the linked product's photo).
+export async function makeArticleImage(shop: string, articleId: string, make: MakeImage | null = imageClient(), scene = "", sourceUrl: string | null = null) {
   if (!make) return { error: "Article images aren't switched on for this app yet." };
   const a = await db.blogArticle.findFirst({ where: { id: articleId, shop } });
   if (!a) return { error: "That article isn't there any more." };
   try {
-    const data = new Uint8Array(await make(imagePrompt(a)));
+    let source: Source | undefined;
+    if (scene.trim()) {
+      const own = a.imageAlt ? await db.articleImage.findUnique({ where: { articleId } }) : null;
+      let raw = own?.data ? new Uint8Array(own.data) : null;
+      if (!raw && sourceUrl) {
+        const res = await fetch(sourceUrl, { signal: AbortSignal.timeout(30_000) });
+        if (res.ok) raw = new Uint8Array(await res.arrayBuffer());
+      }
+      if (!raw) return { error: "There's no picture to build a scene around yet. Upload a photo first." };
+      source = await sourcePhoto(raw);
+    }
+    const data = new Uint8Array(await make(source ? scenePrompt(scene) : imagePrompt(a), source));
     const mime = imageMime(data);
     await db.articleImage.upsert({ where: { articleId }, update: { data, mime, createdAt: new Date() }, create: { articleId, shop, data, mime } });
     await db.blogArticle.update({ where: { id: articleId }, data: { imageAlt: a.title.slice(0, 200), imageError: null } });

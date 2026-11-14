@@ -9,6 +9,7 @@ import { detectShopMarket } from "../lib/traffic/refresh.server";
 import { detectShopDomain } from "../lib/traffic/gap.server";
 import { detectAlertEmail } from "../lib/email/alerts.server";
 import { isFreeShop, isOwnerShop } from "../lib/waitlist.server";
+import { openNetworks } from "../lib/inbox/inbox.server";
 import { PLAN_KEYS, covers, pageTier, parsePlanKey, type Tier } from "../lib/billing";
 import { webShellAccount } from "../lib/web/context.server";
 import { AppShell } from "../components/web/WebShell";
@@ -44,11 +45,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   await detectShopDomain(session.shop, async () => (await readShop()).host);
   await detectAlertEmail(session.shop, async () => (await readShop()).email);
   // eslint-disable-next-line no-undef
-  return { apiKey: process.env.SHOPIFY_API_KEY || "", owner, web: web?.shell ?? null };
+  // The social inbox is in the menu once a network has approved it (or for Colourmedia's own and free stores).
+  return { apiKey: process.env.SHOPIFY_API_KEY || "", owner, inbox: openNetworks(session.shop).length > 0, web: web?.shell ?? null };
 };
 
 export default function App() {
-  const { apiKey, owner, web } = useLoaderData<typeof loader>();
+  const { apiKey, owner, inbox, web } = useLoaderData<typeof loader>();
 
   return (
     <AppShell apiKey={apiKey} web={web}>
@@ -69,6 +71,7 @@ export default function App() {
         <s-link href="/app/outreach">Outreach emails</s-link>
         <s-link href="/app/listening">Social listening</s-link>
         <s-link href="/app/publishing">Social calendar</s-link>
+        {inbox && <s-link href="/app/inbox">Social inbox</s-link>}
         <s-link href="/app/social">Social accounts</s-link>
         <s-link href="/app/paid-social">Paid social ads</s-link>
         <s-link href="/app/tech">Website technologies</s-link>
@@ -77,6 +80,7 @@ export default function App() {
         <s-link href="/app/google">Google Analytics and Ads</s-link>
         <s-link href="/app/ads">Ads</s-link>
         <s-link href="/app/ad-ideas">Ad ideas</s-link>
+        <s-link href="/app/reports">Reports</s-link>
         <s-link href="/app/settings">Settings</s-link>
         <s-link href="/app/plans">Plans</s-link>
         <s-link href="/app/help">Help videos</s-link>

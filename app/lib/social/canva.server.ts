@@ -123,6 +123,24 @@ export async function newCanvaDesign(shop: string, size: string, title: string, 
   }
 }
 
+// Opens a design that's already in a post, to change it. Canva's return
+// button brings the new version back in place of the old pictures.
+export async function editCanvaDesign(shop: string, designId: string, { f = fetch, now = new Date() }: { f?: Fetch; now?: Date } = {}) {
+  if (!/^[\w-]{1,64}$/.test(designId)) return { error: "Choose a design." };
+  try {
+    const token = await liveCanvaToken(shop, f, now);
+    const got = await canva<{ design?: { id: string; urls?: { edit_url?: string } } }>(f, token, `/designs/${encodeURIComponent(designId)}`);
+    if (!got.design?.urls?.edit_url) return { error: "Canva didn't send a link to the design. It may have been deleted." };
+    const back = randomBytes(18).toString("base64url");
+    await db.canvaReturn.create({ data: { token: back, shop } });
+    const edit = new URL(got.design.urls.edit_url);
+    edit.searchParams.set("correlation_state", back);
+    return { editUrl: edit.toString(), token: back, replace: designId };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export type CanvaDesign = { id: string; title: string; thumbnail: string | null; pages: number | null; updatedAt: string | null };
 
 // The merchant's most recently changed designs, to bring one in.
@@ -166,13 +184,15 @@ export async function importCanvaDesign(
       job = (await canva<{ job: typeof job }>(f, token, `/exports/${encodeURIComponent(job.id)}`)).job;
     }
     if (job.status !== "success" || !job.urls?.length) return { error: job.error?.message ? `Canva said: ${job.error.message}` : "Canva is still exporting the design. Try again in a minute." };
-    const images: { id: string; url: string }[] = [];
+    const images: { id: string; url: string; canva: string }[] = [];
     for (const url of job.urls.slice(0, Math.max(0, max))) {
       const res = await f(url, { signal: AbortSignal.timeout(60_000) });
       if (!res.ok) continue;
       const data = await res.arrayBuffer();
       const up = await uploadSocialImage(shop, { type: "image/png", size: data.byteLength, arrayBuffer: async () => data });
-      if ("imageId" in up && up.imageId) images.push({ id: up.imageId, url: up.url });
+      if (!("imageId" in up) || !up.imageId) continue;
+      await db.socialImage.update({ where: { id: up.imageId }, data: { canvaDesignId: designId } });
+      images.push({ id: up.imageId, url: up.url, canva: designId });
     }
     if (!images.length) return { error: "Couldn't bring the design's pages in from Canva. Try again." };
     return { images, more: job.urls.length > images.length };
@@ -199,17 +219,19 @@ export async function readCanvaReturn(jwt: string, f: Fetch = fetch, now = Date.
   if (!h || !p || !sig) return null;
   try {
     const header = JSON.parse(Buffer.from(h, "base64url").toString("utf8")) as { alg?: string; kid?: string };
-    if (header.alg !== "RS256") return null;
+    // Canva signs with Ed25519 (EdDSA); RS256 is still accepted in case it switches.
+    const algo = header.alg === "EdDSA" ? null : header.alg === "RS256" ? "RSA-SHA256" : undefined;
+    if (algo === undefined) return null;
     let key = (await canvaKeys(f, now)).find((k) => k.kid === header.kid);
     // Canva may have started signing with a new key since the list was read.
     if (!key) key = (await canvaKeys(f, now, true)).find((k) => k.kid === header.kid);
     if (!key) return null;
-    const ok = verify("RSA-SHA256", Buffer.from(`${h}.${p}`), createPublicKey({ key, format: "jwk" }), Buffer.from(sig, "base64url"));
+    const ok = verify(algo, Buffer.from(`${h}.${p}`), createPublicKey({ key, format: "jwk" }), Buffer.from(sig, "base64url"));
     if (!ok) return null;
-    const claims = JSON.parse(Buffer.from(p, "base64url").toString("utf8")) as { exp?: number; aud?: string | string[]; correlation_state?: string; design_id?: string };
+    // Canva's signature, plus the one-off correlation_state only we hand out,
+    // is what proves the return is real.
+    const claims = JSON.parse(Buffer.from(p, "base64url").toString("utf8")) as { exp?: number; correlation_state?: string; design_id?: string };
     if (claims.exp && claims.exp * 1000 < now) return null;
-    const aud = Array.isArray(claims.aud) ? claims.aud : claims.aud ? [claims.aud] : [];
-    if (aud.length && !aud.includes(process.env.CANVA_CLIENT_ID ?? "")) return null;
     if (!claims.correlation_state || !claims.design_id) return null;
     return { token: claims.correlation_state, designId: claims.design_id };
   } catch {
@@ -246,5 +268,6 @@ export async function takeCanvaReturn(shop: string, token: string) {
   await db.canvaReturn.delete({ where: { token } });
   if (row.status === "failed") return { status: "failed" as const, error: row.error ?? "Couldn't bring the design in from Canva." };
   const ids = postImages({ imageId: null, imageIds: row.imageIds });
-  return { status: "ready" as const, images: ids.map((id) => ({ id, url: `/social-images/${id}.jpg` })) };
+  const from = new Map((await db.socialImage.findMany({ where: { shop, id: { in: ids } }, select: { id: true, canvaDesignId: true } })).map((i) => [i.id, i.canvaDesignId]));
+  return { status: "ready" as const, images: ids.map((id) => ({ id, url: `/social-images/${id}.jpg`, canva: from.get(id) ?? null })) };
 }

@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs, ShouldRevalidateFunction } from "react-router";
-import { Link, useFetcher, useFetchers, useLoaderData, useRevalidator } from "react-router";
+import { Link, useFetcher, useFetchers, useLoaderData, useRevalidator, useSearchParams } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { NETWORK_NAME, type Network, type PostStats } from "../lib/social/networks";
@@ -13,6 +13,7 @@ import {
   deleteCampaign,
   deleteSocialPost,
   duplicatePost,
+  makeSocialScene,
   movePost,
   readPostInput,
   retryPost,
@@ -30,6 +31,7 @@ import {
   canvaAccount,
   canvaAuthorizeUrl,
   canvaOn,
+  editCanvaDesign,
   importCanvaDesign,
   newCanvaDesign,
   recentCanvaDesigns,
@@ -37,6 +39,7 @@ import {
   type CanvaDesign,
 } from "../lib/social/canva.server";
 import { addDays, dayLabel, timeLabel, validZone, weekStart, zoned } from "../lib/social/when";
+import { MIN_POSTS, bestTimes, postingHeatmap, type BestTimes, type SentPost, type TimeCell } from "../lib/social/best-times";
 import { TikTokPost } from "../components/TikTokPost";
 import { HowTo } from "../components/HowTo";
 
@@ -74,6 +77,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     today,
     now: now.toISOString(),
     ai: !!process.env.ANTHROPIC_API_KEY,
+    scenes: !!process.env.OPENAI_API_KEY,
   };
 };
 
@@ -115,6 +119,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       ...(await movePost(shop, id, text("day"), text("time"), text("tz"))),
     };
   if (intent === "canva-new") return { intent, ...(await newCanvaDesign(shop, text("size"), text("title"))) };
+  if (intent === "scene") {
+    const made = await makeSocialScene(shop, text("imageId"), text("scene"));
+    return { intent, ...("image" in made ? { images: [made.image], from: text("imageId") } : made) };
+  }
+  if (intent === "canva-edit") return { intent, ...(await editCanvaDesign(shop, text("designId"))) };
   if (intent === "canva-returned") return { intent, ...(await takeCanvaReturn(shop, text("token"))) };
   if (intent === "canva-designs") return { intent, ...(await recentCanvaDesigns(shop)) };
   if (intent === "canva-import") return { intent, ...(await importCanvaDesign(shop, text("designId"), Math.min(MAX_PICTURES, Number(text("max")) || MAX_PICTURES))) };
@@ -159,6 +168,9 @@ type Post = Data["posts"][number];
 type Account = Data["accounts"][number];
 type Campaign = Data["campaigns"][number];
 type Share = Data["articleShares"][number];
+// A post's picture; canva is the Canva design it came from, if any.
+type Pic = { id: string; url: string; canva?: string | null };
+
 type Answer = {
   intent?: string;
   error?: string;
@@ -166,9 +178,11 @@ type Answer = {
   status?: string;
   posted?: number;
   failed?: number;
-  images?: { id: string; url: string }[];
+  images?: Pic[];
   editUrl?: string;
   token?: string;
+  replace?: string;
+  from?: string;
   designs?: CanvaDesign[];
   more?: boolean;
   captions?: Record<string, string>;
@@ -290,7 +304,9 @@ const G = {
 export default function Publishing() {
   const data = useLoaderData<typeof loader>();
   const { accounts, posts, campaigns, tz, today } = data;
-  const [section, setSection] = useState<Section>("calendar");
+  const [params] = useSearchParams();
+  // Other pages can open a section directly, e.g. ?section=reports from the Reports page.
+  const [section, setSection] = useState<Section>(params.get("section") === "reports" ? "reports" : "calendar");
   const [mode, setMode] = useState<Mode>("week");
   const [anchor, setAnchor] = useState(today);
   const [nets, setNets] = useState<Network[]>(NETWORKS);
@@ -1581,6 +1597,7 @@ const PERIODS = [7, 30, 60] as const;
 
 type ReportPost = {
   key: string;
+  at: string;
   day: string;
   network: Network;
   account: string;
@@ -1639,6 +1656,7 @@ function Reports({
         .filter((x) => x.status !== "failed")
         .map((x) => ({
           key: `${p.id}:${x.id}`,
+          at: p.sentAt ?? p.at ?? p.updatedAt,
           day: zoned(new Date(p.sentAt ?? p.at ?? p.updatedAt), tz).day,
           network: x.network,
           account: x.account,
@@ -1653,6 +1671,7 @@ function Reports({
         .filter((x) => x.status !== "failed")
         .map((x) => ({
           key: `${s.id}:${x.id}`,
+          at: s.at,
           day: zoned(new Date(s.at), tz).day,
           network: x.network,
           account: x.account,
@@ -1685,7 +1704,10 @@ function Reports({
       <div className="pc-sent-head">
         <div>
           <h2>Reports</h2>
-          <p className="pc-muted">How your posts did across every channel, against the period before. Figures update every hour.</p>
+          <p className="pc-muted">
+            How your posts did across every channel, against the period before. Figures update every hour. For a printable report with your ads, website and
+            rankings too, open <Link to="/app/reports">Reports</Link>.
+          </p>
         </div>
         <div className="pc-toggle" role="group" aria-label="Period">
           {PERIODS.map((d) => (
@@ -1741,6 +1763,13 @@ function Reports({
           <h3>Followers</h3>
         </div>
         <FollowerLines followers={followers} days={days} />
+      </section>
+
+      <section className="pc-report">
+        <div className="pc-report-head">
+          <h3>When your posts do best</h3>
+        </div>
+        <TimeHeatmap posts={current} tz={tz} table={table} />
       </section>
 
       <div className="pc-report-pair">
@@ -1799,6 +1828,100 @@ function Reports({
             </table>
           )}
         </section>
+      </div>
+    </div>
+  );
+}
+
+// Light to dark for a bigger average, one hue, in five steps.
+const HEAT = ["#dbe9fb", "#a9cbf4", "#6ea6ea", "#2a78d6", "#1a4f94"];
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const hourLabel = (h: number) => `${String(h).padStart(2, "0")}:00`;
+
+// Average reach of a post by the day and hour it went out.
+function TimeHeatmap({ posts, tz, table }: { posts: ReportPost[]; tz: string; table: boolean }) {
+  const [hover, setHover] = useState<TimeCell | null>(null);
+  const map = postingHeatmap(posts, tz);
+  if (!map.cells.length) return <div className="pc-empty">Once your posts have likes and reach, this shows which days and hours do best.</div>;
+  const what = map.measure === "reach" ? "reach" : "engagements";
+  const max = Math.max(1, ...map.cells.map((c) => c.average));
+  const step = (v: number) => Math.min(HEAT.length - 1, Math.floor((v / max) * HEAT.length));
+  const bands = HEAT.map((_, i) => `${fmt(Math.round((max * i) / HEAT.length))}–${fmt(Math.round((max * (i + 1)) / HEAT.length))}`);
+  const hours = Array.from({ length: map.to - map.from + 1 }, (_, i) => map.from + i);
+  const at = (w: number, h: number) => map.cells.find((c) => c.weekday === w && c.hour === h);
+  if (table)
+    return (
+      <table className="pc-table">
+        <thead>
+          <tr>
+            <th>Day</th>
+            <th>Hour</th>
+            <th>Posts</th>
+            <th>Average {what}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {[...map.cells]
+            .sort((a, b) => b.average - a.average)
+            .map((c) => (
+              <tr key={`${c.weekday}:${c.hour}`}>
+                <td>{WEEKDAYS[c.weekday]}</td>
+                <td>{hourLabel(c.hour)}</td>
+                <td>{fmt(c.posts)}</td>
+                <td>{fmt(Math.round(c.average))}</td>
+              </tr>
+            ))}
+        </tbody>
+      </table>
+    );
+  return (
+    <div className="pc-heat-wrap">
+      <p className="pc-muted pc-heat-note">Average {what} of a post by when it went out, on your shop&apos;s clock. Darker is better.</p>
+      <div className="pc-heat" style={{ gridTemplateColumns: `40px repeat(${hours.length}, minmax(22px, 1fr))` }} onMouseLeave={() => setHover(null)}>
+        {WEEKDAYS.map((d, w) => (
+          <div key={d} className="pc-heat-row">
+            <span className="pc-heat-day">{d}</span>
+            {hours.map((h) => {
+              const c = at(w, h);
+              return (
+                <span
+                  key={h}
+                  className={`pc-heat-cell${c ? "" : " pc-heat-none"}${hover && hover.weekday === w && hover.hour === h ? " pc-heat-on" : ""}`}
+                  style={c ? { background: HEAT[step(c.average)] } : undefined}
+                  title={c ? `${d} ${hourLabel(h)}: ${fmt(Math.round(c.average))} average ${what} from ${c.posts} post${c.posts === 1 ? "" : "s"}` : `${d} ${hourLabel(h)}: no posts`}
+                  onMouseEnter={() => setHover(c ?? null)}
+                />
+              );
+            })}
+          </div>
+        ))}
+        <div className="pc-heat-row">
+          <span />
+          {hours.map((h) => (
+            <span key={h} className="pc-heat-hour">
+              {h % 2 === 0 ? String(h).padStart(2, "0") : ""}
+            </span>
+          ))}
+        </div>
+      </div>
+      <div className="pc-heat-foot">
+        <div className="pc-heat-legend" aria-label={`Average ${what}`}>
+          {HEAT.map((c, i) => (
+            <span key={c}>
+              <i style={{ background: c }} />
+              {bands[i]}
+            </span>
+          ))}
+          <span>
+            <i className="pc-heat-none" />
+            No posts
+          </span>
+        </div>
+        <span className="pc-heat-tip" aria-live="polite">
+          {hover
+            ? `${WEEKDAYS[hover.weekday]} ${hourLabel(hover.hour)}: ${fmt(Math.round(hover.average))} average ${what} from ${hover.posts} post${hover.posts === 1 ? "" : "s"}`
+            : ""}
+        </span>
       </div>
     </div>
   );
@@ -2324,12 +2447,6 @@ function CampaignForm({ campaign, onDone }: { campaign?: Campaign; onDone: () =>
 
 // --- Composer -----------------------------------------------------------------
 
-const QUICK_TIMES = [
-  { label: "Morning", time: "09:00" },
-  { label: "Lunchtime", time: "12:30" },
-  { label: "Evening", time: "18:30" },
-];
-
 // Designing pictures in Canva: start a design at a post's size, which opens
 // in a new tab, then bring a design's pages back as the post's pictures.
 function CanvaTools({
@@ -2337,11 +2454,15 @@ function CanvaTools({
   room,
   title,
   onImages,
+  editRef,
 }: {
   canva: { connected: boolean; connect: string; sizes: { key: string; label: string }[] };
   room: number;
   title: string;
-  onImages: (images: { id: string; url: string }[]) => void;
+  // replace: the design whose pictures these take the place of.
+  onImages: (images: Pic[], replace?: string) => void;
+  // Set to a function that opens a design already in the post, to change it.
+  editRef: React.MutableRefObject<((designId: string) => void) | null>;
 }) {
   const make = useFetcher<Answer>();
   const list = useFetcher<Answer>();
@@ -2350,8 +2471,9 @@ function CanvaTools({
   const [open, setOpen] = useState<"sizes" | "designs" | null>(null);
   const [designed, setDesigned] = useState(false);
   const tab = useRef<Window | null>(null);
-  // Designs started here, waiting for Canva's return button.
-  const [waiting, setWaiting] = useState<string[]>([]);
+  // Designs started or opened here, waiting for Canva's return button, with
+  // the design being changed, if it's one already in the post.
+  const [waiting, setWaiting] = useState<{ token: string; replace?: string }[]>([]);
   const poll = useFetcher<Answer>();
   const [arrived, setArrived] = useState<string | null>(null);
 
@@ -2371,7 +2493,7 @@ function CanvaTools({
     setSeenMade(made);
     if (made?.editUrl) {
       setDesigned(true);
-      if (made.token) setWaiting((w) => [...w, made.token!]);
+      if (made.token) setWaiting((w) => [...w, { token: made.token!, replace: made.replace }]);
     }
   }
   useEffect(() => {
@@ -2381,12 +2503,26 @@ function CanvaTools({
     tab.current = null;
   }, [made]);
 
+  // Opened from a picture's Edit in Canva button. The tab opens on the
+  // click, so it isn't blocked, and goes to the design once Canva answers.
+  const makeSubmit = make.submit;
+  useEffect(() => {
+    editRef.current = (designId) => {
+      tab.current = window.open("", "_blank");
+      setArrived(null);
+      makeSubmit({ intent: "canva-edit", designId }, { method: "post" });
+    };
+    return () => {
+      editRef.current = null;
+    };
+  }, [editRef, makeSubmit]);
+
   const pollState = poll.state;
   const pollSubmit = poll.submit;
   useEffect(() => {
     if (!waiting.length) return;
     const check = () => {
-      if (pollState === "idle") pollSubmit({ intent: "canva-returned", token: waiting[0] }, { method: "post" });
+      if (pollState === "idle") pollSubmit({ intent: "canva-returned", token: waiting[0].token }, { method: "post" });
     };
     const t = setInterval(check, 4000);
     const back = () => document.visibilityState === "visible" && check();
@@ -2401,12 +2537,14 @@ function CanvaTools({
   const [seenReturn, setSeenReturn] = useState(returned);
   if (returned !== seenReturn) {
     setSeenReturn(returned);
-    const token = poll.formData?.get("token") ?? waiting[0];
+    const token = poll.formData?.get("token") ?? waiting[0]?.token;
+    const was = waiting.find((x) => x.token === token);
     if (returned && returned.status !== "waiting") {
-      setWaiting((w) => w.filter((x) => x !== token));
+      setWaiting((w) => w.filter((x) => x.token !== token));
       if (returned.images?.length) {
-        onImages(returned.images);
-        setArrived(`Your Canva design is in: ${returned.images.length} ${returned.images.length === 1 ? "picture" : "pictures"} added.`);
+        onImages(returned.images, was?.replace);
+        const n = `${returned.images.length} ${returned.images.length === 1 ? "picture" : "pictures"}`;
+        setArrived(was?.replace ? `Your Canva changes are in: ${n} updated.` : `Your Canva design is in: ${n} added.`);
       } else if (returned.error) setArrived(returned.error);
     }
   }
@@ -2560,6 +2698,59 @@ function DayPicker({ value, today, onPick }: { value: string; today: string; onP
 
 const hashtags = (s: string) => (s.match(/#[\p{L}\p{N}_]+/gu) ?? []).length;
 
+// Every post that went out, with when it went and how it did.
+function sentPosts(posts: Post[], shares: Share[]): SentPost[] {
+  return [
+    ...posts.flatMap((p) =>
+      p.status === "sent" || p.status === "partial"
+        ? p.results.filter((r) => r.status === "posted").map((r) => ({ network: r.network, at: p.sentAt ?? p.at ?? p.updatedAt, stats: r.stats }))
+        : [],
+    ),
+    ...shares.flatMap((s) => s.results.filter((r) => r.status === "posted").map((r) => ({ network: r.network, at: s.at, stats: r.stats }))),
+  ];
+}
+
+// Three suggested times for the day, best first by stars, like a quick pick.
+function BestTimesPicker({ best, networks, time, onPick }: { best: BestTimes; networks: Network[]; time: string; onPick: (t: string) => void }) {
+  const names = networks.map((n) => NETWORK_NAME[n]);
+  const forWhom = names.length ? ` for ${names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names[0]}` : "";
+  return (
+    <div className="pc-best">
+      <span className="pc-best-head">Best times to post{forWhom}</span>
+      {best.times.length ? (
+        <div className="pc-best-list">
+          {best.times.map((b) => (
+            <button
+              key={b.time}
+              type="button"
+              className={`pc-best-time${time === b.time ? " pc-best-on" : ""}`}
+              aria-pressed={time === b.time}
+              aria-label={`${timeLabel(b.time)}, ${b.stars} out of 5 stars`}
+              onClick={() => onPick(b.time)}
+            >
+              <span>{timeLabel(b.time)}</span>
+              <span className="pc-stars" aria-hidden="true">
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <span key={i} className={i <= b.stars ? "pc-star-on" : ""}>
+                    ★
+                  </span>
+                ))}
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <small className="pc-muted">No good times left today. Try another day.</small>
+      )}
+      <small className="pc-muted">
+        {best.fromPosts
+          ? `From the likes and reach of your last ${best.fromPosts} posts.`
+          : `Typical good times for now. Once ${MIN_POSTS} of your posts have likes and reach, these come from how your own posts did.`}
+      </small>
+    </div>
+  );
+}
+
 function Composer({
   post,
   day,
@@ -2583,7 +2774,8 @@ function Composer({
   const [caption, setCaption] = useState(post?.caption ?? "");
   const [captions, setCaptions] = useState<Partial<Record<Network, string>>>(post?.captions ?? {});
   const [tab, setTab] = useState<"all" | Network>("all");
-  const [images, setImages] = useState<{ id: string; url: string }[]>(post?.images ?? []);
+  const [images, setImages] = useState<Pic[]>(post?.images ?? []);
+  const editInCanva = useRef<((designId: string) => void) | null>(null);
   const image = images[0] ?? null;
   const [dragged, setDragged] = useState<number | null>(null);
   const [link, setLink] = useState(post?.link ?? "");
@@ -2601,11 +2793,40 @@ function Composer({
   const ai = useFetcher<Answer>();
   const fileRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
+  // Making a new picture by putting one of the post's pictures in a scene.
+  const sceneMaker = useFetcher<Answer>();
+  const [sceneFor, setSceneFor] = useState<string | null>(null);
+  const [scene, setScene] = useState("");
+  const madeScene = sceneMaker.state === "idle" ? sceneMaker.data : undefined;
+  const [seenScene, setSeenScene] = useState(madeScene);
+  if (madeScene !== seenScene) {
+    setSeenScene(madeScene);
+    if (madeScene?.images?.length) {
+      const made = madeScene.images;
+      setImages((now) => {
+        const at = now.findIndex((x) => x.id === madeScene.from);
+        return (at < 0 ? [...now, ...made] : [...now.slice(0, at + 1), ...made, ...now.slice(at + 1)]).slice(0, MAX_PICTURES);
+      });
+      setSceneFor(null);
+      setScene("");
+    }
+  }
 
   const pickedAccounts = accounts.filter((a) => picked.includes(a.id));
   const networks = NETWORKS.filter((n) => pickedAccounts.some((a) => a.network === n));
   const captionFor = (n: Network) => captions[n] || caption;
   const shownPreview = preview && networks.includes(preview) ? preview : networks[0];
+  // The best times to post on the day picked, from how the shop's own posts did.
+  const best = bestTimes({
+    sent: sentPosts(data.posts, data.articleShares),
+    networks,
+    day: when.day,
+    tz,
+    now: new Date(data.now),
+    taken: data.posts
+      .filter((p) => p.id !== post?.id && p.at && p.status === "scheduled" && zoned(new Date(p.at), tz).day === when.day)
+      .map((p) => zoned(new Date(p.at!), tz).time),
+  });
 
   // Upload and AI answers land in the form.
   const uploaded = upload.state === "idle" ? upload.data : undefined;
@@ -2800,7 +3021,7 @@ function Composer({
                   {images.map((img, i) => (
                     <div
                       key={img.id}
-                      className={`pc-pic${dragged === i ? " pc-pic-dragging" : ""}`}
+                      className={`pc-pic${images.length === 1 ? " pc-pic-one" : ""}${dragged === i ? " pc-pic-dragging" : ""}`}
                       draggable
                       onDragStart={(e) => {
                         setDragged(i);
@@ -2821,6 +3042,16 @@ function Composer({
                     >
                       <img src={img.url} alt="" draggable={false} />
                       <span className="pc-pic-n">{i + 1}</span>
+                      {data.scenes && images.length < MAX_PICTURES && (
+                        <button type="button" className="pc-pic-scene" onClick={() => setSceneFor(sceneFor === img.id ? null : img.id)}>
+                          Make a scene
+                        </button>
+                      )}
+                      {img.canva && data.canva?.connected && (
+                        <button type="button" className="pc-pic-edit" onClick={() => editInCanva.current?.(img.canva!)}>
+                          Edit in Canva
+                        </button>
+                      )}
                       <button type="button" className="pc-pic-x" aria-label={`Remove picture ${i + 1}`} onClick={() => setImages((now) => now.filter((x) => x.id !== img.id))}>
                         ×
                       </button>
@@ -2856,12 +3087,52 @@ function Composer({
               {images.length > 5 && pickedAccounts.some((a) => a.network === "pinterest") && (
                 <small className="pc-muted">Pinterest carousels take up to 5 pictures, so the pin gets the first 5.</small>
               )}
+              {sceneFor && images.some((x) => x.id === sceneFor) && (
+                <div className="pc-scene">
+                  <img src={images.find((x) => x.id === sceneFor)!.url} alt="" />
+                  <div>
+                    <label htmlFor="pc-scene-text">Put picture {images.findIndex((x) => x.id === sceneFor) + 1} in a scene</label>
+                    <textarea
+                      id="pc-scene-text"
+                      rows={2}
+                      maxLength={600}
+                      value={scene}
+                      placeholder="on a picnic table in a sunny summer garden, with a bottle of rosé"
+                      onChange={(e) => setScene(e.currentTarget.value)}
+                    />
+                    <small className="pc-muted">The product stays exactly as it is. The new picture is added next to it.</small>
+                    <div className="pc-scene-buttons">
+                      <button
+                        type="button"
+                        className="pc-btn"
+                        disabled={!scene.trim() || sceneMaker.state !== "idle"}
+                        onClick={() => sceneMaker.submit({ intent: "scene", imageId: sceneFor, scene }, { method: "post" })}
+                      >
+                        {sceneMaker.state !== "idle" ? "Making it… up to a minute" : "Make the picture"}
+                      </button>
+                      <button type="button" className="pc-link-btn" onClick={() => setSceneFor(null)}>
+                        Cancel
+                      </button>
+                    </div>
+                    {madeScene?.error && <s-text tone="critical">{madeScene.error}</s-text>}
+                  </div>
+                </div>
+              )}
               {data.canva && (
                 <CanvaTools
                   canva={data.canva}
                   room={MAX_PICTURES - images.length}
                   title={caption.split("\n")[0].slice(0, 80)}
-                  onImages={(more) => setImages((now) => [...now, ...more].slice(0, MAX_PICTURES))}
+                  editRef={editInCanva}
+                  onImages={(more, replace) =>
+                    setImages((now) => {
+                      // A changed design takes the place of its old pictures.
+                      const at = replace ? now.findIndex((x) => x.canva === replace) : -1;
+                      if (at < 0) return [...now, ...more].slice(0, MAX_PICTURES);
+                      const rest = now.filter((x) => x.canva !== replace);
+                      return [...rest.slice(0, at), ...more, ...rest.slice(at)].slice(0, MAX_PICTURES);
+                    })
+                  }
                 />
               )}
               <input
@@ -2925,17 +3196,13 @@ function Composer({
                   value={when.time}
                   onChange={(e) => setWhen({ ...when, time: e.currentTarget.value })}
                 />
-                {QUICK_TIMES.map((q) => (
-                  <button
-                    key={q.time}
-                    type="button"
-                    className={`pc-chip${when.time === q.time ? " pc-chip-on" : ""}`}
-                    onClick={() => setWhen({ ...when, time: q.time })}
-                  >
-                    {q.label}
-                  </button>
-                ))}
               </div>
+              <BestTimesPicker
+                best={best}
+                networks={networks}
+                time={when.time}
+                onPick={(t) => setWhen({ ...when, time: t })}
+              />
               {picking && (
                 <DayPicker
                   value={when.day}
@@ -3400,9 +3667,22 @@ const CSS = `
 .pc-went { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .pc-link-btn { padding: 0; border: 0; background: none; color: #2c6ecb; font: inherit; font-size: 12px; font-weight: 400; cursor: pointer; }
 .pc-link-btn:disabled { color: #8a8a8a; cursor: default; }
-.pc-pics { display: flex; flex-wrap: wrap; gap: 8px; }
-.pc-pic { position: relative; width: 92px; height: 92px; border-radius: 10px; overflow: hidden; cursor: grab; background: #f1f1f1; }
-.pc-pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pc-pics { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+/* The whole picture, uncropped: one picture shows large, a carousel as tiles. */
+.pc-pic { position: relative; width: 150px; height: 150px; border-radius: 10px; overflow: hidden; cursor: grab; background: #f1f1f1; }
+.pc-pic img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.pc-pic-one { width: min(100%, 420px); height: auto; }
+.pc-pic-one img { height: auto; max-height: 520px; }
+.pc-pic-add { width: 92px; height: 92px; }
+.pc-pic-scene { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 4px 10px; border: 0; border-radius: 14px; background: rgba(0,0,0,.65); color: #fff; font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer; opacity: 0; transition: opacity .15s; }
+.pc-pic:hover .pc-pic-scene, .pc-pic-scene:focus { opacity: 1; }
+.pc-scene { display: flex; gap: 12px; margin-top: 10px; padding: 10px; border: 1px solid #e3e3e3; border-radius: 10px; background: #fafafa; }
+.pc-scene > img { width: 72px; height: 72px; object-fit: contain; border-radius: 8px; background: #fff; flex: none; }
+.pc-scene > div { display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.pc-scene label { font-weight: 600; font-size: 13px; }
+.pc-scene textarea { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #c9c9c9; border-radius: 8px; font: inherit; resize: vertical; }
+.pc-scene-buttons { display: flex; gap: 12px; align-items: center; }
+.pc-pic-edit { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); padding: 4px 10px; border: 0; border-radius: 14px; background: #7d2ae8; color: #fff; font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,.25); }
 .pc-pic-dragging { opacity: .4; }
 .pc-pic-n { position: absolute; left: 5px; top: 5px; min-width: 18px; padding: 1px 5px; border-radius: 9px; background: rgba(0,0,0,.6); color: #fff; font-size: 11px; text-align: center; }
 .pc-pic-x { position: absolute; right: 4px; top: 4px; width: 22px; height: 22px; border: 0; border-radius: 50%; background: rgba(0,0,0,.6); color: #fff; font-size: 15px; line-height: 1; cursor: pointer; }
@@ -3428,6 +3708,28 @@ const CSS = `
 .pc-drop-zone:hover, .pc-dragging { border-color: #4f7cff; background: #f5f8ff; }
 .pc-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
 .pc-when-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.pc-heat-note { margin: 0 0 10px; font-size: 12px; }
+.pc-heat { display: grid; gap: 3px; }
+.pc-heat-row { display: contents; }
+.pc-heat-day, .pc-heat-hour { font-size: 11px; color: #616161; }
+.pc-heat-day { align-self: center; }
+.pc-heat-hour { text-align: center; }
+.pc-heat-cell { height: 24px; border-radius: 4px; }
+.pc-heat-none { background: #f3f3f3; }
+.pc-heat-on { outline: 2px solid #303030; outline-offset: 1px; }
+.pc-heat-foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin-top: 12px; font-size: 12px; color: #616161; }
+.pc-heat-legend { display: flex; flex-wrap: wrap; gap: 10px; }
+.pc-heat-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.pc-heat-legend i { width: 14px; height: 14px; border-radius: 3px; }
+.pc-heat-tip { color: #303030; }
+.pc-best { display: grid; gap: 6px; margin-top: 10px; }
+.pc-best-head { font-size: 12px; font-weight: 600; color: #303030; }
+.pc-best-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.pc-best-time { display: inline-flex; align-items: center; gap: 8px; padding: 5px 10px; border: 1px solid #d4d4d4; border-radius: 8px; background: #fff; color: #303030; font: inherit; font-size: 13px; cursor: pointer; }
+.pc-best-time:hover { background: #f7f7f7; }
+.pc-best-on { border-color: #303030; box-shadow: 0 0 0 1px #303030; background: #f4f4f4; }
+.pc-stars { display: inline-flex; gap: 1px; font-size: 12px; color: #d4d4d4; letter-spacing: 0; }
+.pc-star-on { color: #303030; }
 .pc-day { padding: 6px 12px; border: 1px solid #8a8a8a; border-radius: 8px; background: #fff; font: inherit; font-size: 13px; cursor: pointer; }
 .pc-day-open { border-color: #303030; box-shadow: 0 0 0 1px #303030; }
 .pc-picker { width: 280px; margin-top: 8px; scroll-margin-bottom: 130px; padding: 10px; border: 1px solid #e3e3e3; border-radius: 12px; background: #fff; }

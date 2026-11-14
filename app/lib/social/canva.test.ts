@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import sharp from "sharp";
 import db from "../../db.server";
 import { generateKeyPairSync, sign } from "node:crypto";
-import { canvaAccount, canvaAuthorizeUrl, connectCanva, finishCanvaReturn, importCanvaDesign, newCanvaDesign, recentCanvaDesigns, takeCanvaReturn } from "./canva.server";
+import { canvaAccount, canvaAuthorizeUrl, connectCanva, editCanvaDesign, finishCanvaReturn, importCanvaDesign, newCanvaDesign, recentCanvaDesigns, takeCanvaReturn } from "./canva.server";
 import type { Fetch } from "./networks.server";
 import { pkceChallenge, pkceVerifier, unseal } from "./seal.server";
 
@@ -103,13 +103,14 @@ describe("Canva", () => {
 
   it("brings a design back with Canva's return button, for the post that started it", async () => {
     await connect();
-    const { publicKey, privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    // Canva signs its return links with Ed25519 (EdDSA).
+    const { publicKey, privateKey } = generateKeyPairSync("ed25519");
     const kid = `k${Date.now()}`;
     const jwk = { ...publicKey.export({ format: "jwk" }), kid };
     const jwt = (claims: object, key = privateKey) => {
       const b = (o: object) => Buffer.from(JSON.stringify(o)).toString("base64url");
-      const body = `${b({ alg: "RS256", kid })}.${b(claims)}`;
-      return `${body}.${sign("RSA-SHA256", Buffer.from(body), key).toString("base64url")}`;
+      const body = `${b({ alg: "EdDSA", kid })}.${b(claims)}`;
+      return `${body}.${sign(null, Buffer.from(body), key).toString("base64url")}`;
     };
     const png = new Uint8Array(await sharp({ create: { width: 200, height: 300, channels: 3, background: "#123456" } }).png().toBuffer());
     const f = fakeFetch(
@@ -126,7 +127,7 @@ describe("Canva", () => {
     expect(made.token.length).toBeLessThanOrEqual(50);
     expect(await takeCanvaReturn(SHOP, made.token)).toEqual({ status: "waiting" });
     // A forged return is turned away.
-    const forged = jwt({ correlation_state: made.token, design_id: "D7", exp: NOW.getTime() / 1000 + 600 }, generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey);
+    const forged = jwt({ correlation_state: made.token, design_id: "D7", exp: NOW.getTime() / 1000 + 600 }, generateKeyPairSync("ed25519").privateKey);
     expect(await finishCanvaReturn(forged, { f, now: NOW })).toMatchObject({ error: expect.stringMatching(/isn't valid/) });
     const real = jwt({ correlation_state: made.token, design_id: "D7", aud: "canva-id", exp: NOW.getTime() / 1000 + 600 });
     expect(await finishCanvaReturn(real, { f, now: NOW, pause: async () => {} })).toEqual({ ok: true, pages: 2 });
@@ -135,5 +136,13 @@ describe("Canva", () => {
     expect(taken.status).toBe("ready");
     expect("images" in taken && taken.images).toHaveLength(2);
     expect(await takeCanvaReturn(SHOP, made.token)).toEqual({ status: "gone" });
+    // The pictures remember their design, so it can be opened again and changed.
+    expect("images" in taken && taken.images?.every((i) => i.canva === "D7")).toBe(true);
+    const g = fakeFetch([[/\/designs\/D7$/, () => ({ design: { id: "D7", urls: { edit_url: "https://www.canva.com/design/D7/edit?ui=2" } } })]], []);
+    const again = (await editCanvaDesign(SHOP, "D7", { f: g, now: NOW })) as { editUrl: string; token: string; replace: string };
+    expect(again.replace).toBe("D7");
+    expect(new URL(again.editUrl).searchParams.get("correlation_state")).toBe(again.token);
+    expect(await takeCanvaReturn(SHOP, again.token)).toEqual({ status: "waiting" });
+    expect(await editCanvaDesign(SHOP, "../x", { f: g, now: NOW })).toEqual({ error: "Choose a design." });
   });
 });
