@@ -20,6 +20,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     email: s?.alertEmail ?? "",
     alertsOn: s?.alertsOn ?? true,
     digestOn: s?.digestOn ?? true,
+    reportOn: s?.reportOn ?? false,
     topics: parseTopics(s?.alertTopics ?? JSON.stringify(TOPICS.map((t) => t.key))),
     allTopics: TOPICS.map((t) => ({ key: t.key, label: t.label })),
     blogAuthor: s?.blogAuthor ?? "",
@@ -59,6 +60,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     alertEmail: email,
     alertsOn: form.get("alertsOn") === "on",
     digestOn: form.get("digestOn") === "on",
+    reportOn: form.get("reportOn") === "on",
     alertTopics: JSON.stringify(topics),
   };
   const before = await db.shopSettings.findUnique({ where: { shop } });
@@ -80,6 +82,7 @@ export default function Settings() {
   const [email, setEmail] = useState(loaded.email);
   const [alertsOn, setAlertsOn] = useState(loaded.alertsOn);
   const [digestOn, setDigestOn] = useState(loaded.digestOn);
+  const [reportOn, setReportOn] = useState(loaded.reportOn);
   const [topics, setTopics] = useState<string[]>(loaded.topics);
   const saveError = save.state === "idle" && save.data && "error" in save.data ? save.data.error : null;
   const testResult = test.state === "idle" ? test.data : undefined;
@@ -89,6 +92,7 @@ export default function Settings() {
     form.set("email", email);
     if (alertsOn) form.set("alertsOn", "on");
     if (digestOn) form.set("digestOn", "on");
+    if (reportOn) form.set("reportOn", "on");
     for (const t of topics) form.append("topics", t);
     save.submit(form, { method: "post" });
   };
@@ -138,6 +142,15 @@ export default function Settings() {
           details="The week's changes at each competitor, where they're cheaper than you, and the searches you're missing."
           checked={digestOn}
           onChange={(e) => setDigestOn(e.currentTarget.checked)}
+        />
+      </s-section>
+
+      <s-section heading="Monthly performance report">
+        <s-checkbox
+          label="Email me last month's performance report on the 1st"
+          details="Your social ad spend and return, social posts, website, rankings and competitors for the month. The full report, to print or save as a PDF, is under Reports."
+          checked={reportOn}
+          onChange={(e) => setReportOn(e.currentTarget.checked)}
         />
       </s-section>
 

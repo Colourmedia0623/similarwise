@@ -180,6 +180,8 @@ model ShopSettings {
   digestOn     Boolean   @default(true)  // The Monday summary
   alertsSentAt DateTime? // Changes up to here have been emailed
   digestSentAt DateTime?
+  reportOn     Boolean   @default(false) // Last month's performance report, on the 1st
+  reportSentAt DateTime?
 
   // Content calendar (lib/ideas/calendar): planned posts go on the blog published, or as hidden drafts.
   calendarPublish Boolean @default(true)
