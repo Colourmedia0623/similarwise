@@ -182,6 +182,7 @@ model ShopSettings {
   digestSentAt DateTime?
   reportOn     Boolean   @default(false) // Last month's performance report, on the 1st
   reportSentAt DateTime?
+  reportCurrency String? // The currency reports show money in; the shop's own when unset
 
   // Content calendar (lib/ideas/calendar): planned posts go on the blog published, or as hidden drafts.
   calendarPublish Boolean @default(true)

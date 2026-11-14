@@ -16,7 +16,8 @@ import {
   type Mailer,
 } from "../email/send.server";
 import { performanceReport } from "./report.server";
-import { change, roas, type Report } from "./report";
+import { exchangeRates } from "./rates.server";
+import { change, inCurrency, roas, type Rates, type Report } from "./report";
 
 // The monthly performance report by email: last month's figures, on the 1st.
 
@@ -166,10 +167,12 @@ export async function sendMonthlyReports({
   send = mailer(),
   now = new Date(),
   build = performanceReport,
+  rates = exchangeRates,
 }: {
   send?: Mailer | null;
   now?: Date;
   build?: typeof performanceReport;
+  rates?: () => Promise<Rates | null>;
 } = {}) {
   if (!send || now.getUTCDate() !== 1 || now.getUTCHours() < 7) return 0;
   const cutoff = new Date(now.getTime() - 20 * DAY);
@@ -183,8 +186,12 @@ export async function sendMonthlyReports({
   let sent = 0;
   for (const s of shops) {
     try {
+      const report = await build(s.shop, "last-month", { now });
+      // In the currency chosen on the Reports page, if one was.
       const email = reportEmail(
-        await build(s.shop, "last-month", { now }),
+        s.reportCurrency
+          ? inCurrency(report, s.reportCurrency, await rates())
+          : report,
         s.alertEmail!,
       );
       if (email) await send(email);
