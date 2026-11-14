@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import db from "../../db.server";
 import { TRIAL_DAYS } from "../billing";
 import { newWebShop } from "./shop";
+import { isAdminEmail } from "./admin.server";
 
 // Logins for the standalone web version: email and password or Google, a
 // cookie per signed-in browser, and the workspace each browser is looking at.
@@ -125,7 +126,7 @@ export async function createWorkspace(
 // Who may sign up. Until billing is live, only people on the waitlist or
 // invited by email; WEB_SIGNUP=open lets anyone.
 export async function signupAllowed(email: string) {
-  if (process.env.WEB_SIGNUP === "open") return true;
+  if (process.env.WEB_SIGNUP === "open" || isAdminEmail(email)) return true;
   const invited = (process.env.WEB_INVITES ?? "").split(",").map((s) => s.trim().toLowerCase());
   if (invited.includes(email)) return true;
   return !!(await db.waitlistEntry.findUnique({ where: { email } }));

@@ -24,13 +24,15 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     return redirect("/app/plans?billing=thanks");
   }
   const { appSubscriptions } = free ? { appSubscriptions: [] } : await billing.check({ plans: PLAN_KEYS, isTest: true });
-  const sub = appSubscriptions[0];
+  // Web workspaces given free access answer with a "free" plan.
+  const sub = appSubscriptions[0]?.id === "free" ? undefined : appSubscriptions[0];
+  const webFree = appSubscriptions[0]?.id === "free";
   const need = url.searchParams.get("need");
   return {
     web,
     billingNote: url.searchParams.get("billing"),
     owner,
-    free,
+    free: free || webFree,
     current: sub ? { ...parsePlanKey(sub.name), id: sub.id, trialDays: sub.trialDays } : null,
     need: PLANS.find((p) => p.tier === need)?.name ?? null,
     // Until Meta and TikTok approve the app, other stores can't connect social accounts yet.
@@ -73,7 +75,7 @@ export default function Plans() {
       <HowTo video="plans" />
       {free && (
         <s-banner tone="info">
-          {owner ? "This is a Colourmedia store, so every feature is already on and nothing is charged." : "This store has free access to SimilarWise, so every feature is already on and nothing is charged."}
+          {owner ? "This is a Colourmedia store, so every feature is already on and nothing is charged." : `This ${web ? "workspace" : "store"} has free access to SimilarWise, so every feature is already on and nothing is charged.`}
         </s-banner>
       )}
       {billingNote === "thanks" && <s-banner tone="success">Thanks, your plan is set up. Every page it includes is open now.</s-banner>}

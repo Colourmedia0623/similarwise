@@ -15,6 +15,7 @@ export type WebShellAccount = {
   workspace: { id: string; name: string; website: string | null };
   workspaces: { id: string; name: string }[];
   trialDays: number | null;
+  admin?: boolean;
 };
 
 // Sidebar sections, by page. Pages not listed go under More.
@@ -24,7 +25,7 @@ const GROUPS: [string, string[]][] = [
   ["Search and content", ["/app/keywords", "/app/ranks", "/app/audit", "/app/ai", "/app/ideas", "/app/articles", "/app/calendar", "/app/links", "/app/outreach"]],
   ["Social", ["/app/listening", "/app/publishing", "/app/inbox", "/app/social", "/app/paid-social"]],
   ["Ads and analytics", ["/app/ads", "/app/ad-ideas", "/app/google", "/app/reports"]],
-  ["Account", ["/app/settings", "/app/plans", "/app/help", "/app/waitlist"]],
+  ["Account", ["/app/settings", "/app/plans", "/app/help", "/app/waitlist", "/app/admin"]],
 ];
 
 type Link = { href: string; label: string };
