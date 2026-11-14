@@ -22,11 +22,14 @@ describe("making article pictures", () => {
   it("falls back to DALL·E 3 when the account can't use gpt-image-1", async () => {
     process.env.OPENAI_API_KEY = "sk-test";
     const models: string[] = [];
-    vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
-      const model = JSON.parse(String(init.body)).model;
-      models.push(model);
-      if (model === "gpt-image-1") return new Response(JSON.stringify({ error: { message: "The model 'gpt-image-1' does not exist." } }), { status: 400 });
-      return new Response(JSON.stringify({ data: [{ b64_json: Buffer.from("jpeg").toString("base64") }] }));
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      if (url === "https://files.openai/pic.png") return new Response("jpeg");
+      const body = JSON.parse(String(init?.body));
+      models.push(body.model);
+      if (body.model === "gpt-image-1") return new Response(JSON.stringify({ error: { message: "The model 'gpt-image-1' does not exist." } }), { status: 400 });
+      // OpenAI refuses response_format for DALL·E 3 now, and answers with a link.
+      if ("response_format" in body) return new Response(JSON.stringify({ error: { message: "Unknown parameter: 'response_format'." } }), { status: 400 });
+      return new Response(JSON.stringify({ data: [{ url: "https://files.openai/pic.png" }] }));
     });
     const out = await imageClient()!("a gift box");
     expect(Buffer.from(out).toString()).toBe("jpeg");
