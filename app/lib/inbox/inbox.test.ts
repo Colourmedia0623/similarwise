@@ -3,7 +3,9 @@ import db from "../../db.server";
 import type { Fetch } from "../social/networks.server";
 import { saveAccounts, socialAccounts, disconnectAccount } from "../social/social.server";
 import { authorizeUrl } from "../social/networks.server";
-import { answer, assign, draftReply, inboxOpen, inboxView, saveMember, saveRule, setStatus, syncShop, syncShopIfStale, type RuleInput } from "./inbox.server";
+import { answer, assign, draftReply, inboxOpen, inboxView, inboxWebhook, saveMember, saveRule, setStatus, subscribeWebhooks, syncShop, syncShopIfStale, type RuleInput } from "./inbox.server";
+import { createHmac } from "node:crypto";
+import { action as webhookAction, loader as webhookLoader, signedByMeta, webhookIds } from "../../routes/meta.webhook";
 import { fillReply, matchesWords } from "./inbox";
 
 const SHOP = "inbox.myshopify.com";
@@ -300,6 +302,48 @@ describe("social inbox", () => {
     const [a, b] = await Promise.all([syncShop(SHOP, { f, now: later(7), ask: null }), syncShop(SHOP, { f, now: later(7), ask: null })]);
     expect([a, b].filter((r) => "busy" in r)).toHaveLength(1);
     expect(await db.inboxMessage.count({ where: { shop: SHOP } })).toBe(3);
+  });
+
+  it("takes Meta's webhook: checks the address, turns away unsigned notes and reads the shop that has the account", async () => {
+    process.env.META_APP_SECRET = "shh";
+    delete process.env.META_WEBHOOK_TOKEN;
+    const get = (q: string) => webhookLoader({ request: new Request(`https://x/meta/webhook?${q}`) } as never) as Promise<Response>;
+    const ok = await get("hub.mode=subscribe&hub.verify_token=similarwise-inbox&hub.challenge=42");
+    expect([ok.status, await ok.text()]).toEqual([200, "42"]);
+    expect((await get("hub.mode=subscribe&hub.verify_token=nope&hub.challenge=42")).status).toBe(403);
+
+    const body = JSON.stringify({ object: "instagram", entry: [{ id: "ig1", time: 1 }, { id: "ig1" }, { id: "../x" }] });
+    expect(webhookIds(body)).toEqual([]);
+    const real = JSON.stringify({ object: "page", entry: [{ id: "777", changes: [] }, { id: "777" }] });
+    expect(webhookIds(real)).toEqual(["777"]);
+    expect(webhookIds("not json")).toEqual([]);
+    const sig = "sha256=" + createHmac("sha256", "shh").update(real).digest("hex");
+    expect(signedByMeta(real, sig)).toBe(true);
+    expect(signedByMeta(real + " ", sig)).toBe(false);
+    expect(signedByMeta(real, null)).toBe(false);
+    const post = (b: string, s: string | null) => webhookAction({ request: new Request("https://x/meta/webhook", { method: "POST", body: b, headers: s ? { "x-hub-signature-256": s } : {} }) } as never) as Promise<Response>;
+    expect((await post(real, null)).status).toBe(401);
+    expect((await post(real, sig)).status).toBe(200); // no shop has page 777
+
+    await connect();
+    const calls: Call[] = [];
+    const opts = { f: fakeFetch(world().routes, calls), now: later(5), ask: null };
+    expect(await inboxWebhook(["999"], opts)).toBe(0);
+    expect(await inboxWebhook(["p1"], opts)).toBe(1);
+    await expect.poll(() => db.inboxMessage.count({ where: { shop: SHOP } })).toBe(3);
+    process.env.INBOX_APPROVED = "";
+    expect(await inboxWebhook(["p1"], opts)).toBe(0);
+  });
+
+  it("asks Meta to send each connected Page's comments and messages to the webhook", async () => {
+    await connect();
+    const calls: Call[] = [];
+    expect(await subscribeWebhooks(SHOP, fakeFetch(() => [[/\/p1\/subscribed_apps/, { success: true }]], calls))).toBe(1);
+    expect(calls[0].method).toBe("POST");
+    expect(calls[0].url + calls[0].body).toContain("subscribed_fields");
+    expect(calls[0].url + calls[0].body).toContain("feed%2Cmessages");
+    process.env.INBOX_APPROVED = "";
+    expect(await subscribeWebhooks(SHOP, fakeFetch(() => [], []))).toBe(0);
   });
 
   it("drafts a reply with Claude and clears the inbox when an account is disconnected", async () => {

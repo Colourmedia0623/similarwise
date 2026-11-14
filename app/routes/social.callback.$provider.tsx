@@ -4,6 +4,7 @@ import { readState } from "../lib/social/seal.server";
 import { connectLinkedIn, connectMeta, connectPinterest, connectTikTok } from "../lib/social/networks.server";
 import { saveAccounts } from "../lib/social/social.server";
 import { connectCanva } from "../lib/social/canva.server";
+import { subscribeWebhooks } from "../lib/inbox/inbox.server";
 
 // Where Meta, TikTok, Pinterest and LinkedIn send the merchant back after they sign in. Opened in
 // its own tab, since neither sign-in page works inside Shopify's admin.
@@ -38,6 +39,8 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
             ? await connectLinkedIn(code)
             : await connectTikTok(code);
     const count = await saveAccounts(state.shop, accounts);
+    // New comments and messages sent to the social inbox as they happen.
+    if (provider === "meta" && count) await subscribeWebhooks(state.shop).catch((err) => console.error("Couldn't subscribe to inbox webhooks", state.shop, err));
     if (!count)
       return {
         ok: false as const,

@@ -61,7 +61,9 @@ const LINKEDIN_SCOPES = ["openid", "profile", "w_member_social"];
 // its own approval from the network, so they're asked for only where the
 // inbox is open (lib/inbox). With a Facebook Login for Business
 // configuration (META_CONFIG_ID), add the Meta ones to that configuration.
-export const META_INBOX_SCOPES = ["pages_messaging", "pages_manage_engagement", "pages_read_user_content", "instagram_manage_comments", "instagram_manage_messages", "human_agent"];
+// pages_manage_metadata lets SimilarWise ask Meta to send new comments and
+// messages as they happen (webhooks), instead of waiting for the next read.
+export const META_INBOX_SCOPES = ["pages_messaging", "pages_manage_engagement", "pages_read_user_content", "pages_manage_metadata", "instagram_manage_comments", "instagram_manage_messages", "human_agent"];
 const LINKEDIN_INBOX_SCOPES = ["r_member_social"];
 
 export function authorizeUrl(p: Provider, state: string, { inbox = false }: { inbox?: boolean } = {}) {
