@@ -4,7 +4,46 @@ import db from "../../db.server";
 // article's title and search, stored here and served at /images/<id>.jpg for
 // Shopify to fetch as the post's featured image. Off unless OPENAI_API_KEY is set.
 
-const MODEL = process.env.OPENAI_IMAGE_MODEL || "gpt-image-1";
+// SimilarWise uses the newest picture model the OpenAI account has: it reads
+// the account's models (the key needs "List models" set to Read) once a day
+// and puts the newest gpt-image first. If the list can't be read, it uses
+// the newest models known here. OPENAI_IMAGE_MODEL, if set, goes first.
+const KNOWN = ["gpt-image-2.6-sunburst", "gpt-image-2.6-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare", "gpt-image-1"];
+const DAY = 86400_000;
+let listed: { at: number; models: string[] } | null = null;
+
+// Newest version first; a model's plain name before its dated snapshots.
+export function newestFirst(ids: string[]) {
+  const version = (id: string) => (id.match(/^gpt-image-(\d+(?:\.\d+)*)/)?.[1] ?? "0").split(".").map(Number);
+  const dated = (id: string) => /-\d{4}-\d{2}-\d{2}$/.test(id);
+  return ids
+    .filter((id) => /^gpt-image-\d/.test(id) && !/mini/.test(id))
+    .sort((a, b) => {
+      const [va, vb] = [version(a), version(b)];
+      for (let i = 0; i < Math.max(va.length, vb.length); i++) if ((vb[i] ?? 0) !== (va[i] ?? 0)) return (vb[i] ?? 0) - (va[i] ?? 0);
+      if (dated(a) !== dated(b)) return dated(a) ? 1 : -1;
+      return dated(a) ? b.localeCompare(a) : a.localeCompare(b);
+    });
+}
+
+async function pictureModels(key: string, now = Date.now()) {
+  if (!listed || now - listed.at > DAY) {
+    let models: string[] = [];
+    try {
+      const res = await fetch("https://api.openai.com/v1/models", { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(20_000) });
+      const json = (await res.json().catch(() => ({}))) as { data?: { id?: string }[] };
+      if (res.ok) models = newestFirst((json.data ?? []).map((m) => m.id ?? ""));
+    } catch {
+      // Falls back to the known models below.
+    }
+    listed = { at: now, models };
+  }
+  return [...new Set([process.env.OPENAI_IMAGE_MODEL, ...listed.models, ...KNOWN].filter((m): m is string => !!m))];
+}
+
+export const forgetPictureModels = () => {
+  listed = null;
+};
 
 export type MakeImage = (prompt: string) => Promise<Uint8Array>;
 
@@ -17,8 +56,7 @@ export class ImageError extends Error {
   }
 }
 
-// gpt-image-1 only works once the OpenAI organisation is verified, so an
-// unverified account falls back to DALL·E 3, which doesn't need it.
+// Some picture models only work once the OpenAI organisation is verified.
 const NEEDS_VERIFYING = /verif/i;
 // A project without access to the model is told it "does not exist".
 const NO_MODEL = /does not exist|model_not_found|not have access to (the )?model/i;
@@ -43,14 +81,32 @@ export function imageClient(): MakeImage | null {
     return Buffer.from(await pic.arrayBuffer());
   };
   return async (prompt) => {
+    let last: unknown;
+    for (const model of await pictureModels(key)) {
+      try {
+        return await call({ model, prompt, n: 1, size: "1536x1024", quality: "medium", output_format: "jpeg", output_compression: 82 });
+      } catch (err) {
+        last = err;
+        if (!(err instanceof ImageError)) throw err;
+        // A newer model may not take every setting: ask again with just the size.
+        if (/unknown parameter|unsupported|invalid value/i.test(err.message)) {
+          try {
+            return await call({ model, prompt, n: 1, size: "1536x1024" });
+          } catch (again) {
+            last = again;
+            if (!(again instanceof ImageError)) throw again;
+          }
+        }
+        const err2 = last as ImageError;
+        if (!(NEEDS_VERIFYING.test(err2.message) || NO_MODEL.test(err2.message) || err2.status === 404 || /unknown parameter|unsupported|invalid value/i.test(err2.message))) throw err2;
+        console.warn(`Picture model ${model} isn't available, trying the next:`, err2.message);
+      }
+    }
+    // The last resort, for older accounts.
     try {
-      return await call({ model: MODEL, prompt, n: 1, size: "1536x1024", quality: "medium", output_format: "jpeg", output_compression: 82 });
-    } catch (err) {
-      const fallBack = err instanceof ImageError && MODEL !== "dall-e-3" && (NEEDS_VERIFYING.test(err.message) || NO_MODEL.test(err.message) || err.status === 404);
-      if (!fallBack) throw err;
-      console.warn("Falling back to dall-e-3 for article images:", err.message);
-      // OpenAI now refuses response_format here, so the picture comes as a link.
-      return call({ model: "dall-e-3", prompt, n: 1, size: "1792x1024", quality: "standard" });
+      return await call({ model: "dall-e-3", prompt, n: 1, size: "1792x1024", quality: "standard" });
+    } catch {
+      throw last;
     }
   };
 }
