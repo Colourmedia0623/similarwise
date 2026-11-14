@@ -11,6 +11,7 @@ import { setShopMarket, shopMarket } from "../lib/traffic/refresh.server";
 import { trafficClient } from "../lib/traffic/dataforseo.server";
 import { refreshGap } from "../lib/traffic/gap.server";
 import { refreshAds } from "../lib/ads/ads.server";
+import { HowTo } from "../components/HowTo";
 
 // The competitors a shop tracks: add one by its website, or stop tracking one.
 
@@ -67,6 +68,7 @@ export default function Competitors() {
 
   return (
     <s-page heading="Competitors">
+      <HowTo video="competitors" />
       <s-section heading="Add a competitor">
         <s-stack gap="base">
           {error && <s-banner tone="critical">{error}</s-banner>}

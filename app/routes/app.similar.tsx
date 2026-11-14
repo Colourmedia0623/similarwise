@@ -5,6 +5,7 @@ import { authenticate } from "../shopify.server";
 import { compact } from "../lib/format";
 import { addCompetitor } from "../lib/tracker/check.server";
 import { refreshSimilar, similarClient, similarSites } from "../lib/traffic/similar.server";
+import { HowTo } from "../components/HowTo";
 
 // Similar sites: websites competing for the same Google searches as the shop
 // and its competitors, each one a click from being tracked.
@@ -31,6 +32,7 @@ export default function Similar() {
   const refresh = useFetcher<typeof action>();
   return (
     <s-page heading="Similar sites">
+      <HowTo video="similar-sites" />
       {on && (domain || tracking > 0) && (
         <s-button slot="primary-action" loading={refresh.state !== "idle"} onClick={() => refresh.submit({ intent: "refresh" }, { method: "post" })}>
           Refresh

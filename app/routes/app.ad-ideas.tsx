@@ -5,6 +5,7 @@ import { authenticate } from "../shopify.server";
 import { Copyable } from "../components/Copyable";
 import { adIdeas, adIdeasClient, refreshAdIdeas } from "../lib/ideas/ad-ideas.server";
 import { syncIfStale, type Graphql } from "../lib/prices/prices.server";
+import { HowTo } from "../components/HowTo";
 
 // Ad ideas: what competitors' running ads keep saying, and ads the shop could
 // run for its own products.
@@ -35,6 +36,7 @@ export default function AdIdeas() {
   const error = write.data && "error" in write.data ? write.data.error : null;
   return (
     <s-page heading="Ad ideas">
+      <HowTo video="ad-ideas" />
       {on && (
         <s-button slot="primary-action" loading={busy} onClick={() => write.submit({}, { method: "post" })}>
           {ideas.length ? "Write new ideas" : "Write ideas"}

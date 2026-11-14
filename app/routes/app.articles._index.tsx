@@ -6,6 +6,7 @@ import { compact } from "../lib/format";
 import { blogArticles, deleteArticle } from "../lib/ideas/articles.server";
 import { syncIfStale, type Graphql } from "../lib/prices/prices.server";
 import { STATUS } from "../lib/ideas/article-status";
+import { HowTo } from "../components/HowTo";
 
 // Every blog article written for the shop, as tiles with their pictures. Each
 // opens in the editor (app.articles.$id).
@@ -31,6 +32,7 @@ export default function Articles() {
   const { articles } = useLoaderData<typeof loader>();
   return (
     <s-page heading="Blog articles">
+      <HowTo video="blog-articles" />
       <s-section>
         <s-paragraph>
           Articles written for your <s-link href="/app/ideas">keyword ideas</s-link> and your <s-link href="/app/calendar">content calendar</s-link>,

@@ -7,6 +7,7 @@ import { compact } from "../lib/format";
 import { addPost, contentCalendar, deletePost, editPost, planCalendar, setCalendarPublish, writePost } from "../lib/ideas/calendar.server";
 import type { Graphql } from "../lib/prices/prices.server";
 import { atOrigin, storeOrigin } from "../lib/ideas/articles.server";
+import { HowTo } from "../components/HowTo";
 
 // Content calendar: a blog post a day planned from the keyword gap, each
 // written and sent to the shop's blog on its day.
@@ -71,6 +72,7 @@ export default function Calendar() {
 
   return (
     <s-page heading="Content calendar">
+      <HowTo video="content-calendar" />
       <s-section>
         <s-stack gap="base">
           <s-paragraph>

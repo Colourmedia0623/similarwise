@@ -7,6 +7,7 @@ import { compact, timeAgo } from "../lib/format";
 import { engagementOverview } from "../lib/traffic/engagement.server";
 import { refreshShopSources } from "../lib/traffic/channels.server";
 import { sourcesClient } from "../lib/traffic/sources.server";
+import { HowTo } from "../components/HowTo";
 
 // Traffic and engagement: each site's monthly visits over time, and how
 // visitors behave once they arrive.
@@ -157,6 +158,7 @@ export default function Traffic() {
   const waiting = sites.some((s) => !s.engagement && !s.error);
   return (
     <s-page heading="Traffic and engagement">
+      <HowTo video="traffic-and-engagement" />
       {on && sites.length > 0 && (
         <s-button slot="primary-action" loading={refresh.state !== "idle"} onClick={() => refresh.submit({}, { method: "post" })}>
           Refresh

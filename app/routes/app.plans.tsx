@@ -6,6 +6,7 @@ import { authenticate } from "../shopify.server";
 import { PLANS, PLAN_KEYS, TRIAL_DAYS, parsePlanKey, planKey, type Cycle, type Tier } from "../lib/billing";
 import { isFreeShop, isOwnerShop } from "../lib/waitlist.server";
 import { providerApproved } from "../lib/social/networks.server";
+import { HowTo } from "../components/HowTo";
 
 // Choosing, changing or cancelling a plan. Charges go through Shopify.
 
@@ -57,6 +58,7 @@ export default function Plans() {
 
   return (
     <s-page heading="Plans">
+      <HowTo video="plans" />
       {free && (
         <s-banner tone="info">
           {owner ? "This is a Colourmedia store, so every feature is already on and nothing is charged." : "This store has free access to SimilarWise, so every feature is already on and nothing is charged."}

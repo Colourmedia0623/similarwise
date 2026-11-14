@@ -13,6 +13,7 @@ import {
   startTopOutreach,
   writeFollowUp,
 } from "../lib/links/outreach.server";
+import { HowTo } from "../components/HowTo";
 
 // Outreach emails to the sites in the link gap, sent from the merchant's own
 // mailbox, with where each one got to.
@@ -76,6 +77,7 @@ export default function Outreach() {
 
   return (
     <s-page heading="Outreach emails">
+      <HowTo video="outreach-emails" />
       {on && (
         <s-button slot="primary-action" variant="primary" loading={batch.state !== "idle"} onClick={() => batch.submit({ intent: "batch" }, { method: "post" })}>
           Write emails for the next 5 sites

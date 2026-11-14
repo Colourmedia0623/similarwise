@@ -21,6 +21,7 @@ import {
   type AdScheduleView,
 } from "../lib/paidsocial/paid.server";
 import { AD_NETWORK_NAME, PERIODS, formatMoney, parsePeriod, type AdNetwork, type Metrics } from "../lib/paidsocial/paid";
+import { HowTo } from "../components/HowTo";
 
 // Paid social ads: the merchant's own Facebook, Instagram and TikTok
 // campaigns, what they cost and bring in, with budgets, on/off switches and a
@@ -108,6 +109,7 @@ export default function PaidSocial() {
 
   return (
     <s-page heading="Paid social ads">
+      <HowTo video="paid-social-ads" />
       <s-section>
         <s-stack gap="base">
           <s-paragraph>

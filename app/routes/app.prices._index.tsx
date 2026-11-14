@@ -5,6 +5,7 @@ import { authenticate } from "../shopify.server";
 import { formatPrice } from "../lib/format";
 import { describeGap } from "../lib/prices/match";
 import { confirmMatch, priceComparison, suggestMatches, syncIfStale, syncShopProducts, type Graphql } from "../lib/prices/prices.server";
+import { HowTo } from "../components/HowTo";
 
 // The shop's products next to the same products at each competitor, with how
 // much cheaper or dearer they sell them.
@@ -60,6 +61,7 @@ export default function Prices() {
 
   return (
     <s-page heading="Price comparison">
+      <HowTo video="price-comparison" />
       <s-button
         slot="primary-action"
         loading={sync.state !== "idle"}

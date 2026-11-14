@@ -20,6 +20,7 @@ import {
   refreshGoogle,
   startGoogleRefresh,
 } from "../lib/google/google.server";
+import { HowTo } from "../components/HowTo";
 
 // The shop's own Google Analytics and Google Ads figures, next to what
 // competitors are estimated to spend on Google Ads.
@@ -141,6 +142,7 @@ export default function Google() {
 
   return (
     <s-page heading="Google Analytics and Ads">
+      <HowTo video="google-analytics-and-ads" />
       {o && !d.choosing && (
         <s-button slot="primary-action" loading={busy("refresh") || o.running} onClick={() => act.submit({ intent: "refresh" }, { method: "post" })}>
           Refresh

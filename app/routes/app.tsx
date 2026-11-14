@@ -24,7 +24,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     const tier = RANK.filter((t) => tiers.includes(t)).pop();
     const path = new URL(request.url).pathname;
     const need = pageTier(path);
-    if (path !== "/app/plans" && (!tier || !covers(tier, need))) throw redirect(`/app/plans?need=${need}`);
+    if (path !== "/app/plans" && !path.startsWith("/app/help") && (!tier || !covers(tier, need))) throw redirect(`/app/plans?need=${need}`);
   }
   // Read once, and only when a new shop's country, website or email is needed.
   let shopInfo: Promise<{ country: string | null; host: string | null; email: string | null }> | undefined;
@@ -76,6 +76,7 @@ export default function App() {
         <s-link href="/app/ad-ideas">Ad ideas</s-link>
         <s-link href="/app/settings">Settings</s-link>
         <s-link href="/app/plans">Plans</s-link>
+        <s-link href="/app/help">Help videos</s-link>
         {owner && <s-link href="/app/waitlist">Waitlist</s-link>}
       </s-app-nav>
       <Outlet />

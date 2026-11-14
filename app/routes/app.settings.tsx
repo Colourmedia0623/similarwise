@@ -7,6 +7,7 @@ import db from "../db.server";
 import { TOPICS, alertEmail, digestEmail, parseTopics, type Topic } from "../lib/email/alerts.server";
 import { mailer } from "../lib/email/send.server";
 import { AUTHOR_MAX } from "../lib/ideas/articles.server";
+import { HowTo } from "../components/HowTo";
 
 // Where the app's emails go, which ones the merchant wants, and who blog
 // posts are written by.
@@ -94,6 +95,7 @@ export default function Settings() {
 
   return (
     <s-page heading="Settings">
+      <HowTo video="settings" />
       {!loaded.emailOn && <s-banner tone="info">Emails aren&apos;t switched on for this app yet. Your choices are saved for when they are.</s-banner>}
       {saveError && <s-banner tone="critical">{saveError}</s-banner>}
       {save.state === "idle" && save.data && "ok" in save.data && <s-banner tone="success">Saved.</s-banner>}
