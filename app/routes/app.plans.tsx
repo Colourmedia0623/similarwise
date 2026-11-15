@@ -8,6 +8,7 @@ import { isFreeShop, isOwnerShop } from "../lib/waitlist.server";
 import { providerApproved } from "../lib/social/networks.server";
 import { HowTo } from "../components/HowTo";
 import { isWebShop } from "../lib/web/shop";
+import { planPackages } from "../lib/plans.server";
 
 // Choosing, changing or cancelling a plan. Charges go through Shopify.
 
@@ -35,6 +36,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     free: free || webFree,
     current: sub ? { ...parsePlanKey(sub.name), id: sub.id, trialDays: sub.trialDays } : null,
     need: PLANS.find((p) => p.tier === need)?.name ?? null,
+    // What each plan includes and its limits, as set on Admin → Packages.
+    packages: await planPackages(),
     // Until Meta and TikTok approve the app, other stores can't connect social accounts yet.
     socialSoon: !free && !(providerApproved("meta") && providerApproved("tiktok")),
   };
@@ -65,7 +68,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function Plans() {
-  const { owner, free, current, need, socialSoon, web, billingNote } = useLoaderData<typeof loader>();
+  const { owner, free, current, need, socialSoon, web, billingNote, packages } = useLoaderData<typeof loader>();
   const trial = web && current?.id === "trial";
   const [cycle, setCycle] = useState<Cycle>((!trial && current?.cycle) || "yearly");
   const busy = useNavigation().state !== "idle";
@@ -116,7 +119,7 @@ export default function Plans() {
                 {cycle === "yearly" ? `Billed $${price * 12} once a year, or $${p.monthly} paying monthly.` : `Or $${p.yearly} a month paying yearly.`}
               </s-text>
               <s-unordered-list>
-                {p.includes.map((i) => (
+                {packages[p.tier].map((i) => (
                   <s-list-item key={i}>{socialSoon && i.startsWith("Sharing to") ? `${i} (coming soon)` : i}</s-list-item>
                 ))}
               </s-unordered-list>

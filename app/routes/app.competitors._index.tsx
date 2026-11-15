@@ -26,7 +26,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     market: (await shopMarket(session.shop)).code,
     markets: MARKETS.map((m) => ({ code: m.code, name: m.name })),
     searchOn: trafficClient() != null,
-    max: maxCompetitors(session.shop),
+    max: await maxCompetitors(session.shop),
     competitors: competitors.map((c) => ({ ...c, lastCheckedAt: c.lastCheckedAt?.toISOString() ?? null })),
   };
 };

@@ -33,7 +33,7 @@ export const PLANS: { tier: Tier; name: string; blurb: string; monthly: number; 
   },
 ];
 
-const RANK: Record<Tier, number> = { watch: 0, grow: 1, advertise: 2 };
+export const RANK: Record<Tier, number> = { watch: 0, grow: 1, advertise: 2 };
 
 // Billing plan names as Shopify shows them on the charge, such as "Grow (yearly)".
 export const planKey = (tier: Tier, cycle: Cycle) => `${PLANS.find((p) => p.tier === tier)!.name} (${cycle})`;
@@ -45,7 +45,7 @@ export function parsePlanKey(key: string): { tier: Tier; cycle: Cycle } | null {
 }
 
 // The plan each page needs. Pages not listed (overview, email alerts, plans) are open on any plan.
-const PAGES: [string, Tier][] = [
+export const PAGES: [string, Tier][] = [
   ["/app/keywords", "grow"],
   ["/app/ranks", "grow"],
   ["/app/audit", "grow"],

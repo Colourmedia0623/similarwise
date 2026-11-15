@@ -5,7 +5,6 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { claudeJson } from "../lib/ideas/claude.server";
 import {
-  MAX_PROMPTS,
   addPrompt,
   aiClient,
   aiVisibility,
@@ -17,6 +16,7 @@ import {
   suggestPrompts,
 } from "../lib/ai/mentions.server";
 import { HowTo } from "../components/HowTo";
+import { shopLimit } from "../lib/plans.server";
 
 // AI mentions: whether ChatGPT, Gemini and Perplexity name the shop when
 // shoppers ask them for what it sells, next to its competitors, and the
@@ -29,7 +29,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       query ShopName { shop { name } }`)).json()) as { data?: { shop?: { name?: string } } };
     return res.data?.shop?.name ?? null;
   });
-  return { on: aiClient() != null, writer: claudeJson() != null, max: MAX_PROMPTS, ...(await aiVisibility(session.shop)) };
+  return { on: aiClient() != null, writer: claudeJson() != null, max: await shopLimit(session.shop, "aiPrompts"), ...(await aiVisibility(session.shop)) };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {

@@ -96,7 +96,7 @@ async function tileNumbers(shop: string, competitors: { id: string; url: string;
   const or = (n: number) => (n > 0 ? n : null);
   return {
     competitors: competitors.length,
-    maxCompetitors: maxCompetitors(shop),
+    maxCompetitors: await maxCompetitors(shop),
     products: or(products),
     similar: or(similar.filter((s) => !tracked.has(s.domain)).length),
     matched: or(matched),

@@ -146,7 +146,7 @@ export async function similarSites(shop: string) {
   return {
     domain,
     tracking: competitors.length,
-    full: competitors.length >= maxCompetitors(shop),
+    full: competitors.length >= (await maxCompetitors(shop)),
     at: s?.similarAt?.toISOString() ?? null,
     error: s?.similarError ?? null,
     sites,

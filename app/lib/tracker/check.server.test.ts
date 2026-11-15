@@ -151,9 +151,9 @@ describe("tracking a competitor", () => {
     });
   });
 
-  it("lets Dye Sub Supplies track 20 competitors", () => {
-    expect(maxCompetitors(SHOP)).toBe(5);
-    expect(maxCompetitors("7fa72e-da.myshopify.com")).toBe(20);
+  it("lets Dye Sub Supplies track 20 competitors", async () => {
+    expect(await maxCompetitors(SHOP)).toBe(5);
+    expect(await maxCompetitors("7fa72e-da.myshopify.com")).toBe(20);
   });
 
   it("notes a store it can't reach instead of failing", async () => {
