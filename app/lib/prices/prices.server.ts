@@ -1,4 +1,5 @@
 import db from "../../db.server";
+import { isWebShop } from "../web/shop";
 import { bestMatch, buildIndex, priceGap, rankCandidates, similarity, tokens } from "./match";
 
 // The shop's own products, matched against its competitors' products so it
@@ -43,6 +44,8 @@ type ProductsPage = {
 
 // Copies the shop's active products from Shopify, dropping ones no longer there.
 export async function syncShopProducts(shop: string, graphql: Graphql, now = new Date()) {
+  // Web workspaces have no Shopify store: their website's public catalogue stands in.
+  if (isWebShop(shop)) return (await import("../web/catalog.server")).syncWebProducts(shop, now);
   const seen: string[] = [];
   let after: string | null = null;
   for (let page = 0; page < MAX_PAGES; page++) {

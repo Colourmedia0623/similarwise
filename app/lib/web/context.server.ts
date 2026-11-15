@@ -3,6 +3,7 @@ import db from "../../db.server";
 import { PLANS, planKey } from "../billing";
 import { webAccount, type WebAccount } from "./auth.server";
 import { isWebShop } from "./shop";
+import { isAdminEmail, workspaceIsFree } from "./admin.server";
 
 // Makes a website login look, to the app's pages, like a Shopify admin login,
 // so the same pages serve both. authenticate.admin (shopify.server.ts) asks
@@ -32,6 +33,8 @@ export async function workspaceSubscriptions(workspaceId: string, now = new Date
   const ws = await db.workspace.findUnique({ where: { id: workspaceId } });
   if (!ws) return [];
   const days = (d: Date | null) => (d ? Math.max(0, Math.ceil((d.getTime() - now.getTime()) / 86_400_000)) : 0);
+  // Given free by an admin, or an admin's own: every page, nothing to pay.
+  if (await workspaceIsFree(ws.id)) return [{ id: "free", name: planKey(PLANS[PLANS.length - 1].tier, "yearly"), status: "ACTIVE", test: false, trialDays: 0, currentPeriodEnd: "", lineItems: [] }];
   if (ws.plan && ws.stripeSubscriptionId && ["active", "trialing", "past_due"].includes(ws.planStatus ?? ""))
     return [{ id: ws.stripeSubscriptionId, name: ws.plan, status: "ACTIVE", test: false, trialDays: ws.planStatus === "trialing" ? days(ws.periodEndsAt) : 0, currentPeriodEnd: ws.periodEndsAt?.toISOString() ?? "", lineItems: [] }];
   // The free trial every new workspace starts with opens every page.
@@ -98,6 +101,7 @@ export async function webShellAccount(request: Request, shop: string) {
       workspace: { id: ws.id, name: ws.name, website: ws.website },
       workspaces: account.workspaces,
       trialDays: trial ? trial.trialDays : null,
+      admin: isAdminEmail(account.user.email),
     },
     shopInfo: { country: ws.country, host: ws.website, email: account.user.email },
   };

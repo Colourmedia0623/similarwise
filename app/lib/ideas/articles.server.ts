@@ -109,7 +109,7 @@ export async function writeTopic(
         website,
         market: settings?.market ?? "US",
         plannedPage: topic.plannedPage,
-        products: products.map((p) => ({ title: p.title, link: `/products/${p.handle}` })),
+        products: products.map((p) => ({ title: p.title, link: `${p.productId.startsWith("web:woo:") ? "/product" : "/products"}/${p.handle}` })),
       },
       SCHEMA,
     ),

@@ -918,6 +918,8 @@ model Workspace {
   createdAt DateTime          @default(now())
   members   WorkspaceMember[]
 
+  free      Boolean           @default(false) // Every page free, set on the Admin page
+
   // Billing (lib/web/billing.server.ts). trialEndsAt opens every page until then.
   trialEndsAt          DateTime?
   plan                 String? // A plan key from lib/billing, e.g. "Grow (yearly)"

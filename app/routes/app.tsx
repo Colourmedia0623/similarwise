@@ -85,6 +85,7 @@ export default function App() {
         <s-link href="/app/plans">Plans</s-link>
         <s-link href="/app/help">Help videos</s-link>
         {owner && <s-link href="/app/waitlist">Waitlist</s-link>}
+        {web?.admin && <s-link href="/app/admin">Admin</s-link>}
       </s-app-nav>
       <Outlet />
     </AppShell>
