@@ -33,7 +33,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   if (rawSite.trim() && !website) return { error: "That website doesn't look right. Enter it like yourstore.com." };
   if (!website && platform !== "none") return { error: "Enter your store's website, so SimilarWise can compare it with competitors." };
   await createWorkspace(account, { name, website, platform, country });
-  throw redirect("/app");
+  throw redirect("/app/setup");
 };
 
 export default function Welcome() {

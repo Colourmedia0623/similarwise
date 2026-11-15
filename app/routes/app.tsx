@@ -56,6 +56,7 @@ export default function App() {
     <AppShell apiKey={apiKey} web={web}>
       <s-app-nav>
         <s-link href="/app">Overview</s-link>
+        <s-link href="/app/setup">Setup</s-link>
         <s-link href="/app/competitors">Competitors</s-link>
         <s-link href="/app/similar">Similar sites</s-link>
         <s-link href="/app/prices">Price comparison</s-link>
