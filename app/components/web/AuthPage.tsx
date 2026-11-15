@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ReactNode, SyntheticEvent } from "react";
 import styles from "./auth.module.css";
 
 // The frame around the website's login, sign-up and setup pages: the form on
@@ -10,9 +10,21 @@ const POINTS = [
   { title: "Social on autopilot", text: "Plan, post and answer comments across every network." },
 ];
 
-export function AuthPage({ title, lead, children, footer }: { title: string; lead?: ReactNode; children: ReactNode; footer?: ReactNode }) {
+// preview: an admin looking at what new customers see (Admin → Preview new
+// sign-ups). Forms and sign-in buttons do nothing, so nothing is saved.
+export function AuthPage({ title, lead, children, footer, preview }: { title: string; lead?: ReactNode; children: ReactNode; footer?: ReactNode; preview?: boolean }) {
+  const block = (e: SyntheticEvent) => {
+    if (!preview) return;
+    const t = e.target as HTMLElement;
+    if (e.type === "submit" || (t.closest("a") && !t.closest("[data-preview]"))) e.preventDefault();
+  };
   return (
-    <main className={styles.page}>
+    <main className={styles.page} onSubmitCapture={block} onClickCapture={block}>
+      {preview && (
+        <div className={styles.preview} data-preview>
+          <strong>Preview</strong> This is what new customers see. Nothing you enter is saved. <a href="/app/admin">Back to Admin</a>
+        </div>
+      )}
       <section className={styles.hero} aria-hidden="true">
         <div className={styles.orbA} />
         <div className={styles.orbB} />

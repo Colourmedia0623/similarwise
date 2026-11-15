@@ -77,6 +77,24 @@ export default function Admin() {
         </s-grid>
       </s-section>
 
+      <s-section heading="Preview new sign-ups">
+        <s-stack gap="base">
+          <s-paragraph>See each page a new customer goes through, in order. The sign-up, workspace and log-in pages open as a preview in a new tab, so nothing you type there is saved.</s-paragraph>
+          <s-stack direction="inline" gap="small">
+            <s-button href="/signup?preview" target="_blank">1. Sign-up page</s-button>
+            <s-button href="/welcome?preview" target="_blank">2. Workspace details</s-button>
+            <s-button href="/app/setup">3. Setup wizard</s-button>
+            <s-button href="/app">4. Overview</s-button>
+            <s-button href="/login?preview" target="_blank">Log-in page</s-button>
+          </s-stack>
+          <s-paragraph>
+            To go through it for real as a customer, invite a test email below (for example yourname+test@yourdomain), then open the sign-up page in a private browser window and sign up
+            with it. To try just the workspace and Setup steps on your own login, <s-link href="/welcome?new">add a test workspace</s-link>; you can switch back from the
+            workspace menu.
+          </s-paragraph>
+        </s-stack>
+      </s-section>
+
       <s-section heading="Invite someone">
         <Form method="post">
           <input type="hidden" name="intent" value="invite" />
