@@ -6,7 +6,8 @@ import { webAccountFor } from "../lib/web/context.server";
 import { isAdminEmail } from "../lib/web/admin.server";
 import { isWebShop } from "../lib/web/shop";
 import { PLANS, type Tier } from "../lib/billing";
-import { LIMITS, PLAN_PAGES, defaultPlanConfig, planConfig, savePlanConfig, setShopLimits, type LimitKey, type PlanConfig } from "../lib/plans.server";
+import { LIMITS, PLAN_PAGES, type LimitKey, type PlanConfig } from "../lib/plans";
+import { defaultPlanConfig, planConfig, savePlanConfig, setShopLimits } from "../lib/plans.server";
 
 // Admin → Packages: what each plan includes (limits, pages and the list on
 // the plans page), and limits for one customer alone. Only for ADMIN_EMAILS.
