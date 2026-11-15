@@ -6,7 +6,7 @@ import db from "../db.server";
 import { authenticate } from "../shopify.server";
 import { NETWORK_NAME } from "../lib/social/networks";
 import { authorizeUrl, providerApproved, providerOn, type Provider } from "../lib/social/networks.server";
-import { isFreeShop } from "../lib/waitlist.server";
+import { canTestConnections } from "../lib/web/admin.server";
 import { inboxOpen } from "../lib/inbox/inbox.server";
 import { signState } from "../lib/social/seal.server";
 import { canvaAccount, canvaAuthorizeUrl, canvaOn, disconnectCanva } from "../lib/social/canva.server";
@@ -21,7 +21,8 @@ const SIGN_IN_FOR = 30 * 60_000;
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
-  const open = (p: Provider) => providerOn(p) && (providerApproved(p) || isFreeShop(shop));
+  const tester = await canTestConnections(shop);
+  const open = (p: Provider) => providerOn(p) && (providerApproved(p) || tester);
   // Where the social inbox is open, signing in also asks to read and answer comments and messages.
   const inbox = (p: Provider) => (p === "meta" ? inboxOpen(shop, "facebook") || inboxOpen(shop, "instagram") : inboxOpen(shop, p));
   const link = (p: Provider) => (open(p) ? authorizeUrl(p, signState({ shop, network: p, exp: Date.now() + SIGN_IN_FOR }), { inbox: inbox(p) }) : null);

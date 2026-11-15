@@ -7,7 +7,7 @@ import { inboxOpen } from "./inbox/inbox.server";
 import { googleApproved, googleAuthorizeUrl, googleOn, googleOverview } from "./google/google.server";
 import { adAuthorizeUrl, adNetworkApproved, adNetworkOn } from "./paidsocial/networks.server";
 import type { AdNetwork } from "./paidsocial/paid";
-import { isFreeShop } from "./waitlist.server";
+import { canTestConnections } from "./web/admin.server";
 import { isWebShop } from "./web/shop";
 
 // The Setup page's steps: every account a shop can connect, whether it's
@@ -33,11 +33,12 @@ export type Step = {
 
 export async function setupSteps(shop: string, now = Date.now()): Promise<Step[]> {
   const exp = now + SIGN_IN_FOR;
-  const open = (p: Provider) => providerOn(p) && (providerApproved(p) || isFreeShop(shop));
+  const tester = await canTestConnections(shop);
+  const open = (p: Provider) => providerOn(p) && (providerApproved(p) || tester);
   const inbox = (p: Provider) => (p === "meta" ? inboxOpen(shop, "facebook") || inboxOpen(shop, "instagram") : inboxOpen(shop, p));
   const socialLink = (p: Provider) => (open(p) ? authorizeUrl(p, signState({ shop, network: p, exp }), { inbox: inbox(p) }) : null);
-  const adLink = (n: AdNetwork) => (adNetworkOn(n) && (adNetworkApproved(n) || isFreeShop(shop)) ? adAuthorizeUrl(n, signState({ shop, network: `${n}-ads`, exp })) : null);
-  const googleOpen = googleOn() && (googleApproved() || isFreeShop(shop));
+  const adLink = (n: AdNetwork) => (adNetworkOn(n) && (adNetworkApproved(n) || tester) ? adAuthorizeUrl(n, signState({ shop, network: `${n}-ads`, exp })) : null);
+  const googleOpen = googleOn() && (googleApproved() || tester);
 
   const [accounts, canva, google, adAccounts, competitors, workspace, pinterestBoards] = await Promise.all([
     db.socialAccount.findMany({ where: { shop }, select: { network: true, name: true }, orderBy: { name: "asc" } }),
