@@ -264,9 +264,60 @@
   border-bottom: 1px solid rgba(15, 20, 40, 0.06);
 }
 
-.wsName {
+.crumbs {
+  min-width: 0;
+}
+
+.crumbs ol {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.crumbs li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--muted);
+}
+
+.crumbs li + li::before {
+  content: "\203A";
+  font-size: 17px;
+  line-height: 1;
+  color: color-mix(in srgb, var(--muted) 60%, transparent);
+}
+
+.crumbs a {
+  color: var(--muted);
+  text-decoration: none;
+  border-radius: 6px;
+  padding: 2px 4px;
+  margin: 0 -4px;
+}
+
+.crumbs a:hover {
+  color: var(--sw-text, var(--accent));
+  background: color-mix(in srgb, var(--sw-accent, #6d5dfc) 10%, transparent);
+}
+
+.crumbs [aria-current="page"] {
+  color: var(--ink);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 340px;
+}
+
+.crumbs .wsName {
   font-weight: 650;
-  font-size: 15px;
+  color: var(--ink);
 }
 
 .site {
@@ -380,7 +431,8 @@
     background: rgba(11, 16, 32, 0.4);
   }
 
-  .site {
+  .site,
+  .crumbGroup {
     display: none;
   }
 

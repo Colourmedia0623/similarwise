@@ -53,6 +53,32 @@ function grouped(links: Link[]) {
   return groups.filter((g) => g.items.length);
 }
 
+// Where a page sits: its sidebar section, its menu link, and for a page
+// inside that one (a competitor, an article), the page's own heading.
+function crumbsFor(pathname: string, links: Link[]) {
+  const link = links
+    .filter((l) => pathname === l.href || (l.href !== "/app" && pathname.startsWith(`${l.href}/`)))
+    .sort((a, b) => b.href.length - a.href.length)[0];
+  if (!link) return null;
+  const group = GROUPS.find(([, hrefs]) => hrefs.includes(link.href))?.[0] ?? (link.href === "/app" ? "" : "More");
+  return { group, link, inside: pathname !== link.href };
+}
+
+// The heading of the page showing now, kept up to date as it changes.
+function usePageHeading(pathname: string) {
+  const [heading, setHeading] = useState("");
+  useEffect(() => {
+    const read = () => setHeading(document.querySelector("main s-page")?.getAttribute("heading") ?? "");
+    read();
+    const main = document.querySelector("main");
+    if (!main) return;
+    const watch = new MutationObserver(read);
+    watch.observe(main, { subtree: true, childList: true, attributes: true, attributeFilter: ["heading"] });
+    return () => watch.disconnect();
+  }, [pathname]);
+  return heading;
+}
+
 // The <script> below only runs when the page is loaded whole. Arriving from
 // the login or welcome page is a move within the same page, and React never
 // runs a script it adds itself, so Polaris is loaded here instead.
@@ -93,7 +119,8 @@ export function WebShell({ account, children }: { account: WebShellAccount; chil
   const kids = Children.toArray(children);
   const nav = kids.find((c): c is ReactElement => isValidElement(c) && c.type === "s-app-nav");
   const rest = kids.filter((c) => c !== nav);
-  const groups = grouped(navLinks(nav));
+  const links = navLinks(nav);
+  const groups = grouped(links);
   // The menu on small screens, open until the next page.
   const { pathname } = useLocation();
   const [openOn, setOpenOn] = useState<string | null>(null);
@@ -104,6 +131,8 @@ export function WebShell({ account, children }: { account: WebShellAccount; chil
   const paint = useFetcher();
   const theme = String(paint.formData?.get("theme") ?? account.user.theme ?? "");
   const [palette, setPalette] = useState(false);
+  const crumbs = crumbsFor(pathname, links);
+  const heading = usePageHeading(pathname);
 
   const initials = (account.user.name ?? account.user.email)
     .split(/[\s@.]+/)
@@ -208,9 +237,34 @@ export function WebShell({ account, children }: { account: WebShellAccount; chil
               <path d="M4 7h16M4 12h16M4 17h16" />
             </svg>
           </button>
-          <span className={styles.wsName}>{account.workspace.name}</span>
-          {account.workspace.website && <span className={styles.site}>{account.workspace.website}</span>}
+          <nav className={styles.crumbs} aria-label="Breadcrumb">
+            <ol>
+              <li>
+                <NavLink to="/app" className={styles.wsName} end>
+                  {account.workspace.name}
+                </NavLink>
+              </li>
+              {crumbs?.group && crumbs.group !== crumbs.link.label && <li className={styles.crumbGroup}>{crumbs.group}</li>}
+              {crumbs && (
+                <li>
+                  {crumbs.inside ? (
+                    <NavLink to={crumbs.link.href} end>
+                      {crumbs.link.label}
+                    </NavLink>
+                  ) : (
+                    <span aria-current="page">{crumbs.link.label}</span>
+                  )}
+                </li>
+              )}
+              {crumbs?.inside && heading && heading !== crumbs.link.label && (
+                <li>
+                  <span aria-current="page">{heading}</span>
+                </li>
+              )}
+            </ol>
+          </nav>
           <div className={styles.spacer} />
+          {account.workspace.website && <span className={styles.site}>{account.workspace.website}</span>}
           {account.trialDays != null && (
             <a className={styles.trial} href="/app/plans">
               <span className={styles.pulse} aria-hidden="true" />
