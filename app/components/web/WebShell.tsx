@@ -1,5 +1,6 @@
 import { Children, isValidElement, useEffect, useState, type ReactElement, type ReactNode } from "react";
-import { Form, NavLink, useLocation, useNavigate } from "react-router";
+import { Form, NavLink, useFetcher, useLocation, useNavigate } from "react-router";
+import { THEMES, themeFor, themeStyle } from "../../lib/web/themes";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 import styles from "./shell.module.css";
 
@@ -11,7 +12,7 @@ import styles from "./shell.module.css";
 const POLARIS_URL = "https://cdn.shopify.com/shopifycloud/polaris.js";
 
 export type WebShellAccount = {
-  user: { email: string; name: string | null };
+  user: { email: string; name: string | null; theme?: string | null };
   workspace: { id: string; name: string; website: string | null };
   workspaces: { id: string; name: string }[];
   trialDays: number | null;
@@ -99,6 +100,10 @@ export function WebShell({ account, children }: { account: WebShellAccount; chil
   const open = openOn === pathname;
   useInPlaceLinks();
   usePolaris();
+  // The colour shows as soon as it's picked, before it's saved.
+  const paint = useFetcher();
+  const theme = String(paint.formData?.get("theme") ?? account.user.theme ?? "");
+  const [palette, setPalette] = useState(false);
 
   const initials = (account.user.name ?? account.user.email)
     .split(/[\s@.]+/)
@@ -108,7 +113,7 @@ export function WebShell({ account, children }: { account: WebShellAccount; chil
     .join("");
 
   return (
-    <div className={styles.shell}>
+    <div className={styles.shell} style={themeStyle(theme)}>
       <script src={POLARIS_URL} />
       <aside className={`${styles.side} ${open ? styles.sideOpen : ""}`}>
         <a className={styles.brand} href="/app">
@@ -157,6 +162,35 @@ export function WebShell({ account, children }: { account: WebShellAccount; chil
             <strong>{account.user.name ?? "Your account"}</strong>
             <span>{account.user.email}</span>
           </span>
+          <div className={styles.paint}>
+            <button className={styles.paintButton} type="button" title="Colours" aria-label="Choose colours" aria-expanded={palette} onClick={() => setPalette(!palette)}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M12 22a10 10 0 1 1 10-10c0 2.8-2.2 4-4 4h-2.5a1.5 1.5 0 0 0-1 2.6A1.5 1.5 0 0 1 12 22Z" />
+                <circle cx="7.5" cy="10.5" r="1" />
+                <circle cx="12" cy="7" r="1" />
+                <circle cx="16.5" cy="10.5" r="1" />
+              </svg>
+            </button>
+            {palette && (
+              <div className={styles.palette} role="dialog" aria-label="Colours">
+                <p>Dashboard colour</p>
+                <div className={styles.swatches}>
+                  {THEMES.map((t) => (
+                    <button
+                      key={t.key}
+                      type="button"
+                      title={t.name}
+                      aria-label={t.name}
+                      aria-pressed={themeFor(theme).key === t.key}
+                      className={`${styles.swatch} ${themeFor(theme).key === t.key ? styles.swatchOn : ""}`}
+                      style={{ background: t.grad ?? `linear-gradient(135deg, ${t.light}, ${t.dark})` }}
+                      onClick={() => paint.submit({ theme: t.key }, { method: "post", action: "/theme" })}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
           <Form method="post" action="/logout">
             <button className={styles.logout} type="submit" title="Log out" aria-label="Log out">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

@@ -1,20 +1,25 @@
 .shell {
   --ink: #0b1020;
   --muted: #5b6478;
-  --accent: #6d5dfc;
-  --accent-2: #2f7bff;
-  --grad: linear-gradient(135deg, #6d5dfc 0%, #2f7bff 55%, #22c1ee 100%);
-  --side: #0b1020;
-  --side-ink: #c9cfe0;
+  --accent: var(--sw-accent, #6d5dfc);
+  --accent-2: var(--sw-accent-2, #2f7bff);
+  --grad: var(--sw-grad, linear-gradient(135deg, #6d5dfc 0%, #2f7bff 55%, #22c1ee 100%));
+  --on-accent: var(--sw-ink, #fff);
+  --side: var(--sw-side, #0b1020);
+  --side-ink: var(--sw-side-ink, #c9cfe0);
+  --side-strong: var(--sw-side-strong, #fff);
+  --side-muted: var(--sw-side-muted, rgba(201, 207, 224, 0.55));
+  --side-active: var(--sw-side-active, linear-gradient(90deg, color-mix(in srgb, var(--accent) 45%, transparent), color-mix(in srgb, var(--accent-2) 18%, transparent)));
+  --page: var(--sw-page, #f5f6fb);
   --line: #e7e9f2;
   min-height: 100vh;
   display: flex;
   font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
   color: var(--ink);
   background:
-    radial-gradient(1200px 500px at 85% -10%, rgba(109, 93, 252, 0.10), transparent 60%),
-    radial-gradient(900px 400px at 10% 110%, rgba(34, 193, 238, 0.08), transparent 60%),
-    #f5f6fb;
+    radial-gradient(1200px 500px at 85% -10%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 60%),
+    radial-gradient(900px 400px at 10% 110%, color-mix(in srgb, var(--accent-2) 8%, transparent), transparent 60%),
+    var(--page);
 }
 
 :global(body) {
@@ -34,8 +39,8 @@
   box-sizing: border-box;
   padding: 18px 14px 14px;
   background:
-    radial-gradient(400px 260px at 0% 0%, rgba(109, 93, 252, 0.35), transparent 70%),
-    radial-gradient(300px 300px at 100% 100%, rgba(34, 193, 238, 0.18), transparent 70%),
+    radial-gradient(400px 260px at 0% 0%, color-mix(in srgb, var(--accent) 35%, transparent), transparent 70%),
+    radial-gradient(300px 300px at 100% 100%, color-mix(in srgb, var(--accent-2) 18%, transparent), transparent 70%),
     var(--side);
   color: var(--side-ink);
   z-index: 30;
@@ -49,7 +54,7 @@
   font-weight: 750;
   font-size: 17px;
   letter-spacing: -0.01em;
-  color: #fff;
+  color: var(--side-strong);
   text-decoration: none;
 }
 
@@ -57,7 +62,7 @@
   width: 32px;
   height: 32px;
   border-radius: 9px;
-  box-shadow: 0 6px 18px rgba(109, 93, 252, 0.45);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .workspace {
@@ -68,12 +73,12 @@
   padding: 8px 10px;
   margin-bottom: 14px;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: color-mix(in srgb, var(--side-strong) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--side-strong) 8%, transparent);
 }
 
 .workspace:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: color-mix(in srgb, var(--side-strong) 10%, transparent);
 }
 
 .wsBadge {
@@ -84,7 +89,7 @@
   place-items: center;
   border-radius: 8px;
   background: var(--grad);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 700;
   font-size: 13px;
 }
@@ -96,7 +101,7 @@
   font: inherit;
   font-size: 14px;
   font-weight: 600;
-  color: #fff;
+  color: var(--side-strong);
   background: transparent
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23c9cfe0' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")
     no-repeat right 2px center;
@@ -116,7 +121,7 @@
   margin: 0 -6px;
   padding: 0 6px;
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+  scrollbar-color: color-mix(in srgb, var(--side-strong) 15%, transparent) transparent;
 }
 
 .group {
@@ -128,7 +133,7 @@
   font-weight: 650;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: rgba(201, 207, 224, 0.55);
+  color: var(--side-muted);
   padding: 4px 10px 6px;
 }
 
@@ -145,14 +150,14 @@
 }
 
 .link:hover {
-  background: rgba(255, 255, 255, 0.07);
-  color: #fff;
+  background: color-mix(in srgb, var(--side-strong) 7%, transparent);
+  color: var(--side-strong);
 }
 
 .active,
 .active:hover {
-  background: linear-gradient(90deg, rgba(109, 93, 252, 0.45), rgba(47, 123, 255, 0.18));
-  color: #fff;
+  background: var(--side-active);
+  color: var(--side-strong);
   font-weight: 600;
 }
 
@@ -168,14 +173,15 @@
 }
 
 .me {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
   margin-top: 10px;
   padding: 10px;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: color-mix(in srgb, var(--side-strong) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--side-strong) 7%, transparent);
 }
 
 .avatar {
@@ -186,7 +192,7 @@
   place-items: center;
   border-radius: 50%;
   background: var(--grad);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 13px;
   font-weight: 700;
 }
@@ -200,7 +206,7 @@
 }
 
 .who strong {
-  color: #fff;
+  color: var(--side-strong);
   font-size: 13px;
   font-weight: 600;
 }
@@ -214,7 +220,7 @@
 
 .who span {
   font-size: 12px;
-  color: rgba(201, 207, 224, 0.7);
+  color: var(--side-muted);
 }
 
 .logout {
@@ -230,8 +236,8 @@
 }
 
 .logout:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
+  background: color-mix(in srgb, var(--side-strong) 10%, transparent);
+  color: var(--side-strong);
 }
 
 /* Page area */
@@ -252,7 +258,7 @@
   align-items: center;
   gap: 12px;
   padding: 0 28px;
-  background: rgba(245, 246, 251, 0.75);
+  background: color-mix(in srgb, var(--page) 78%, transparent);
   backdrop-filter: saturate(180%) blur(14px);
   -webkit-backdrop-filter: saturate(180%) blur(14px);
   border-bottom: 1px solid rgba(15, 20, 40, 0.06);
@@ -291,7 +297,7 @@
 }
 
 .trial strong {
-  color: #fff;
+  color: var(--on-accent);
   background: var(--grad);
   border-radius: 999px;
   padding: 4px 12px;
@@ -385,4 +391,60 @@
   .main {
     padding: 14px 12px 48px;
   }
+}
+
+/* Colour picker */
+
+.paint {
+  display: contents;
+}
+
+.paintButton {
+  composes: logout;
+}
+
+.palette {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 0;
+  z-index: 40;
+  width: 232px;
+  box-sizing: border-box;
+  padding: 12px;
+  border-radius: 14px;
+  background: #fff;
+  color: var(--ink);
+  box-shadow: 0 18px 40px rgba(11, 16, 32, 0.35);
+}
+
+.palette p {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.swatches {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+}
+
+.swatch {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(11, 16, 32, 0.08);
+  transition: transform 0.12s;
+}
+
+.swatch:hover {
+  transform: scale(1.08);
+}
+
+.swatchOn {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
 }

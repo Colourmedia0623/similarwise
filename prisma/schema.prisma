@@ -903,6 +903,7 @@ model WebUser {
   name         String?
   passwordHash String? // scrypt; null for people who only use Google
   googleId     String?           @unique
+  theme        String? // Dashboard colour (lib/web/themes.ts)
   createdAt    DateTime          @default(now())
   memberships  WorkspaceMember[]
   sessions     WebSession[]

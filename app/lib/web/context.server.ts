@@ -97,7 +97,7 @@ export async function webShellAccount(request: Request, shop: string) {
   const trial = (await workspaceSubscriptions(ws.id)).find((s) => s.id === "trial");
   return {
     shell: {
-      user: { email: account.user.email, name: account.user.name },
+      user: { email: account.user.email, name: account.user.name, theme: account.user.theme },
       workspace: { id: ws.id, name: ws.name, website: ws.website },
       workspaces: account.workspaces,
       trialDays: trial ? trial.trialDays : null,

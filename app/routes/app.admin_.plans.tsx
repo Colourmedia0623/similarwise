@@ -236,7 +236,7 @@ const CSS = `
 .sw-pk input,.sw-pk select,.sw-pk-lists textarea{font:inherit;font-size:14px;padding:7px 10px;border:1px solid #d6d9e6;border-radius:9px;background:#fff;box-sizing:border-box}
 .sw-pk input{width:110px}
 .sw-pk-customers input{width:90px}
-.sw-pk input:focus,.sw-pk select:focus,.sw-pk-lists textarea:focus{outline:none;border-color:#6d5dfc;box-shadow:0 0 0 3px rgba(109,93,252,.18)}
+.sw-pk input:focus,.sw-pk select:focus,.sw-pk-lists textarea:focus{outline:none;border-color:var(--sw-accent,#6d5dfc);box-shadow:0 0 0 3px color-mix(in srgb,var(--sw-accent,#6d5dfc) 18%,transparent)}
 .sw-pk-lists{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin:12px 0}
 .sw-pk-lists label{display:flex;flex-direction:column;gap:6px}
 .sw-pk-lists textarea{width:100%;resize:vertical;line-height:1.5}

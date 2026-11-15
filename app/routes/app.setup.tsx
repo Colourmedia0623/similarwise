@@ -350,23 +350,23 @@ function CompetitorForm() {
 }
 
 const CSS = `
-.sw-setup{--grad:linear-gradient(135deg,#6d5dfc 0%,#2f7bff 55%,#22c1ee 100%);font-family:inherit;color:#0b1020}
-.sw-setup-hero{display:flex;gap:24px;align-items:center;justify-content:space-between;padding:26px 28px;border-radius:20px;color:#fff;background:radial-gradient(500px 220px at 90% 0%,rgba(34,193,238,.45),transparent 70%),var(--grad);box-shadow:0 18px 40px -18px rgba(76,64,230,.6);margin-bottom:18px}
+.sw-setup{--grad:var(--sw-grad,linear-gradient(135deg,var(--sw-accent,#6d5dfc) 0%,#2f7bff 55%,#22c1ee 100%));font-family:inherit;color:#0b1020}
+.sw-setup-hero{display:flex;gap:24px;align-items:center;justify-content:space-between;padding:26px 28px;border-radius:20px;color:var(--sw-ink,#fff);background:radial-gradient(500px 220px at 90% 0%,color-mix(in srgb,var(--sw-accent-2,#22c1ee) 45%,transparent),transparent 70%),var(--grad);box-shadow:0 18px 40px -18px color-mix(in srgb,var(--sw-accent-2,#4c40e6) 60%,transparent);margin-bottom:18px}
 .sw-setup-hero h1{margin:0 0 6px;font-size:26px;letter-spacing:-.02em}
 .sw-setup-hero p{margin:0;max-width:620px;opacity:.92;line-height:1.5}
 .sw-setup-meter{display:flex;flex-direction:column;align-items:center;gap:6px;flex-shrink:0}
 .sw-setup-ring{width:86px;height:86px;border-radius:50%;display:grid;place-items:center;transition:background .4s}
-.sw-setup-ring span{width:66px;height:66px;border-radius:50%;display:grid;place-items:center;background:#4b46e6;font-weight:750;font-size:18px}
+.sw-setup-ring span{width:66px;height:66px;border-radius:50%;display:grid;place-items:center;background:var(--sw-accent-2,#4b46e6);font-weight:750;font-size:18px}
 .sw-setup-meter small{opacity:.9}
 .sw-setup-body{display:grid;grid-template-columns:260px 1fr;gap:18px;align-items:start}
 .sw-setup-steps{list-style:none;margin:0;padding:8px;background:#fff;border:1px solid #e7e9f2;border-radius:16px;position:sticky;top:76px}
 .sw-setup-steps button{all:unset;box-sizing:border-box;width:100%;display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:10px;cursor:pointer;font-size:14px}
 .sw-setup-steps button:hover{background:#f3f4fb}
-.sw-setup-steps button.on{background:linear-gradient(90deg,rgba(109,93,252,.14),rgba(47,123,255,.06));font-weight:650}
+.sw-setup-steps button.on{background:linear-gradient(90deg,color-mix(in srgb,var(--sw-accent,#6d5dfc) 14%,transparent),color-mix(in srgb,var(--sw-accent-2,#2f7bff) 6%,transparent));font-weight:650}
 .sw-setup-steps em{margin-left:auto;font-style:normal;font-size:11px;color:#8a91a5;background:#f1f2f7;border-radius:999px;padding:2px 8px}
 .sw-setup-label{flex:1;min-width:0}
 .sw-setup-dot{width:24px;height:24px;flex-shrink:0;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;border:1.5px solid #d6d9e6;color:#5b6478;background:#fff}
-.sw-setup-steps button.on .sw-setup-dot{border-color:#6d5dfc;color:#6d5dfc}
+.sw-setup-steps button.on .sw-setup-dot{border-color:var(--sw-text,#6d5dfc);color:var(--sw-text,#6d5dfc)}
 .sw-setup-dot.done,.sw-setup-steps button.on .sw-setup-dot.done{border:0;color:#fff;background:linear-gradient(135deg,#22c55e,#10b981)}
 .sw-setup-card{background:#fff;border:1px solid #e7e9f2;border-radius:20px;padding:26px 28px 18px;box-shadow:0 10px 30px -20px rgba(15,20,40,.25);animation:swIn .25s ease}
 @keyframes swIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
@@ -375,7 +375,7 @@ const CSS = `
 .sw-setup-badge{width:52px;height:52px;border-radius:14px;display:grid;place-items:center;color:#fff;font-weight:800;font-size:20px;flex-shrink:0;box-shadow:0 8px 20px -8px rgba(15,20,40,.45)}
 .sw-setup-status{font-size:12px;font-weight:650;border-radius:999px;padding:3px 10px}
 .sw-setup-status.yes{background:#dcfce7;color:#15803d}
-.sw-setup-status.no{background:#eef0ff;color:#4b46e6}
+.sw-setup-status.no{background:color-mix(in srgb,var(--sw-accent,#6d5dfc) 12%,#fff);color:var(--sw-text,#4b46e6)}
 .sw-setup-status.soon{background:#f1f2f7;color:#5b6478}
 .sw-setup-why{font-size:15px;line-height:1.55;color:#323a4f;margin:16px 0}
 .sw-setup-chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 16px}
@@ -391,11 +391,11 @@ const CSS = `
 .sw-setup-form label{display:flex;flex-direction:column;gap:5px;font-size:13px;font-weight:600;color:#323a4f}
 .sw-setup-form label.grow{flex:1;min-width:220px}
 .sw-setup-form input,.sw-setup-form select{font:inherit;font-weight:400;font-size:14px;padding:9px 12px;border:1px solid #d6d9e6;border-radius:10px;background:#fff;min-width:200px;outline:none}
-.sw-setup-form input:focus,.sw-setup-form select:focus{border-color:#6d5dfc;box-shadow:0 0 0 3px rgba(109,93,252,.18)}
+.sw-setup-form input:focus,.sw-setup-form select:focus{border-color:var(--sw-accent,#6d5dfc);box-shadow:0 0 0 3px color-mix(in srgb,var(--sw-accent,#6d5dfc) 18%,transparent)}
 .sw-setup-error{flex-basis:100%;margin:0;color:#b91c1c}
 .sw-setup-ok{flex-basis:100%;margin:0;color:#15803d}
 .sw-setup button.primary,.sw-setup button.ghost{font:inherit;font-size:14px;font-weight:600;border-radius:10px;padding:9px 16px;cursor:pointer;border:1px solid transparent}
-.sw-setup button.primary{color:#fff;background:var(--grad);box-shadow:0 6px 16px -6px rgba(76,64,230,.6)}
+.sw-setup button.primary{color:var(--sw-ink,#fff);background:var(--grad);box-shadow:0 6px 16px -6px color-mix(in srgb,var(--sw-accent-2,#4c40e6) 60%,transparent)}
 .sw-setup button.primary:hover{filter:brightness(1.07)}
 .sw-setup button.ghost{background:#fff;border-color:#d6d9e6;color:#323a4f}
 .sw-setup button.ghost:hover{background:#f6f7fb}
