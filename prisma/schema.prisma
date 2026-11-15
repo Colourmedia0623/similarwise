@@ -935,6 +935,7 @@ model WorkspaceMember {
   userId      String
   workspaceId String
   role        String    @default("owner") // owner or member
+  seenAt      DateTime? // When they last opened the notifications bell
   createdAt   DateTime  @default(now())
   user        WebUser   @relation(fields: [userId], references: [id], onDelete: Cascade)
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)

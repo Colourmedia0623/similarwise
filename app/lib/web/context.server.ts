@@ -1,3 +1,4 @@
+import { notifications } from "./notifications.server";
 import { redirect } from "react-router";
 import db from "../../db.server";
 import { PLANS, planKey } from "../billing";
@@ -94,7 +95,8 @@ export async function webShellAccount(request: Request, shop: string) {
   const account = await webAccountFor(request);
   const ws = account?.workspace;
   if (!account || !ws) return null;
-  const trial = (await workspaceSubscriptions(ws.id)).find((s) => s.id === "trial");
+  const [subs, notices] = await Promise.all([workspaceSubscriptions(ws.id), notifications(shop, ws.seenAt)]);
+  const trial = subs.find((s) => s.id === "trial");
   return {
     shell: {
       user: { email: account.user.email, name: account.user.name, theme: account.user.theme },
@@ -102,6 +104,7 @@ export async function webShellAccount(request: Request, shop: string) {
       workspaces: account.workspaces,
       trialDays: trial ? trial.trialDays : null,
       admin: isAdminEmail(account.user.email),
+      notices,
     },
     shopInfo: { country: ws.country, host: ws.website, email: account.user.email },
   };

@@ -1,4 +1,6 @@
 import db from "../../db.server";
+import { isFreeShop } from "../waitlist.server";
+import { isWebShop } from "./shop";
 
 // Super admins of the web version: Colourmedia's own people, by email
 // (ADMIN_EMAILS, comma-separated). Their workspaces are free, and they see the
@@ -67,4 +69,14 @@ export async function adminOverview(now = new Date()) {
 
 export async function setWorkspaceFree(workspaceId: string, free: boolean) {
   await db.workspace.update({ where: { id: workspaceId }, data: { free } });
+}
+
+// Who can press Connect before Meta, TikTok and Google approve the app: the
+// free Shopify stores, and web workspaces that are free or have an admin in
+// them. Signing in then works once that person is a tester on the network's app.
+export async function canTestConnections(shop: string) {
+  if (isFreeShop(shop)) return true;
+  if (!isWebShop(shop)) return false;
+  const ws = await db.workspace.findUnique({ where: { shop }, select: { id: true } });
+  return !!ws && workspaceIsFree(ws.id);
 }

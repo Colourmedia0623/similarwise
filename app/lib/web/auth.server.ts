@@ -72,7 +72,7 @@ export async function endSession(request: Request) {
 export type WebAccount = {
   sessionId: string;
   user: { id: string; email: string; name: string | null; theme: string | null };
-  workspace: { id: string; shop: string; name: string; website: string | null; platform: string | null; country: string | null; role: string } | null;
+  workspace: { id: string; shop: string; name: string; website: string | null; platform: string | null; country: string | null; role: string; seenAt: Date | null } | null;
   workspaces: { id: string; name: string }[];
 };
 
@@ -92,7 +92,7 @@ export async function webAccount(request: Request): Promise<WebAccount | null> {
     sessionId: s.id,
     user: { id: s.user.id, email: s.user.email, name: s.user.name, theme: s.user.theme },
     workspace: m
-      ? { id: m.workspace.id, shop: m.workspace.shop, name: m.workspace.name, website: m.workspace.website, platform: m.workspace.platform, country: m.workspace.country, role: m.role }
+      ? { id: m.workspace.id, shop: m.workspace.shop, name: m.workspace.name, website: m.workspace.website, platform: m.workspace.platform, country: m.workspace.country, role: m.role, seenAt: m.seenAt }
       : null,
     workspaces: memberships.map((x) => ({ id: x.workspace.id, name: x.workspace.name })),
   };

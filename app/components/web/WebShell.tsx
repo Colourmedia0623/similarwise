@@ -17,7 +17,97 @@ export type WebShellAccount = {
   workspaces: { id: string; name: string }[];
   trialDays: number | null;
   admin?: boolean;
+  notices?: { items: Notice[]; unread: number };
 };
+
+type Notice = { id: string; kind: "competitor" | "inbox" | "mention"; title: string; text: string; at: string; href: string; unread: boolean };
+
+function ago(iso: string) {
+  const m = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000));
+  if (m < 60) return m <= 1 ? "Just now" : `${m} min ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h} hour${h === 1 ? "" : "s"} ago`;
+  const d = Math.round(h / 24);
+  return `${d} day${d === 1 ? "" : "s"} ago`;
+}
+
+const NOTICE_ICON: Record<Notice["kind"], string> = { competitor: "M3 3v18h18M7 15l4-4 3 3 5-6", inbox: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z", mention: "M3 11l18-5v12L3 14v-3zM11.6 16.8a3 3 0 1 1-5.8-1.6" };
+
+// The bell: what's new since it was last opened. Opening it marks all seen.
+function Bell({ notices }: { notices: { items: Notice[]; unread: number } }) {
+  // Open until the next page, like the menu on small screens.
+  const { pathname } = useLocation();
+  const [openOn, setOpenOn] = useState<string | null>(null);
+  const open = openOn === pathname;
+  const setOpen = (on: boolean) => setOpenOn(on ? pathname : null);
+  const seen = useFetcher();
+  const unread = seen.formData ? 0 : notices.unread;
+  // Kept as they were when opened, so what was new stays marked while it's open.
+  const [shown, setShown] = useState(notices.items);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: Event) => {
+      if (e instanceof KeyboardEvent ? e.key === "Escape" : !(e.target as Element).closest(`.${styles.bell}`)) setOpenOn(null);
+    };
+    document.addEventListener("pointerdown", close);
+    document.addEventListener("keydown", close);
+    return () => {
+      document.removeEventListener("pointerdown", close);
+      document.removeEventListener("keydown", close);
+    };
+  }, [open]);
+  return (
+    <div className={styles.bell}>
+      <button
+        className={styles.topIcon}
+        type="button"
+        title="Notifications"
+        aria-label={unread ? `Notifications, ${unread} new` : "Notifications"}
+        aria-expanded={open}
+        onClick={() => {
+          setOpen(!open);
+          if (!open) setShown(notices.items);
+          if (!open && notices.unread && !seen.formData) seen.submit({}, { method: "post", action: "/notifications" });
+        }}
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0" />
+        </svg>
+        {unread > 0 && <span className={styles.badge}>{unread > 9 ? "9+" : unread}</span>}
+      </button>
+      {open && (
+        <div className={styles.notices} role="dialog" aria-label="Notifications">
+          <header>
+            <strong>Notifications</strong>
+            <NavLink to="/app/settings">Email alerts</NavLink>
+          </header>
+          {shown.length ? (
+            <ul>
+              {shown.map((n) => (
+                <li key={n.id} className={n.unread ? styles.noticeNew : undefined}>
+                  <NavLink to={n.href}>
+                    <span className={`${styles.noticeIcon} ${styles[`notice_${n.kind}`] ?? ""}`} aria-hidden="true">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d={NOTICE_ICON[n.kind]} />
+                      </svg>
+                    </span>
+                    <span className={styles.noticeBody}>
+                      <strong>{n.title}</strong>
+                      <span>{n.text}</span>
+                      <time dateTime={n.at}>{ago(n.at)}</time>
+                    </span>
+                  </NavLink>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className={styles.noticesEmpty}>Nothing new. Price changes, products selling out and new messages show up here.</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // Sidebar sections, by page. Pages not listed go under More.
 const GROUPS: [string, string[]][] = [
@@ -265,6 +355,13 @@ export function WebShell({ account, children }: { account: WebShellAccount; chil
           </nav>
           <div className={styles.spacer} />
           {account.workspace.website && <span className={styles.site}>{account.workspace.website}</span>}
+          <NavLink to="/app/help" className={({ isActive }) => `${styles.topIcon} ${isActive ? styles.topIconOn : ""}`} title="Help" aria-label="Help">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01" />
+            </svg>
+          </NavLink>
+          {account.notices && <Bell notices={account.notices} />}
           {account.trialDays != null && (
             <a className={styles.trial} href="/app/plans">
               <span className={styles.pulse} aria-hidden="true" />
