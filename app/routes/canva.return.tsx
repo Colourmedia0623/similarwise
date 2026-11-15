@@ -1,6 +1,6 @@
-import { useEffect } from "react";
 import type { LoaderFunctionArgs } from "react-router";
 import { useLoaderData } from "react-router";
+import { ConnectResult } from "../components/ConnectResult";
 import { finishCanvaReturn } from "../lib/social/canva.server";
 
 // Where Canva's "Back to SimilarWise" button lands. It brings the design's
@@ -15,21 +15,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   return { ok: true as const, message: `Your design is in SimilarWise: ${res.pages} ${res.pages === 1 ? "picture" : "pictures"} added to your post.` };
 };
 
-const page = { maxWidth: 520, margin: "64px auto", padding: "0 16px", fontFamily: "system-ui, -apple-system, sans-serif", lineHeight: 1.5 };
 
 export default function CanvaReturn() {
   const { ok, message } = useLoaderData<typeof loader>();
-  // The tab was opened by SimilarWise, so it can close itself.
-  useEffect(() => {
-    if (!ok) return;
-    const t = setTimeout(() => window.close(), 1500);
-    return () => clearTimeout(t);
-  }, [ok]);
-  return (
-    <main style={page}>
-      <h1>{ok ? "Design added" : "Not added"}</h1>
-      <p>{message}</p>
-      <p>You can close this tab and go back to SimilarWise.</p>
-    </main>
-  );
+  return <ConnectResult ok={ok} heading={ok ? "Design added" : "Not added"} message={message} closeAfter={1500} />;
 }

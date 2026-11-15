@@ -1,6 +1,8 @@
 import type { LoaderFunctionArgs } from "react-router";
 import { useLoaderData } from "react-router";
+import { ConnectResult } from "../components/ConnectResult";
 import { readState } from "../lib/social/seal.server";
+import { adminUrl } from "../lib/email/send.server";
 import { connectMetaAds, connectTikTokAds } from "../lib/paidsocial/networks.server";
 import { saveAdAccounts } from "../lib/paidsocial/paid.server";
 
@@ -8,7 +10,7 @@ import { saveAdAccounts } from "../lib/paidsocial/paid.server";
 // to manage their ad accounts. Opened in its own tab, since neither sign-in
 // page works inside Shopify's admin.
 
-export const loader = async ({ request, params }: LoaderFunctionArgs) => {
+const result = async ({ request, params }: LoaderFunctionArgs) => {
   const url = new URL(request.url);
   const provider = params.provider;
   const state = readState(url.searchParams.get("state") ?? "");
@@ -34,15 +36,14 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   }
 };
 
-const page = { maxWidth: 520, margin: "64px auto", padding: "0 16px", fontFamily: "system-ui, -apple-system, sans-serif", lineHeight: 1.5 };
+
+// Where "Back to SimilarWise" goes when this tab can't just close.
+export const loader = async (args: LoaderFunctionArgs) => {
+  const state = readState(new URL(args.request.url).searchParams.get("state") ?? "");
+  return { ...(await result(args)), back: state ? adminUrl(state.shop, "/app/paid-social") : null };
+};
 
 export default function PaidCallback() {
-  const { ok, message } = useLoaderData<typeof loader>();
-  return (
-    <main style={page}>
-      <h1>{ok ? "Connected" : "Not connected"}</h1>
-      <p>{message}</p>
-      <p>You can close this tab and go back to SimilarWise.</p>
-    </main>
-  );
+  const { ok, message, back } = useLoaderData<typeof loader>();
+  return <ConnectResult ok={ok} heading={ok ? "Connected" : "Not connected"} message={message} back={back} />;
 }
