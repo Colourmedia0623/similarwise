@@ -2,7 +2,7 @@ import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react
 import { Form, redirect, useActionData, useLoaderData, useNavigation } from "react-router";
 import db from "../db.server";
 import { AuthPage, GoogleButton, authStyles as s } from "../components/web/AuthPage";
-import { loginFailed, loginLocked, loginSucceeded, safeNext, startSession, verifyPassword, webAccount } from "../lib/web/auth.server";
+import { adminPreview, loginFailed, loginLocked, loginSucceeded, safeNext, startSession, verifyPassword, webAccount } from "../lib/web/auth.server";
 import { googleLoginOn } from "../lib/web/google-login.server";
 
 // Logging in to the standalone web version. Shopify stores open the app from
@@ -13,8 +13,10 @@ export const meta: MetaFunction = () => [{ title: "Log in · SimilarWise" }];
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const url = new URL(request.url);
   const next = safeNext(url.searchParams.get("next"));
-  if (await webAccount(request)) throw redirect(next);
-  return { next, google: googleLoginOn(), error: url.searchParams.get("error"), reset: url.searchParams.has("reset") };
+  const account = await webAccount(request);
+  const preview = adminPreview(request, account);
+  if (account && !preview) throw redirect(next);
+  return { next, google: googleLoginOn(), error: url.searchParams.get("error"), reset: url.searchParams.has("reset"), preview };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -34,12 +36,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function Login() {
-  const { next, google, error, reset } = useLoaderData<typeof loader>();
+  const { next, google, error, reset, preview } = useLoaderData<typeof loader>();
   const result = useActionData<typeof action>();
   const busy = useNavigation().state !== "idle";
   const problem = result?.error ?? error;
   return (
     <AuthPage
+      preview={preview}
       title="Log in"
       lead={
         <>

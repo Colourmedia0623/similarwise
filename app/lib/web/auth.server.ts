@@ -161,3 +161,7 @@ export async function consumeResetToken(token: string) {
 
 export const safeNext = (next: string | null | undefined) =>
   next && next.startsWith("/app") && !next.startsWith("//") ? next : "/app";
+
+// An admin looking at the sign-up pages as a new customer sees them (?preview).
+export const adminPreview = (request: Request, account: WebAccount | null) =>
+  new URL(request.url).searchParams.has("preview") && !!account && isAdminEmail(account.user.email);

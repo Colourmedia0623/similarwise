@@ -2,7 +2,7 @@ import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react
 import { Form, redirect, useActionData, useLoaderData, useNavigation } from "react-router";
 import db from "../db.server";
 import { AuthPage, GoogleButton, authStyles as s } from "../components/web/AuthPage";
-import { hashPassword, passwordProblem, safeNext, signupAllowed, startSession, webAccount } from "../lib/web/auth.server";
+import { adminPreview, hashPassword, passwordProblem, safeNext, signupAllowed, startSession, webAccount } from "../lib/web/auth.server";
 import { googleLoginOn } from "../lib/web/google-login.server";
 import { validEmail } from "../lib/web/shop";
 import { TRIAL_DAYS } from "../lib/billing";
@@ -14,8 +14,10 @@ export const meta: MetaFunction = () => [{ title: "Create your account · Simila
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const next = safeNext(new URL(request.url).searchParams.get("next"));
-  if (await webAccount(request)) throw redirect(next);
-  return { next, google: googleLoginOn(), open: process.env.WEB_SIGNUP === "open" };
+  const account = await webAccount(request);
+  const preview = adminPreview(request, account);
+  if (account && !preview) throw redirect(next);
+  return { next, google: googleLoginOn(), open: process.env.WEB_SIGNUP === "open", preview };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -34,11 +36,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function Signup() {
-  const { next, google, open } = useLoaderData<typeof loader>();
+  const { next, google, open, preview } = useLoaderData<typeof loader>();
   const result = useActionData<typeof action>();
   const busy = useNavigation().state !== "idle";
   return (
     <AuthPage
+      preview={preview}
       title="Create your account"
       lead={
         <>

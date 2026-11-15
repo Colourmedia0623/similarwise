@@ -1,7 +1,7 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { Form, redirect, useActionData, useLoaderData, useNavigation } from "react-router";
 import { AuthPage, authStyles as s } from "../components/web/AuthPage";
-import { createWorkspace, safeNext, webAccount } from "../lib/web/auth.server";
+import { adminPreview, createWorkspace, safeNext, webAccount } from "../lib/web/auth.server";
 import { PLATFORMS, cleanWebsite } from "../lib/web/shop";
 import { MARKETS } from "../lib/traffic/markets";
 
@@ -15,8 +15,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const account = await webAccount(request);
   if (!account) throw redirect(`/login?next=${encodeURIComponent("/welcome")}`);
   const adding = url.searchParams.has("new");
-  if (account.workspace && !adding) throw redirect(safeNext(url.searchParams.get("next")));
-  return { adding, first: account.workspaces.length === 0, name: account.user.name };
+  const preview = adminPreview(request, account);
+  if (account.workspace && !adding && !preview) throw redirect(safeNext(url.searchParams.get("next")));
+  return { adding: adding && !preview, first: account.workspaces.length === 0, name: account.user.name, preview };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -37,11 +38,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function Welcome() {
-  const { adding, first } = useLoaderData<typeof loader>();
+  const { adding, first, preview } = useLoaderData<typeof loader>();
   const result = useActionData<typeof action>();
   const busy = useNavigation().state !== "idle";
   return (
     <AuthPage
+      preview={preview}
       title={adding ? "Add a workspace" : "Set up your workspace"}
       lead={
         adding
