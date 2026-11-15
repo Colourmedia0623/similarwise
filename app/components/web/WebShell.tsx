@@ -25,7 +25,7 @@ const GROUPS: [string, string[]][] = [
   ["Search and content", ["/app/keywords", "/app/ranks", "/app/audit", "/app/ai", "/app/ideas", "/app/articles", "/app/calendar", "/app/links", "/app/outreach"]],
   ["Social", ["/app/listening", "/app/publishing", "/app/inbox", "/app/social", "/app/paid-social"]],
   ["Ads and analytics", ["/app/ads", "/app/ad-ideas", "/app/google", "/app/reports"]],
-  ["Account", ["/app/settings", "/app/plans", "/app/help", "/app/waitlist", "/app/admin"]],
+  ["Account", ["/app/settings", "/app/plans", "/app/help", "/app/waitlist", "/app/admin", "/app/admin/plans"]],
 ];
 
 type Link = { href: string; label: string };
@@ -142,7 +142,7 @@ export function WebShell({ account, children }: { account: WebShellAccount; chil
             <div key={g.title || "home"} className={styles.group}>
               {g.title && <div className={styles.groupTitle}>{g.title}</div>}
               {g.items.map((l) => (
-                <NavLink key={l.href} to={l.href} end={l.href === "/app"} className={({ isActive }) => `${styles.link} ${isActive ? styles.active : ""}`}>
+                <NavLink key={l.href} to={l.href} end={l.href === "/app" || l.href === "/app/admin"} className={({ isActive }) => `${styles.link} ${isActive ? styles.active : ""}`}>
                   {l.label}
                 </NavLink>
               ))}

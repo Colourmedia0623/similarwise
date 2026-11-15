@@ -4,6 +4,7 @@ import { shopDomain } from "../traffic/gap.server";
 import { shopMarket } from "../traffic/refresh.server";
 import { marketFor, type Market } from "../traffic/markets";
 import { hostOf } from "../tracker/url";
+import { shopLimit } from "../plans.server";
 
 // Rank tracker: the Google searches a shop chooses, looked up daily through
 // DataForSEO's live results, to record where the shop and each competitor
@@ -13,7 +14,6 @@ const DAY = 86400_000;
 const MIN_GAP = 6 * 3600_000; // Between checks the merchant starts
 const STUCK = 3600_000;
 const KEEP = 180 * DAY;
-export const MAX_KEYWORDS = 50;
 // How far down Google's results to look. DataForSEO bills each page of 10,
 // so three pages keeps a full list of searches near $9 a month per shop.
 export const DEPTH = 30;
@@ -62,8 +62,9 @@ export async function addKeywords(shop: string, text: string) {
   if (!wanted.length) return { error: "Type the searches you want to track, one per line." };
   const existing = new Set((await db.trackedKeyword.findMany({ where: { shop }, select: { keyword: true } })).map((k) => k.keyword));
   const fresh = wanted.filter((k) => !existing.has(k));
-  const room = MAX_KEYWORDS - existing.size;
-  if (fresh.length && room <= 0) return { error: `You can track up to ${MAX_KEYWORDS} searches. Remove some first.` };
+  const max = await shopLimit(shop, "rankKeywords");
+  const room = max - existing.size;
+  if (fresh.length && room <= 0) return { error: `You can track up to ${max} searches. Remove some first.` };
   const add = fresh.slice(0, room);
   if (add.length) await db.trackedKeyword.createMany({ data: add.map((keyword) => ({ shop, keyword })) });
   return { added: add.length, skipped: fresh.length - add.length };

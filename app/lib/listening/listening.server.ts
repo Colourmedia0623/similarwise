@@ -7,6 +7,7 @@ import { brandTerm } from "../traffic/dataforseo.server";
 import { hostOf } from "../tracker/url";
 import { listenClients, SOURCES, type Found, type ListenClient, type Source } from "./sources.server";
 import { addDays, net, splitOf, themeTrends, weekStarts, type Sentiment } from "./stats";
+import { shopLimit } from "../plans.server";
 
 // Social listening: what people say on Reddit, YouTube, TikTok and the wider
 // web about the shop, its competitors and the topics it cares about. Mentions
@@ -18,7 +19,6 @@ const EVERY = 3 * DAY; // Automatic checks
 const MIN_GAP = 6 * 3600_000; // Between checks the merchant starts
 const STUCK = 3600_000;
 const KEEP = 180 * DAY;
-export const MAX_KEYWORDS = 10;
 const TERMS_PER_TOPIC = 2;
 const READ_BATCH = 30;
 const AT_ONCE = 4;
@@ -100,7 +100,8 @@ export async function syncTopics(shop: string) {
 export async function addKeyword(shop: string, text: string) {
   const terms = cleanTerms(text.split(","));
   if (!terms.length) return { error: "Type a word or phrase to listen for." };
-  if ((await db.listenTopic.count({ where: { shop, kind: "keyword" } })) >= MAX_KEYWORDS) return { error: `You can listen for up to ${MAX_KEYWORDS} keywords. Delete one first.` };
+  const max = await shopLimit(shop, "listenKeywords");
+  if ((await db.listenTopic.count({ where: { shop, kind: "keyword" } })) >= max) return { error: `You can listen for up to ${max} keywords. Delete one first.` };
   const existing = await db.listenTopic.findMany({ where: { shop, kind: "keyword" }, select: { name: true } });
   const same = existing.find((e) => e.name.toLowerCase() === terms[0].toLowerCase());
   if (same) return { error: `You're already listening for “${same.name}”.` };
@@ -536,7 +537,7 @@ export async function listeningView(shop: string, filters: Filters = {}, now = n
     insights: parse<Insights | null>(settings?.listenInsights, null),
     insightsAt: settings?.listenInsightsAt?.toISOString() ?? null,
     unread: mentions.length ? await db.listenMention.count({ where: { shop, read: false } }) : 0,
-    maxKeywords: MAX_KEYWORDS,
+    maxKeywords: await shopLimit(shop, "listenKeywords"),
     topics: topicStats,
     voice: voiced.map((t) => ({ id: t.id, kind: t.kind, name: t.name, count: t.month, share: voiceTotal ? Math.round((100 * t.month) / voiceTotal) : null, net: t.net })),
     themes: themeTrends(mentions, now).slice(0, 12),

@@ -10,7 +10,8 @@ import { detectShopDomain } from "../lib/traffic/gap.server";
 import { detectAlertEmail } from "../lib/email/alerts.server";
 import { isFreeShop, isOwnerShop } from "../lib/waitlist.server";
 import { openNetworks } from "../lib/inbox/inbox.server";
-import { PLAN_KEYS, covers, pageTier, parsePlanKey, type Tier } from "../lib/billing";
+import { PLAN_KEYS, covers, parsePlanKey, type Tier } from "../lib/billing";
+import { pageTierFor, rememberTier } from "../lib/plans.server";
 import { webShellAccount } from "../lib/web/context.server";
 import { AppShell } from "../components/web/WebShell";
 
@@ -24,10 +25,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     const { appSubscriptions } = await billing.check({ plans: PLAN_KEYS, isTest: true });
     const tiers = appSubscriptions.map((s) => parsePlanKey(s.name)?.tier).filter((t): t is Tier => t != null);
     const tier = RANK.filter((t) => tiers.includes(t)).pop();
+    // Remembered for the plan's limits (lib/plans.server.ts).
+    await rememberTier(session.shop, tier ?? null);
     const path = new URL(request.url).pathname;
-    const need = pageTier(path);
+    const need = await pageTierFor(path);
     if (path !== "/app/plans" && !path.startsWith("/app/help") && (!tier || !covers(tier, need))) throw redirect(`/app/plans?need=${need}`);
-  }
+  } else await rememberTier(session.shop, "advertise");
   // The standalone web version: the workspace's details stand in for the store's.
   const web = await webShellAccount(request, session.shop);
   // Read once, and only when a new shop's country, website or email is needed.
@@ -87,6 +90,7 @@ export default function App() {
         <s-link href="/app/help">Help videos</s-link>
         {owner && <s-link href="/app/waitlist">Waitlist</s-link>}
         {web?.admin && <s-link href="/app/admin">Admin</s-link>}
+        {web?.admin && <s-link href="/app/admin/plans">Packages</s-link>}
       </s-app-nav>
       <Outlet />
     </AppShell>

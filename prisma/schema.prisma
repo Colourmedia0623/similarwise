@@ -961,3 +961,23 @@ model WebToken {
   expiresAt DateTime
   createdAt DateTime @default(now())
 }
+
+// Settings the super admin changes from the app, by name; "plans" holds what
+// each plan includes (lib/plans.server.ts).
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+// A shop's (or web workspace's) plan as last seen, and any limits a super
+// admin set for it alone; empty limits follow the plan.
+model ShopPlan {
+  shop           String   @id
+  tier           String?  // watch | grow | advertise, or empty with no plan
+  competitors    Int?
+  rankKeywords   Int?
+  listenKeywords Int?
+  aiPrompts      Int?
+  updatedAt      DateTime @updatedAt
+}

@@ -5,6 +5,7 @@ import { shopDomain } from "../traffic/gap.server";
 import { shopMarket } from "../traffic/refresh.server";
 import { marketFor, type Market } from "../traffic/markets";
 import { hostOf } from "../tracker/url";
+import { shopLimit } from "../plans.server";
 
 // AI mentions: the questions shoppers ask AI assistants ("what are the best
 // magnetic gift boxes in the UK?"), asked of ChatGPT, Gemini and Perplexity
@@ -22,7 +23,6 @@ const WEEK = 7 * 86400_000;
 const MIN_GAP = 6 * 3600_000; // Between checks the merchant starts
 const STUCK = 3600_000;
 const KEEP = 90 * 86400_000;
-export const MAX_PROMPTS = 15;
 const AT_ONCE = 4;
 
 export type Source = { url: string; title: string | null; domain: string };
@@ -134,8 +134,9 @@ Write the number of questions asked for, in the market's spelling, each under 15
 export async function suggestPrompts(shop: string, ask: AskJson | null = claudeJson()) {
   if (!ask) return { error: "AI mentions aren't switched on for this app yet." };
   const existing = await db.aiPrompt.findMany({ where: { shop }, select: { prompt: true } });
-  const wanted = Math.min(10, MAX_PROMPTS - existing.length);
-  if (wanted <= 0) return { error: `You have ${MAX_PROMPTS} questions already. Delete some first.` };
+  const max = await shopLimit(shop, "aiPrompts");
+  const wanted = Math.min(10, max - existing.length);
+  if (wanted <= 0) return { error: `You have ${max} questions already. Delete some first.` };
   const [domain, market, products, gap] = await Promise.all([
     shopDomain(shop),
     shopMarket(shop),
@@ -163,7 +164,8 @@ const cleanPrompt = (p: string) => p.trim().replace(/\s+/g, " ").slice(0, 300);
 export async function addPrompt(shop: string, text: string) {
   const prompt = cleanPrompt(text);
   if (prompt.length < 8) return { error: "Write the question as a shopper would ask it." };
-  if ((await db.aiPrompt.count({ where: { shop } })) >= MAX_PROMPTS) return { error: `You can ask up to ${MAX_PROMPTS} questions. Delete one first.` };
+  const max = await shopLimit(shop, "aiPrompts");
+  if ((await db.aiPrompt.count({ where: { shop } })) >= max) return { error: `You can ask up to ${max} questions. Delete one first.` };
   await db.aiPrompt.create({ data: { shop, prompt } });
   return { ok: true as const };
 }

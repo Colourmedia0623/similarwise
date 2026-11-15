@@ -3,15 +3,16 @@ import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "re
 import { useFetcher, useLoaderData, useRevalidator } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
-import { MAX_KEYWORDS, addFromGap, addKeywords, rankOverview, removeKeyword, serpClient, startRankCheck } from "../lib/ranks/ranks.server";
+import { addFromGap, addKeywords, rankOverview, removeKeyword, serpClient, startRankCheck } from "../lib/ranks/ranks.server";
 import { HowTo } from "../components/HowTo";
+import { shopLimit } from "../lib/plans.server";
 
 // Rank tracker: where the shop ranks on Google for the searches it chooses,
 // checked every day, next to its competitors.
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
-  return { on: serpClient() != null, max: MAX_KEYWORDS, ...(await rankOverview(session.shop)) };
+  return { on: serpClient() != null, max: await shopLimit(session.shop, "rankKeywords"), ...(await rankOverview(session.shop)) };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
