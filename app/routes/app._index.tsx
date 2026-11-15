@@ -83,14 +83,14 @@ function groups(t: Tiles): { title: string; color: string; tiles: Tile[] }[] {
 
 const CSS = `
 .sw-setup-cta{display:flex;align-items:center;gap:16px;padding:16px 20px;border-radius:16px;background:#fff;border:1px solid #e7e9f2;text-decoration:none;color:#0b1020;box-shadow:0 8px 24px -18px rgba(15,20,40,.35)}
-.sw-setup-cta:hover{border-color:#c9c4ff}
+.sw-setup-cta:hover{border-color:color-mix(in srgb,var(--sw-accent,#6d5dfc) 35%,#fff)}
 .sw-setup-cta-ring{width:52px;height:52px;border-radius:50%;display:grid;place-items:center;flex-shrink:0}
 .sw-setup-cta-ring span{width:40px;height:40px;border-radius:50%;background:#fff;display:grid;place-items:center;font-size:13px;font-weight:700}
 .sw-setup-cta-text{flex:1;display:flex;flex-direction:column;gap:2px}
 .sw-setup-cta-text span{color:#5b6478;font-size:14px}
-.sw-setup-cta-go{font-weight:650;color:#fff;background:linear-gradient(135deg,#6d5dfc,#2f7bff 55%,#22c1ee);border-radius:999px;padding:8px 16px;white-space:nowrap}
+.sw-setup-cta-go{font-weight:650;color:var(--sw-ink,#fff);background:var(--sw-grad,linear-gradient(135deg,var(--sw-accent,#6d5dfc),#2f7bff 55%,#22c1ee));border-radius:999px;padding:8px 16px;white-space:nowrap}
 @media (max-width:640px){.sw-setup-cta{flex-wrap:wrap}.sw-setup-cta-go{width:100%;text-align:center}}
-.sw-hero { border-radius: 16px; padding: 28px 28px 24px; color: #fff; background: linear-gradient(120deg, #1e3a8a 0%, #4f46e5 55%, #7c3aed 100%); }
+.sw-hero { border-radius: 16px; padding: 28px 28px 24px; color: var(--sw-ink, #fff); background: var(--sw-grad, linear-gradient(120deg, #1e3a8a 0%, #4f46e5 55%, #7c3aed 100%)); }
 .sw-hero h1 { margin: 0 0 6px; font-size: 26px; line-height: 1.2; font-weight: 700; }
 .sw-hero p { margin: 0; font-size: 15px; opacity: .9; max-width: 560px; }
 .sw-hero a { display: inline-block; margin-top: 16px; padding: 9px 16px; border-radius: 10px; background: #fff; color: #1e3a8a; font-weight: 600; text-decoration: none; }
@@ -151,7 +151,7 @@ export default function Index() {
 
         {setup.done < setup.total && (
           <Link to="/app/setup" className="sw-setup-cta">
-            <span className="sw-setup-cta-ring" style={{ background: `conic-gradient(#6d5dfc ${(setup.done / setup.total) * 360}deg, #e7e9f2 0)` }}>
+            <span className="sw-setup-cta-ring" style={{ background: `conic-gradient(var(--sw-accent, #6d5dfc) ${(setup.done / setup.total) * 360}deg, #e7e9f2 0)` }}>
               <span>{`${setup.done}/${setup.total}`}</span>
             </span>
             <span className="sw-setup-cta-text">
