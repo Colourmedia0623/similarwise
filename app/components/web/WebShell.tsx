@@ -20,7 +20,7 @@ export type WebShellAccount = {
 
 // Sidebar sections, by page. Pages not listed go under More.
 const GROUPS: [string, string[]][] = [
-  ["", ["/app"]],
+  ["", ["/app", "/app/setup"]],
   ["Competitors", ["/app/competitors", "/app/similar", "/app/prices", "/app/stock", "/app/tech", "/app/traffic", "/app/channels"]],
   ["Search and content", ["/app/keywords", "/app/ranks", "/app/audit", "/app/ai", "/app/ideas", "/app/articles", "/app/calendar", "/app/links", "/app/outreach"]],
   ["Social", ["/app/listening", "/app/publishing", "/app/inbox", "/app/social", "/app/paid-social"]],
@@ -50,6 +50,19 @@ function grouped(links: Link[]) {
   });
   groups.splice(groups.length - 1, 0, { title: "More", items: links.filter((l) => !used.has(l.href)) });
   return groups.filter((g) => g.items.length);
+}
+
+// The <script> below only runs when the page is loaded whole. Arriving from
+// the login or welcome page is a move within the same page, and React never
+// runs a script it adds itself, so Polaris is loaded here instead.
+function usePolaris() {
+  useEffect(() => {
+    if (customElements.get("s-page") || document.querySelector("script[data-sw-polaris]")) return;
+    const el = document.createElement("script");
+    el.src = POLARIS_URL;
+    el.dataset.swPolaris = "";
+    document.head.appendChild(el);
+  }, []);
 }
 
 // Polaris links and buttons with an href would load the whole page again;
@@ -85,6 +98,7 @@ export function WebShell({ account, children }: { account: WebShellAccount; chil
   const [openOn, setOpenOn] = useState<string | null>(null);
   const open = openOn === pathname;
   useInPlaceLinks();
+  usePolaris();
 
   const initials = (account.user.name ?? account.user.email)
     .split(/[\s@.]+/)
