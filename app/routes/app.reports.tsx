@@ -18,12 +18,16 @@ import { mailer } from "../lib/email/send.server";
 import { performanceReport } from "../lib/reports/report.server";
 import { reportEmail } from "../lib/reports/email.server";
 import {
+  REPORT_CURRENCIES,
   REPORT_PERIODS,
   change,
+  inCurrency,
+  parseCurrency,
   parseReportPeriod,
   roas,
   type Report,
 } from "../lib/reports/report";
+import { exchangeRates } from "../lib/reports/rates.server";
 import {
   AD_NETWORK_NAME,
   NO_METRICS,
@@ -40,18 +44,39 @@ import { EVENT_LABEL, compact } from "../lib/format";
 // saving it as a PDF uses the browser's own print dialog. Last month's report
 // can also come by email on the 1st.
 
+type AdminApi = Awaited<ReturnType<typeof authenticate.admin>>["admin"];
+
+// The shop's own currency in Shopify, for when no report currency has been chosen.
+async function shopCurrency(admin: AdminApi) {
+  try {
+    const res = await admin.graphql(`{ shop { currencyCode } }`);
+    const { data } = await res.json();
+    return parseCurrency(data?.shop?.currencyCode);
+  } catch {
+    return null;
+  }
+}
+
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { session, admin } = await authenticate.admin(request);
   const period = parseReportPeriod(
     new URL(request.url).searchParams.get("period"),
   );
-  const [report, settings] = await Promise.all([
+  const [raw, settings, rates] = await Promise.all([
     performanceReport(session.shop, period),
     db.shopSettings.findUnique({ where: { shop: session.shop } }),
+    exchangeRates(),
   ]);
+  const currency =
+    parseCurrency(settings?.reportCurrency) ??
+    (await shopCurrency(admin)) ??
+    "GBP";
+  const report = inCurrency(raw, currency, rates);
   return {
     period,
     report,
+    currency,
+    currencies: [...new Set([currency, ...REPORT_CURRENCIES])],
     emailOn: mailer() != null,
     email: settings?.alertEmail ?? null,
     reportOn: settings?.reportOn ?? false,
@@ -72,16 +97,28 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     });
     return { ok: true as const, intent };
   }
+  if (intent === "currency") {
+    const reportCurrency = parseCurrency(String(form.get("currency") ?? ""));
+    if (!reportCurrency) return { error: "Choose a currency." };
+    await db.shopSettings.upsert({
+      where: { shop },
+      create: { shop, reportCurrency },
+      update: { reportCurrency },
+    });
+    return { ok: true as const, intent };
+  }
   if (intent === "send") {
     const send = mailer();
     const s = await db.shopSettings.findUnique({ where: { shop } });
     if (!send || !s?.alertEmail)
       return { error: "Add your email address in Settings first." };
+    const report = await performanceReport(
+      shop,
+      parseReportPeriod(String(form.get("period") ?? "")),
+    );
+    const currency = parseCurrency(String(form.get("currency") ?? ""));
     const email = reportEmail(
-      await performanceReport(
-        shop,
-        parseReportPeriod(String(form.get("period") ?? "")),
-      ),
+      currency ? inCurrency(report, currency, await exchangeRates()) : report,
       s.alertEmail,
     );
     if (!email)
@@ -104,8 +141,20 @@ const whole = (v: number | null | undefined) =>
 const times = (v: number | null) => (v == null ? "–" : `${v.toFixed(1)}×`);
 const pct = (v: number | null | undefined) =>
   v == null ? "–" : `${v.toFixed(1)}%`;
-const dollars = (cents: number | null | undefined) =>
-  cents == null ? "–" : `$${compact(cents / 100)}`;
+// Big estimates read better rounded: "£6.4K".
+const compactMoney = (cents: number | null | undefined, currency: string) => {
+  if (cents == null) return "–";
+  try {
+    return new Intl.NumberFormat("en-GB", {
+      style: "currency",
+      currency,
+      notation: "compact",
+      maximumFractionDigits: 1,
+    }).format(cents / 100);
+  } catch {
+    return `${compact(cents / 100)} ${currency}`;
+  }
+};
 const dayShort = (day: string) =>
   new Date(`${day}T00:00:00Z`).toLocaleDateString("en-GB", {
     day: "numeric",
@@ -818,7 +867,9 @@ function Competitors({ r }: { r: Report }) {
                       good="neutral"
                     />
                   </td>
-                  <td className="rp-num">{dollars(x.paidCostCents)}</td>
+                  <td className="rp-num">
+                    {compactMoney(x.paidCostCents, c.spendCurrency ?? "USD")}
+                  </td>
                   <td className="rp-num">{whole(x.liveAds)}</td>
                   <td className="rp-num">{whole(x.newAds)}</td>
                   <td className="rp-num">{whole(x.changes)}</td>
@@ -850,6 +901,7 @@ export default function Reports() {
   const navigation = useNavigation();
   const monthly = useFetcher<typeof action>();
   const sendNow = useFetcher<typeof action>();
+  const pickCurrency = useFetcher<typeof action>();
   const r = d.report;
   const reportOn = monthly.formData
     ? monthly.formData.get("on") === "true"
@@ -896,6 +948,23 @@ export default function Reports() {
                 </s-option>
               ))}
             </s-select>
+            <s-select
+              label="Currency"
+              value={d.currency}
+              disabled={pickCurrency.state !== "idle"}
+              onChange={(e) =>
+                pickCurrency.submit(
+                  { intent: "currency", currency: e.currentTarget.value },
+                  { method: "post" },
+                )
+              }
+            >
+              {d.currencies.map((c) => (
+                <s-option key={c} value={c}>
+                  {c}
+                </s-option>
+              ))}
+            </s-select>
             <s-checkbox
               label="Email me last month's report on the 1st"
               details={
@@ -916,7 +985,7 @@ export default function Reports() {
                 loading={sendNow.state !== "idle"}
                 onClick={() =>
                   sendNow.submit(
-                    { intent: "send", period: d.period },
+                    { intent: "send", period: d.period, currency: d.currency },
                     { method: "post" },
                   )
                 }
@@ -955,6 +1024,10 @@ export default function Reports() {
         <footer className="rp-foot">
           Paid social and social post figures are as each network reports them.
           Competitor figures are estimates.
+          {r.ratesDate &&
+            ` Money is shown in ${r.currency}, converted at the European Central Bank's rates of ${dayShort(r.ratesDate)}.`}
+          {r.unconverted.length > 0 &&
+            ` Exchange rates weren't available, so ${r.unconverted.join(", ")} amounts are shown in their own currency.`}
         </footer>
       </div>
       <style>{CSS}</style>
