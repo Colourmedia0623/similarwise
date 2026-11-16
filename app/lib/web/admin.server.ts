@@ -1,6 +1,8 @@
 import db from "../../db.server";
 import { isFreeShop } from "../waitlist.server";
-import { isWebShop } from "./shop";
+import { randomBytes } from "node:crypto";
+import { TRIAL_DAYS } from "../billing";
+import { isWebShop, newWebShop } from "./shop";
 
 // Super admins of the web version: Colourmedia's own people, by email
 // (ADMIN_EMAILS, comma-separated). Their workspaces are free, and they see the
@@ -79,4 +81,25 @@ export async function canTestConnections(shop: string) {
   if (!isWebShop(shop)) return false;
   const ws = await db.workspace.findUnique({ where: { shop }, select: { id: true } });
   return !!ws && workspaceIsFree(ws.id);
+}
+
+// An account an admin makes for a customer: their login (without a password;
+// they set one from the emailed link) and a workspace they own, on the usual
+// free trial or free. Someone who already has an account gets the new workspace.
+export async function createClientAccount(input: { email: string; name: string | null; workspace: string; website: string | null; free: boolean }) {
+  const existing = await db.webUser.findUnique({ where: { email: input.email } });
+  const user = existing ?? (await db.webUser.create({ data: { email: input.email, name: input.name } }));
+  const ws = await db.workspace.create({
+    data: {
+      shop: newWebShop(randomBytes(9).toString("base64url")),
+      name: input.workspace,
+      website: input.website,
+      free: input.free,
+      trialEndsAt: new Date(Date.now() + TRIAL_DAYS * 86_400_000),
+      members: { create: { userId: user.id, role: "owner" } },
+    },
+  });
+  // On the waitlist, so they can also sign in with Google while sign-ups are closed.
+  await db.waitlistEntry.upsert({ where: { email: input.email }, create: { email: input.email }, update: {} });
+  return { userId: user.id, workspaceId: ws.id, existing: !!existing, hasPassword: !!existing?.passwordHash };
 }

@@ -249,6 +249,39 @@
   flex-direction: column;
 }
 
+.support {
+  position: sticky;
+  top: 0;
+  z-index: 21;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 8px 16px;
+  background: #b45309;
+  color: #fff;
+  font-size: 13.5px;
+}
+
+.support button {
+  font: inherit;
+  font-weight: 600;
+  padding: 5px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  cursor: pointer;
+}
+
+.support button:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.support + .top {
+  top: 42px;
+}
+
 .top {
   position: sticky;
   top: 0;

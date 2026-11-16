@@ -1,11 +1,12 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
-import { Form, useActionData, useLoaderData, useNavigation } from "react-router";
+import { Form, redirect, useActionData, useLoaderData, useNavigation } from "react-router";
 import db from "../db.server";
 import { authenticate } from "../shopify.server";
 import { timeAgo } from "../lib/format";
 import { webAccountFor } from "../lib/web/context.server";
-import { adminOverview, isAdminEmail, setWorkspaceFree } from "../lib/web/admin.server";
-import { validEmail } from "../lib/web/shop";
+import { adminOverview, createClientAccount, isAdminEmail, setWorkspaceFree } from "../lib/web/admin.server";
+import { cleanWebsite, validEmail } from "../lib/web/shop";
+import { createResetToken, openForSupport } from "../lib/web/auth.server";
 import { escapeHtml, mailer } from "../lib/email/send.server";
 
 // The super admin page of the web version: every account, workspace and plan,
@@ -24,9 +25,47 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  await requireAdmin(request);
+  const account = await requireAdmin(request);
   const form = await request.formData();
   const intent = String(form.get("intent") ?? "");
+  // Opens a customer's workspace to help them; the menu and a banner show it.
+  if (intent === "support") {
+    if (!(await openForSupport(account, String(form.get("workspaceId") ?? "")))) return { error: "That workspace is gone." };
+    throw redirect("/app");
+  }
+  // Back to the admin's own workspace.
+  if (intent === "leave") {
+    const own = await db.workspaceMember.findFirst({ where: { userId: account.user.id }, orderBy: { createdAt: "asc" } });
+    await openForSupport(account, own?.workspaceId ?? null);
+    throw redirect("/app/admin");
+  }
+  if (intent === "client") {
+    const email = String(form.get("email") ?? "").trim().toLowerCase();
+    const name = String(form.get("name") ?? "").trim() || null;
+    const workspace = String(form.get("workspace") ?? "").trim();
+    const rawSite = String(form.get("website") ?? "");
+    const website = cleanWebsite(rawSite);
+    if (!validEmail(email)) return { error: "Enter the client's email address." };
+    if (!workspace) return { error: "Enter a name for their workspace, such as their business name." };
+    if (rawSite.trim() && !website) return { error: "That website doesn't look right. Enter it like theirstore.com." };
+    const made = await createClientAccount({ email, name, workspace, website, free: form.has("free") });
+    const origin = process.env.SHOPIFY_APP_URL || new URL(request.url).origin;
+    // Someone with a password already just logs in; a new login gets a week to choose one.
+    const link = made.hasPassword ? `${origin}/login` : `${origin}/reset-password?token=${await createResetToken(made.userId, 7 * 86_400_000)}`;
+    const send = form.has("send") ? mailer() : null;
+    if (send)
+      await send({
+        to: email,
+        subject: "Your SimilarWise account is ready",
+        text: `We've set up SimilarWise for ${workspace}: see what your competitors do, then do it better.\n\n${made.hasPassword ? "Log in" : "Choose your password"}: ${link}${made.hasPassword ? "" : "\n\nThis link works for 7 days. You can also sign in with Google using this email address."}`,
+        html: `<p>We've set up SimilarWise for ${escapeHtml(workspace)}: see what your competitors do, then do it better.</p><p><a href="${escapeHtml(link)}">${made.hasPassword ? "Log in" : "Choose your password"}</a></p>${made.hasPassword ? "" : "<p>This link works for 7 days. You can also sign in with Google using this email address.</p>"}`,
+      }).catch((err) => console.error("Couldn't send a new account email", err));
+    return {
+      ok: `${made.existing ? `Added the workspace ${workspace} to ${email}'s account.` : `Made an account for ${email} with the workspace ${workspace}.`} ${send ? "We've emailed them a link to log in." : "Send them this link to log in:"}`,
+      link: send ? null : link,
+      workspaceId: made.workspaceId,
+    };
+  }
   if (intent === "free") {
     await setWorkspaceFree(String(form.get("workspaceId") ?? ""), form.get("free") === "true");
     return { ok: "Saved." };
@@ -56,7 +95,15 @@ export default function Admin() {
   const busy = useNavigation().state !== "idle";
   return (
     <s-page heading="Admin">
-      {result && "ok" in result && <s-banner tone="success">{result.ok}</s-banner>}
+      {result && "ok" in result && (
+        <s-banner tone="success">
+          <s-stack gap="small">
+            <s-text>{result.ok}</s-text>
+            {"link" in result && result.link && <code style={{ wordBreak: "break-all", userSelect: "all" }}>{result.link}</code>}
+            {"workspaceId" in result && result.workspaceId && <SupportButton workspaceId={result.workspaceId} label="Open their account" busy={busy} />}
+          </s-stack>
+        </s-banner>
+      )}
       {result && "error" in result && <s-banner tone="critical">{result.error}</s-banner>}
 
       <s-section>
@@ -107,7 +154,30 @@ export default function Admin() {
         </Form>
       </s-section>
 
+      <s-section heading="Create an account for a client">
+        <Form method="post">
+          <input type="hidden" name="intent" value="client" />
+          <s-stack gap="base">
+            <s-paragraph>Sets up a login and a workspace for a client, so you can get it ready for them. They choose their own password from the link, or sign in with Google using the same email.</s-paragraph>
+            <s-grid gridTemplateColumns="repeat(auto-fit, minmax(220px, 1fr))" gap="base">
+              <s-email-field name="email" label="Client's email" placeholder="name@theirstore.com" required />
+              <s-text-field name="name" label="Their name (optional)" />
+              <s-text-field name="workspace" label="Workspace name" placeholder="Their business name" required />
+              <s-text-field name="website" label="Website (optional)" placeholder="theirstore.com" />
+            </s-grid>
+            <s-checkbox name="send" label="Email them a link to log in" defaultChecked />
+            <s-checkbox name="free" label="Free access (every page, nothing to pay)" />
+            <s-stack direction="inline">
+              <s-button type="submit" variant="primary" disabled={busy}>
+                Create account
+              </s-button>
+            </s-stack>
+          </s-stack>
+        </Form>
+      </s-section>
+
       <s-section heading={`Workspaces (${workspaces.length})`}>
+        <s-paragraph>Open a workspace to see it as its owner does and help them. You stay logged in as yourself, and a bar at the top shows you&apos;re in their account.</s-paragraph>
         <s-table>
           <s-table-header-row>
             <s-table-header>Workspace</s-table-header>
@@ -115,6 +185,7 @@ export default function Admin() {
             <s-table-header>People</s-table-header>
             <s-table-header>Created</s-table-header>
             <s-table-header>Free access</s-table-header>
+            <s-table-header>Support</s-table-header>
           </s-table-header-row>
           <s-table-body>
             {workspaces.map((w) => (
@@ -139,6 +210,9 @@ export default function Admin() {
                       {w.free ? "Remove" : "Make free"}
                     </s-button>
                   </Form>
+                </s-table-cell>
+                <s-table-cell>
+                  <SupportButton workspaceId={w.id} label="Open" busy={busy} />
                 </s-table-cell>
               </s-table-row>
             ))}
@@ -191,5 +265,17 @@ export default function Admin() {
         </s-table>
       </s-section>
     </s-page>
+  );
+}
+
+function SupportButton({ workspaceId, label, busy }: { workspaceId: string; label: string; busy: boolean }) {
+  return (
+    <Form method="post">
+      <input type="hidden" name="intent" value="support" />
+      <input type="hidden" name="workspaceId" value={workspaceId} />
+      <s-button type="submit" variant="secondary" icon="external" disabled={busy}>
+        {label}
+      </s-button>
+    </Form>
   );
 }

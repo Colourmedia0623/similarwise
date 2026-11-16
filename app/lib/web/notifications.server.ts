@@ -44,5 +44,6 @@ export async function notifications(shop: string, seenAt: Date | null, now = Dat
 }
 
 export async function markSeen(userId: string, workspaceId: string, at = new Date()) {
-  await db.workspaceMember.update({ where: { userId_workspaceId: { userId, workspaceId } }, data: { seenAt: at } });
+  // updateMany: an admin in a workspace for support isn't a member, so has no row.
+  await db.workspaceMember.updateMany({ where: { userId, workspaceId }, data: { seenAt: at } });
 }

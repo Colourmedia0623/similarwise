@@ -72,6 +72,7 @@ export async function endSession(request: Request) {
 export type WebAccount = {
   sessionId: string;
   user: { id: string; email: string; name: string | null; theme: string | null };
+  // role "support": an admin looking at a customer's workspace they aren't a member of.
   workspace: { id: string; shop: string; name: string; website: string | null; platform: string | null; country: string | null; role: string; seenAt: Date | null } | null;
   workspaces: { id: string; name: string }[];
 };
@@ -87,15 +88,31 @@ export async function webAccount(request: Request): Promise<WebAccount | null> {
   });
   if (!s || s.expiresAt < new Date()) return null;
   const memberships = s.user.memberships;
-  const m = memberships.find((x) => x.workspaceId === s.workspaceId) ?? memberships[0] ?? null;
+  let m: { role: string; seenAt: Date | null; workspace: (typeof memberships)[number]["workspace"] } | null = memberships.find((x) => x.workspaceId === s.workspaceId) ?? null;
+  // Admins can open any workspace for support, without joining it.
+  if (!m && s.workspaceId && isAdminEmail(s.user.email)) {
+    const ws = await db.workspace.findUnique({ where: { id: s.workspaceId } });
+    if (ws) m = { role: "support", seenAt: null, workspace: ws };
+  }
+  m ??= memberships[0] ?? null;
+  const workspaces = memberships.map((x) => ({ id: x.workspace.id, name: x.workspace.name }));
+  if (m?.role === "support") workspaces.push({ id: m.workspace.id, name: `${m.workspace.name} (support)` });
   return {
     sessionId: s.id,
     user: { id: s.user.id, email: s.user.email, name: s.user.name, theme: s.user.theme },
     workspace: m
       ? { id: m.workspace.id, shop: m.workspace.shop, name: m.workspace.name, website: m.workspace.website, platform: m.workspace.platform, country: m.workspace.country, role: m.role, seenAt: m.seenAt }
       : null,
-    workspaces: memberships.map((x) => ({ id: x.workspace.id, name: x.workspace.name })),
+    workspaces,
   };
+}
+
+// An admin opening a customer's workspace to help them, and leaving it again.
+export async function openForSupport(account: WebAccount, workspaceId: string | null) {
+  if (!isAdminEmail(account.user.email)) return false;
+  if (workspaceId && !(await db.workspace.findUnique({ where: { id: workspaceId }, select: { id: true } }))) return false;
+  await db.webSession.update({ where: { id: account.sessionId }, data: { workspaceId } });
+  return true;
 }
 
 export async function switchWorkspace(account: WebAccount, workspaceId: string) {
@@ -145,10 +162,10 @@ export function loginFailed(email: string, now = Date.now()) {
 }
 export const loginSucceeded = (email: string) => failures.delete(email);
 
-// Password reset links, valid for an hour.
-export async function createResetToken(userId: string) {
+// Password reset links, valid for an hour (a week for a new account's first password).
+export async function createResetToken(userId: string, validFor = 3_600_000) {
   const token = randomBytes(32).toString("base64url");
-  await db.webToken.create({ data: { id: sha256(token), userId, kind: "reset", expiresAt: new Date(Date.now() + 3_600_000) } });
+  await db.webToken.create({ data: { id: sha256(token), userId, kind: "reset", expiresAt: new Date(Date.now() + validFor) } });
   return token;
 }
 

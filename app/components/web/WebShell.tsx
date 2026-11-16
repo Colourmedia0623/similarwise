@@ -18,6 +18,8 @@ export type WebShellAccount = {
   trialDays: number | null;
   admin?: boolean;
   notices?: { items: Notice[]; unread: number };
+  // An admin in a customer's workspace to help them.
+  support?: boolean;
 };
 
 type Notice = { id: string; kind: "competitor" | "inbox" | "mention"; title: string; text: string; at: string; href: string; unread: boolean };
@@ -321,6 +323,15 @@ export function WebShell({ account, children }: { account: WebShellAccount; chil
       </aside>
       {open && <button className={styles.scrim} type="button" aria-label="Close menu" onClick={() => setOpenOn(null)} />}
       <div className={styles.content}>
+        {account.support && (
+          <Form method="post" action="/app/admin" className={styles.support}>
+            <input type="hidden" name="intent" value="leave" />
+            <span>
+              <strong>Support view:</strong> you&apos;re in {account.workspace.name}&apos;s account. Anything you change is saved for them.
+            </span>
+            <button type="submit">Leave their account</button>
+          </Form>
+        )}
         <header className={styles.top}>
           <button className={styles.menuButton} type="button" aria-label="Menu" aria-expanded={open} onClick={() => setOpenOn(open ? null : pathname)}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
