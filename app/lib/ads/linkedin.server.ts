@@ -70,6 +70,11 @@ export function linkedInAdsOn() {
 
 let cached: { token: string; until: number } | null = null;
 
+// LinkedIn hasn't approved the app for the Ad Library API yet. Nothing a
+// merchant can fix, so it isn't shown to them; ads come in once it's approved.
+export class LinkedInNotApproved extends Error {}
+const NOT_APPROVED = /not allowed to create application tokens|unauthorized_client|not authorized to use the requested grant/i;
+
 async function appToken(f: typeof fetch, now: number) {
   if (cached && cached.until > now + 60_000) return cached.token;
   const res = await f(AUTH, {
@@ -80,7 +85,10 @@ async function appToken(f: typeof fetch, now: number) {
   });
   const json = obj(await res.json().catch(() => ({})));
   const token = str(json.access_token, 5000);
-  if (!res.ok || !token) throw new Error(str(json.error_description) ?? str(json.error) ?? `sign-in answered ${res.status}`);
+  if (!res.ok || !token) {
+    const message = str(json.error_description) ?? str(json.error) ?? `sign-in answered ${res.status}`;
+    throw NOT_APPROVED.test(`${message} ${str(json.error) ?? ""}`) ? new LinkedInNotApproved(message) : new Error(message);
+  }
   cached = { token, until: now + (typeof json.expires_in === "number" ? json.expires_in : 1800) * 1000 };
   return token;
 }

@@ -88,4 +88,20 @@ describe("LinkedIn ad library", () => {
     expect(after.adsError).toBe("LinkedIn: Not enough permissions");
     expect(after.adsAt).toBeNull();
   });
+
+  it("doesn't show an error while LinkedIn hasn't approved the app", async () => {
+    const c = await db.competitor.create({ data: { shop: SHOP, name: "Rival", url: "https://www.rival.com" } });
+    const f = (async () => new Response(JSON.stringify({ error: "unauthorized_client", error_description: "This application is not allowed to create application tokens" }), { status: 401 })) as typeof fetch;
+    process.env.LINKEDIN_CLIENT_ID = "li-app";
+    process.env.LINKEDIN_CLIENT_SECRET = "li-secret";
+    try {
+      await refreshAds(c.id, { client: null, linkedin: linkedInAdsClient(f)!, now: NOW });
+    } finally {
+      delete process.env.LINKEDIN_CLIENT_ID;
+      delete process.env.LINKEDIN_CLIENT_SECRET;
+    }
+    const after = await db.competitor.findUniqueOrThrow({ where: { id: c.id } });
+    expect(after.adsError).toBeNull();
+    expect(after.adsAt).toBeNull();
+  });
 });
