@@ -1,7 +1,7 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { StatLine } from "../components/PostStats";
-import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "react-router";
-import { Link, redirect, useFetcher, useLoaderData } from "react-router";
+import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs, ShouldRevalidateFunction } from "react-router";
+import { Link, redirect, useFetcher, useLoaderData, useRevalidator } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { isWebShop } from "../lib/web/shop";
@@ -15,6 +15,7 @@ import { articleShares, checkTikTokPosts, shareArticle, socialAccounts, tiktokAc
 import type { TikTokChoices } from "../lib/social/networks.server";
 import { TikTokPost } from "../components/TikTokPost";
 import { NETWORK_NAME, type Network } from "../lib/social/networks";
+import { canvaAccount, canvaAuthorizeUrl, canvaOn, importCanvaToArticle, newCanvaDesign, recentCanvaDesigns, takeCanvaReturn, type CanvaDesign } from "../lib/social/canva.server";
 
 // One blog article: read and change its words, Google listing and picture,
 // then add it to the blog. Changes to an article already on the blog are
@@ -24,15 +25,25 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
   const graphql: Graphql = async (query, variables) => (await admin.graphql(query, { variables })).json();
   await checkTikTokPosts(session.shop, params.id ?? "");
-  const [article, origin, accounts, shares, settings] = await Promise.all([
+  const [article, origin, accounts, shares, settings, canvaUser] = await Promise.all([
     blogArticle(session.shop, params.id ?? ""),
     storeOrigin(graphql),
     socialAccounts(session.shop),
     articleShares(session.shop, params.id ?? ""),
     db.shopSettings.findUnique({ where: { shop: session.shop }, select: { blogAuthor: true } }),
+    canvaOn() ? canvaAccount(session.shop) : null,
   ]);
+  const canva = canvaOn() ? { connected: !!canvaUser, connect: canvaAuthorizeUrl(session.shop) } : null;
   if (!article) throw redirect("/app/articles");
-  return { article: { ...article, url: atOrigin(article.url, origin) }, defaultAuthor: settings?.blogAuthor ?? "", imagesOn: Boolean(process.env.OPENAI_API_KEY), accounts, shares, web: isWebShop(session.shop) };
+  return { article: { ...article, url: atOrigin(article.url, origin) }, defaultAuthor: settings?.blogAuthor ?? "", imagesOn: Boolean(process.env.OPENAI_API_KEY), accounts, shares, web: isWebShop(session.shop), canva };
+};
+
+// Waiting on Canva, or listing designs, changes nothing on the page.
+export const shouldRevalidate: ShouldRevalidateFunction = ({ formData, actionResult, defaultShouldRevalidate }) => {
+  const intent = String(formData?.get("intent") ?? "");
+  if (intent === "canva-new" || intent === "canva-designs") return false;
+  if (intent === "canva-returned") return (actionResult as { status?: string } | undefined)?.status === "ready";
+  return defaultShouldRevalidate;
 };
 
 export const action = async ({ request, params }: ActionFunctionArgs) => {
@@ -57,6 +68,21 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   if (intent === "share") {
     const picks = JSON.parse(String(form.get("picks") ?? "[]")) as { accountId: string; caption: string; tiktok?: TikTokChoices }[];
     return { intent, at, ...(await shareArticle(shop, id, picks, { origin: await storeOrigin(graphql) })) };
+  }
+
+  // Canva: a new design at blog size, a design picked from their account, or
+  // one coming back from Canva's return button, as the article's picture.
+  if (intent === "canva-new") return { intent, at, ...(await newCanvaDesign(shop, "wide", String(form.get("title") ?? ""), { articleId: id })) };
+  if (intent === "canva-designs") return { intent, at, ...(await recentCanvaDesigns(shop)) };
+  if (intent === "canva-import" || intent === "canva-returned") {
+    const res =
+      intent === "canva-import" ? await importCanvaToArticle(shop, id, String(form.get("designId") ?? "")) : await takeCanvaReturn(shop, String(form.get("token") ?? ""));
+    if ("error" in res && res.error) return { intent, at, error: res.error };
+    if (("ok" in res && res.ok) || ("status" in res && res.status === "ready")) {
+      const synced = await updateOnShopify(shop, id, graphql);
+      if ("error" in synced) return { intent, at, error: synced.error };
+    }
+    return { intent, at, ...res };
   }
 
   if (intent === "delete") {
@@ -130,7 +156,7 @@ const TOOLS: { label: string; title: string; run: () => void }[] = [
 ];
 
 export default function ArticleEditor() {
-  const { article: a, defaultAuthor, imagesOn, web } = useLoaderData<typeof loader>();
+  const { article: a, defaultAuthor, imagesOn, web, canva } = useLoaderData<typeof loader>();
   const save = useFetcher<typeof action>();
   const picture = useFetcher<typeof action>();
   const body = useRef<HTMLDivElement>(null);
@@ -225,6 +251,7 @@ export default function ArticleEditor() {
               {picResult && "error" in picResult && <s-text tone="critical">{picResult.error}</s-text>}
               {(a.imageError && !picResult) && <s-text tone="critical">{a.imageError}</s-text>}
             </s-stack>
+            {canva && <ArticleCanva canva={canva} title={fields.title} />}
             {imagesOn && a.picture && (
               <s-stack direction="inline" gap="small" alignItems="end">
                 <s-text-field
@@ -474,7 +501,146 @@ function Share({ published, picture }: { published: boolean; picture: string | n
   );
 }
 
+type CanvaAnswer = { intent?: string; error?: string; editUrl?: string; token?: string; designs?: CanvaDesign[]; status?: string; ok?: boolean; more?: boolean };
+
+// The article's picture from Canva: start a design at blog size, which opens
+// in a new tab and comes back when Canva's Back to SimilarWise is pressed, or
+// pick one of the merchant's designs. The first page becomes the picture.
+function ArticleCanva({ canva, title }: { canva: { connected: boolean; connect: string }; title: string }) {
+  const make = useFetcher<CanvaAnswer>();
+  const list = useFetcher<CanvaAnswer>();
+  const bring = useFetcher<CanvaAnswer>();
+  const poll = useFetcher<CanvaAnswer>();
+  const revalidator = useRevalidator();
+  const [open, setOpen] = useState(false);
+  const [waiting, setWaiting] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const tab = useRef<Window | null>(null);
+
+  // Connecting happens in another tab; pick it up on coming back.
+  useEffect(() => {
+    if (canva.connected) return;
+    const back = () => document.visibilityState === "visible" && revalidator.revalidate();
+    document.addEventListener("visibilitychange", back);
+    return () => document.removeEventListener("visibilitychange", back);
+  }, [canva.connected, revalidator]);
+
+  // The tab opens on the click, so it isn't blocked, and goes to the design once Canva has made it.
+  const made = make.state === "idle" ? make.data : undefined;
+  const [seenMade, setSeenMade] = useState(made);
+  if (made !== seenMade) {
+    setSeenMade(made);
+    if (made?.token) {
+      setWaiting(made.token);
+      setNote("When you've finished, press Back to SimilarWise at the top of Canva. The design comes in as the picture.");
+    }
+  }
+  useEffect(() => {
+    if (!made) return;
+    if (made.editUrl && tab.current) tab.current.location.href = made.editUrl;
+    else tab.current?.close();
+    tab.current = null;
+  }, [made]);
+
+  // Checks for the design coming back, every few seconds and on returning to this tab.
+  const pollState = poll.state;
+  const pollSubmit = poll.submit;
+  useEffect(() => {
+    if (!waiting) return;
+    const check = () => pollState === "idle" && pollSubmit({ intent: "canva-returned", token: waiting }, { method: "post" });
+    const t = setInterval(check, 4000);
+    const back = () => document.visibilityState === "visible" && check();
+    document.addEventListener("visibilitychange", back);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", back);
+    };
+  }, [waiting, pollState, pollSubmit]);
+  const returned = poll.state === "idle" ? poll.data : undefined;
+  const [seenReturn, setSeenReturn] = useState(returned);
+  if (returned !== seenReturn) {
+    setSeenReturn(returned);
+    if (returned && returned.status !== "waiting") {
+      setWaiting(null);
+      setNote(returned.error ?? (returned.status === "gone" ? null : "Your Canva design is the article's picture now."));
+    }
+  }
+
+  const brought = bring.state === "idle" ? bring.data : undefined;
+  const [seenBrought, setSeenBrought] = useState(brought);
+  if (brought !== seenBrought) {
+    setSeenBrought(brought);
+    if (brought?.ok) {
+      setOpen(false);
+      setNote(brought.more ? "Your Canva design is the article's picture now. It has more than one page, so the first one is used." : "Your Canva design is the article's picture now.");
+    }
+  }
+
+  if (!canva.connected)
+    return (
+      <s-stack direction="inline" gap="small" alignItems="center">
+        <s-button href={canva.connect} target="_blank" icon="external">
+          Connect Canva
+        </s-button>
+        <s-text color="subdued">to design the picture in Canva.</s-text>
+      </s-stack>
+    );
+  const error = (make.state === "idle" && make.data?.error) || (list.state === "idle" && list.data?.error) || (bring.state === "idle" && bring.data?.error);
+  return (
+    <s-stack gap="small">
+      <s-stack direction="inline" gap="small" alignItems="center">
+        <s-button
+          loading={make.state !== "idle"}
+          onClick={() => {
+            tab.current = window.open("", "_blank");
+            setNote(null);
+            make.submit({ intent: "canva-new", title: title || "Blog picture" }, { method: "post" });
+          }}
+        >
+          Design in Canva
+        </s-button>
+        <s-button
+          loading={bring.state !== "idle"}
+          onClick={() => {
+            setOpen(!open);
+            if (!open) list.submit({ intent: "canva-designs" }, { method: "post" });
+          }}
+        >
+          Pick from Canva
+        </s-button>
+        {waiting && <s-spinner size="base" accessibilityLabel="Waiting for Canva" />}
+        {note && <s-text color="subdued">{note}</s-text>}
+      </s-stack>
+      {open && (
+        <div className="sw-canva-designs">
+          {bring.state !== "idle" ? (
+            <p>Bringing your design in… This takes a few seconds.</p>
+          ) : list.state !== "idle" ? (
+            <p>Looking at your Canva designs…</p>
+          ) : list.data?.designs?.length === 0 ? (
+            <p>No designs in your Canva account yet. Press Design in Canva to start one.</p>
+          ) : (
+            list.data?.designs?.map((d) => (
+              <button key={d.id} type="button" onClick={() => bring.submit({ intent: "canva-import", designId: d.id }, { method: "post" })}>
+                {d.thumbnail ? <img src={d.thumbnail} alt="" /> : <span className="sw-canva-blank" />}
+                <span>{d.title}</span>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+      {error && <s-text tone="critical">{error}</s-text>}
+    </s-stack>
+  );
+}
+
 const CSS = `
+.sw-canva-designs { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; max-height: 300px; overflow-y: auto; }
+.sw-canva-designs p { grid-column: 1 / -1; margin: 4px 0; color: #616161; font-size: 13px; }
+.sw-canva-designs button { display: flex; flex-direction: column; gap: 4px; padding: 6px; border: 1px solid #e3e3e3; border-radius: 10px; background: #fff; font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+.sw-canva-designs button:hover { border-color: #7d2ae8; }
+.sw-canva-designs img, .sw-canva-blank { width: 100%; aspect-ratio: 1.6; object-fit: cover; border-radius: 6px; background: #f1f1f1; display: block; }
+.sw-canva-designs span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sw-picture { display: block; width: 100%; max-width: 720px; aspect-ratio: 3 / 2; object-fit: cover; border-radius: 10px; }
 .sw-toolbar { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px; border: 1px solid #d4d4d4; border-bottom: 0; border-radius: 8px 8px 0 0; background: #f7f7f7; }
 .sw-toolbar button { font: inherit; font-size: 13px; padding: 4px 10px; border: 1px solid #d4d4d4; border-radius: 6px; background: #fff; cursor: pointer; }

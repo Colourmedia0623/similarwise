@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import sharp from "sharp";
 import db from "../../db.server";
 import { generateKeyPairSync, sign } from "node:crypto";
-import { canvaAccount, canvaAuthorizeUrl, connectCanva, editCanvaDesign, finishCanvaReturn, importCanvaDesign, newCanvaDesign, recentCanvaDesigns, takeCanvaReturn } from "./canva.server";
+import { canvaAccount, canvaAuthorizeUrl, connectCanva, editCanvaDesign, finishCanvaReturn, importCanvaDesign, importCanvaToArticle, newCanvaDesign, recentCanvaDesigns, takeCanvaReturn } from "./canva.server";
 import type { Fetch } from "./networks.server";
 import { pkceChallenge, pkceVerifier, unseal } from "./seal.server";
 
@@ -144,5 +144,43 @@ describe("Canva", () => {
     expect(new URL(again.editUrl).searchParams.get("correlation_state")).toBe(again.token);
     expect(await takeCanvaReturn(SHOP, again.token)).toEqual({ status: "waiting" });
     expect(await editCanvaDesign(SHOP, "../x", { f: g, now: NOW })).toEqual({ error: "Choose a design." });
+  });
+
+  it("makes a design a blog article's picture, picked or from Canva's return button", async () => {
+    await connect();
+    const article = await db.blogArticle.create({
+      data: { shop: SHOP, keyword: "gift boxes", title: "Gift boxes", summary: "", bodyHtml: "<p>Hi</p>", metaTitle: "", metaDescription: "" },
+    });
+    const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+    const kid = `a${Date.now()}`;
+    const jwk = { ...publicKey.export({ format: "jwk" }), kid };
+    const b = (o: object) => Buffer.from(JSON.stringify(o)).toString("base64url");
+    const png = new Uint8Array(await sharp({ create: { width: 1200, height: 630, channels: 3, background: "#7d2ae8" } }).png().toBuffer());
+    const f = fakeFetch(
+      [
+        [/\/designs$/, () => ({ design: { id: "D9", urls: { edit_url: "https://www.canva.com/design/D9/edit" } } })],
+        [/connect\/keys/, () => ({ keys: [jwk] })],
+        [/\/exports$/, () => ({ job: { id: "E9", status: "success", urls: ["https://x/1.png", "https://x/2.png"] } })],
+        [/https:\/\/x\//, () => png],
+      ],
+      [],
+    );
+    try {
+      // Picked from their designs: the first page only.
+      expect(await importCanvaToArticle(SHOP, article.id, "D9", { f, now: NOW })).toEqual({ ok: true, more: true });
+      expect((await db.articleImage.findUnique({ where: { articleId: article.id } }))?.mime).toBe("image/png");
+      await db.articleImage.deleteMany({ where: { articleId: article.id } });
+      // Started from the article, and back with Canva's return button.
+      const made = (await newCanvaDesign(SHOP, "wide", "Gift boxes", { f, now: NOW, articleId: article.id })) as { token: string };
+      const body = `${b({ alg: "EdDSA", kid })}.${b({ correlation_state: made.token, design_id: "D9", exp: NOW.getTime() / 1000 + 600 })}`;
+      const jwt = `${body}.${sign(null, Buffer.from(body), privateKey).toString("base64url")}`;
+      expect(await finishCanvaReturn(jwt, { f, now: NOW, pause: async () => {} })).toEqual({ ok: true, pages: 1, article: true });
+      expect(await db.articleImage.count({ where: { articleId: article.id } })).toBe(1);
+      expect(await db.socialImage.count({ where: { shop: SHOP } })).toBe(0);
+      expect(await takeCanvaReturn(SHOP, made.token)).toEqual({ status: "ready", images: [] });
+    } finally {
+      await db.articleImage.deleteMany({ where: { articleId: article.id } });
+      await db.blogArticle.delete({ where: { id: article.id } });
+    }
   });
 });
