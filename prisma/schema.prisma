@@ -985,3 +985,23 @@ model ShopPlan {
   aiPrompts      Int?
   updatedAt      DateTime @updatedAt
 }
+
+// Better product titles, SEO titles and meta descriptions suggested by Claude
+// (lib/seo/products.server.ts), one per product, with what was there before.
+// The merchant can change them before applying them to the store.
+model ProductSeo {
+  id                String    @id @default(cuid())
+  shop              String
+  productId         String // Admin API id, or web:… for a web workspace's product
+  title             String // What the product had when suggested
+  seoTitle          String?
+  seoDescription    String?
+  newTitle          String
+  newSeoTitle       String
+  newSeoDescription String
+  why               String?
+  createdAt         DateTime  @default(now())
+  appliedAt         DateTime?
+
+  @@unique([shop, productId])
+}
