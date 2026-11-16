@@ -1,5 +1,5 @@
 import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
-import { useLoaderData } from "react-router";
+import { useLoaderData, useNavigate } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { howTo } from "../lib/help";
@@ -15,11 +15,17 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
 
 export default function HelpVideo() {
   const h = useLoaderData<typeof loader>();
+  const navigate = useNavigate();
+  // Back to the page they were on, or to the list when they came straight here.
+  const close = () => ((window.history.state?.idx ?? 0) > 0 ? navigate(-1) : navigate("/app/help"));
   return (
     <s-page heading={`How to: ${h.title}`}>
       <s-link slot="breadcrumb-actions" href="/app/help">
         Help videos
       </s-link>
+      <s-button slot="secondary-actions" icon="x" onClick={close}>
+        Close
+      </s-button>
       <s-button slot="primary-action" href={h.path}>
         Go to {h.section}
       </s-button>
