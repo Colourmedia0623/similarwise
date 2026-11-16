@@ -105,6 +105,7 @@ export async function webShellAccount(request: Request, shop: string) {
       trialDays: trial ? trial.trialDays : null,
       admin: isAdminEmail(account.user.email),
       notices,
+      support: ws.role === "support",
     },
     shopInfo: { country: ws.country, host: ws.website, email: account.user.email },
   };
