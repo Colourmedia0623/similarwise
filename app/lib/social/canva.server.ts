@@ -3,6 +3,7 @@ import { createPublicKey, randomBytes, verify, type webcrypto } from "node:crypt
 type JsonWebKey = webcrypto.JsonWebKey;
 import db from "../../db.server";
 import { postImages, uploadSocialImage } from "./publishing.server";
+import { uploadArticleImage } from "../ideas/images.server";
 import { pkceChallenge, pkceVerifier, seal, signState, unseal } from "./seal.server";
 import type { Fetch } from "./networks.server";
 
@@ -101,7 +102,12 @@ export const CANVA_SIZES = {
 export type CanvaSize = keyof typeof CANVA_SIZES;
 
 // A new, empty design at the size, and the link that opens it in Canva.
-export async function newCanvaDesign(shop: string, size: string, title: string, { f = fetch, now = new Date() }: { f?: Fetch; now?: Date } = {}) {
+export async function newCanvaDesign(
+  shop: string,
+  size: string,
+  title: string,
+  { f = fetch, now = new Date(), articleId = null }: { f?: Fetch; now?: Date; articleId?: string | null } = {},
+) {
   const s = CANVA_SIZES[size as CanvaSize];
   if (!s) return { error: "Choose a size for the design." };
   try {
@@ -114,7 +120,7 @@ export async function newCanvaDesign(shop: string, size: string, title: string, 
     // Canva hands this back with the design when the merchant presses its
     // return button, so the design lands in the post they were writing.
     const back = randomBytes(18).toString("base64url");
-    await db.canvaReturn.create({ data: { token: back, shop } });
+    await db.canvaReturn.create({ data: { token: back, shop, articleId } });
     const edit = new URL(made.design.urls.edit_url);
     edit.searchParams.set("correlation_state", back);
     return { editUrl: edit.toString(), token: back };
@@ -167,35 +173,57 @@ export async function recentCanvaDesigns(shop: string, { f = fetch, now = new Da
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// Exports the design, one picture a page, and stores each as a picture for a
-// post. Canva exports in the background, so this waits for it, up to a minute.
-export async function importCanvaDesign(
-  shop: string,
-  designId: string,
-  max: number,
-  { f = fetch, now = new Date(), pause = wait }: { f?: Fetch; now?: Date; pause?: (ms: number) => Promise<unknown> } = {},
-) {
+type ExportOptions = { f?: Fetch; now?: Date; pause?: (ms: number) => Promise<unknown> };
+
+// Exports the design as PNGs, a page each, up to max pages. Canva exports in
+// the background, so this waits for it, up to a minute.
+async function exportCanvaPages(shop: string, designId: string, max: number, { f = fetch, now = new Date(), pause = wait }: ExportOptions) {
+  const token = await liveCanvaToken(shop, f, now);
+  let job = (await canva<{ job: { id: string; status: string; urls?: string[]; error?: { message?: string } } }>(f, token, "/exports", { design_id: designId, format: { type: "png" } })).job;
+  for (let i = 0; i < 30 && job.status === "in_progress"; i++) {
+    await pause(2000);
+    job = (await canva<{ job: typeof job }>(f, token, `/exports/${encodeURIComponent(job.id)}`)).job;
+  }
+  if (job.status !== "success" || !job.urls?.length) return { error: job.error?.message ? `Canva said: ${job.error.message}` : "Canva is still exporting the design. Try again in a minute." };
+  const pages: ArrayBuffer[] = [];
+  for (const url of job.urls.slice(0, Math.max(0, max))) {
+    const res = await f(url, { signal: AbortSignal.timeout(60_000) });
+    if (res.ok) pages.push(await res.arrayBuffer());
+  }
+  return { pages, total: job.urls.length };
+}
+
+// Exports the design, one picture a page, and stores each as a picture for a post.
+export async function importCanvaDesign(shop: string, designId: string, max: number, opts: ExportOptions = {}) {
   if (!/^[\w-]{1,64}$/.test(designId)) return { error: "Choose a design." };
   try {
-    const token = await liveCanvaToken(shop, f, now);
-    let job = (await canva<{ job: { id: string; status: string; urls?: string[]; error?: { message?: string } } }>(f, token, "/exports", { design_id: designId, format: { type: "png" } })).job;
-    for (let i = 0; i < 30 && job.status === "in_progress"; i++) {
-      await pause(2000);
-      job = (await canva<{ job: typeof job }>(f, token, `/exports/${encodeURIComponent(job.id)}`)).job;
-    }
-    if (job.status !== "success" || !job.urls?.length) return { error: job.error?.message ? `Canva said: ${job.error.message}` : "Canva is still exporting the design. Try again in a minute." };
+    const out = await exportCanvaPages(shop, designId, max, opts);
+    if ("error" in out) return { error: out.error };
     const images: { id: string; url: string; canva: string }[] = [];
-    for (const url of job.urls.slice(0, Math.max(0, max))) {
-      const res = await f(url, { signal: AbortSignal.timeout(60_000) });
-      if (!res.ok) continue;
-      const data = await res.arrayBuffer();
+    for (const data of out.pages) {
       const up = await uploadSocialImage(shop, { type: "image/png", size: data.byteLength, arrayBuffer: async () => data });
       if (!("imageId" in up) || !up.imageId) continue;
       await db.socialImage.update({ where: { id: up.imageId }, data: { canvaDesignId: designId } });
       images.push({ id: up.imageId, url: up.url, canva: designId });
     }
     if (!images.length) return { error: "Couldn't bring the design's pages in from Canva. Try again." };
-    return { images, more: job.urls.length > images.length };
+    return { images, more: out.total > images.length };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+// A design's first page as a blog article's picture.
+export async function importCanvaToArticle(shop: string, articleId: string, designId: string, opts: ExportOptions = {}) {
+  if (!/^[\w-]{1,64}$/.test(designId)) return { error: "Choose a design." };
+  try {
+    const out = await exportCanvaPages(shop, designId, 1, opts);
+    if ("error" in out) return { error: out.error };
+    const data = out.pages[0];
+    if (!data) return { error: "Couldn't bring the design in from Canva. Try again." };
+    const saved = await uploadArticleImage(shop, articleId, { type: "image/png", size: data.byteLength, arrayBuffer: async () => data });
+    if ("error" in saved) return { error: saved.error };
+    return { ok: true as const, more: out.total > 1 };
   } catch (err) {
     return { error: err instanceof Error ? err.message : String(err) };
   }
@@ -248,7 +276,12 @@ export async function finishCanvaReturn(jwt: string, { f = fetch, now = new Date
   const row = await db.canvaReturn.findUnique({ where: { token: back.token } });
   if (!row || now.getTime() - row.createdAt.getTime() > RETURN_FOR)
     return { error: "This design was started too long ago to bring in this way. Go back to SimilarWise and press Add from Canva instead." };
-  if (row.status === "ready") return { ok: true as const, pages: postImages({ imageId: null, imageIds: row.imageIds }).length };
+  if (row.status === "ready") return { ok: true as const, pages: row.articleId ? 1 : postImages({ imageId: null, imageIds: row.imageIds }).length };
+  if (row.articleId) {
+    const res = await importCanvaToArticle(row.shop, row.articleId, back.designId, { f, now, pause });
+    await db.canvaReturn.update({ where: { token: row.token }, data: "error" in res && res.error ? { status: "failed", error: res.error.slice(0, 300) } : { status: "ready" } });
+    return "error" in res && res.error ? { error: res.error } : { ok: true as const, pages: 1, article: true };
+  }
   const res = await importCanvaDesign(row.shop, back.designId, 10, { f, now, pause });
   if ("error" in res && res.error) {
     await db.canvaReturn.update({ where: { token: row.token }, data: { status: "failed", error: res.error.slice(0, 300) } });
@@ -267,6 +300,7 @@ export async function takeCanvaReturn(shop: string, token: string) {
   if (row.status === "waiting") return { status: "waiting" as const };
   await db.canvaReturn.delete({ where: { token } });
   if (row.status === "failed") return { status: "failed" as const, error: row.error ?? "Couldn't bring the design in from Canva." };
+  if (row.articleId) return { status: "ready" as const, images: [] };
   const ids = postImages({ imageId: null, imageIds: row.imageIds });
   const from = new Map((await db.socialImage.findMany({ where: { shop, id: { in: ids } }, select: { id: true, canvaDesignId: true } })).map((i) => [i.id, i.canvaDesignId]));
   return { status: "ready" as const, images: ids.map((id) => ({ id, url: `/social-images/${id}.jpg`, canva: from.get(id) ?? null })) };
