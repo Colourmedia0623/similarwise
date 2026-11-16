@@ -2,7 +2,7 @@ import db from "../../db.server";
 import { hostOf } from "../tracker/url";
 import { shopMarket } from "../traffic/refresh.server";
 import { PLATFORM_LABEL } from "./platforms";
-import { linkedInAdsClient, sameAdvertiser, type LinkedInAdsClient } from "./linkedin.server";
+import { LinkedInNotApproved, linkedInAdsClient, sameAdvertiser, type LinkedInAdsClient } from "./linkedin.server";
 import { adsClient, type AdsClient, type AdsPage, type LibraryAd, type MetaPage, type Platform } from "./scrapecreators.server";
 
 // The ads each competitor runs on Meta (Facebook and Instagram), TikTok,
@@ -144,6 +144,9 @@ export async function refreshAds(
     errors.push(`Google: ${err instanceof Error ? err.message : String(err)}`);
   }
 
+  // How many sources were asked; a whole check that failed keeps the last time.
+  let sources = (client ? 3 : 0) + (linkedin ? 1 : 0);
+
   // LinkedIn: by the competitor's name (and their Facebook page's, or their
   // domain's), keeping only ads from an advertiser with exactly that name.
   if (linkedin) try {
@@ -157,7 +160,11 @@ export async function refreshAds(
     }
     added.linkedin = await saveAds(id, "linkedin", { ads: found, complete }, now);
   } catch (err) {
-    errors.push(`LinkedIn: ${err instanceof Error ? err.message : String(err)}`);
+    if (err instanceof LinkedInNotApproved) {
+      sources--;
+      console.warn("LinkedIn Ad Library isn't approved for this app yet", err.message);
+    }
+    else errors.push(`LinkedIn: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   const events = firstRun
@@ -184,7 +191,7 @@ export async function refreshAds(
       data: {
         ...update,
         // Partly failed runs still count as done; the error shows on the page.
-        adsAt: errors.length === (client ? 3 : 0) + (linkedin ? 1 : 0) ? c.adsAt : now,
+        adsAt: errors.length === sources ? c.adsAt : now,
         adsMarket: market.code,
         adsError: errors.length ? errors.join(" · ").slice(0, 500) : null,
       },
