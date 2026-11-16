@@ -7,6 +7,7 @@ import db from "../db.server";
 export async function redactShop(shop: string) {
   const competitors = await db.competitor.deleteMany({ where: { shop } });
   await db.shopProduct.deleteMany({ where: { shop } });
+  await db.productSeo.deleteMany({ where: { shop } });
   await db.keywordIdea.deleteMany({ where: { shop } });
   await db.adIdeas.deleteMany({ where: { shop } });
   await db.similarSite.deleteMany({ where: { shop } });

@@ -17,7 +17,7 @@ redirect_urls = [ "https://similarwise.colourmedia.net/auth/callback" ]
 # Competitor data comes from their public storefronts. read_products lets the
 # app compare the shop's own prices with theirs; write_content lets it add
 # the blog articles it writes to the shop's blog.
-scopes = "read_products,write_content"
+scopes = "read_products,write_products,write_content"
 
 [webhooks]
 api_version = "2026-10"
