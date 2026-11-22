@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import db from "../../db.server";
-import { authorizeUrl, connectMeta, postTikTok, tiktokCreator, type Fetch, type TikTokChoices } from "./networks.server";
+import { authorizeUrl, connectMeta, postStats, postTikTok, tiktokCreator, type Fetch, type TikTokChoices } from "./networks.server";
 import { readState, seal, signState, unseal } from "./seal.server";
 import { autoShare, checkTikTokPosts, saveAccounts, shareArticle, socialAccounts } from "./social.server";
 
@@ -222,5 +222,22 @@ describe("social sharing", () => {
     await autoShare(SHOP, a.id, { ask, f });
     expect(calls).toHaveLength(1);
     expect(new URLSearchParams(calls[0].body).get("message")).toBe("New on the blog");
+  });
+  it("reads Facebook reach from Meta's newer views metric, and falls back to the old one", async () => {
+    const asked: string[] = [];
+    const answer = (has: string) => (async (url) => {
+      const u = new URL(String(url));
+      const metric = u.searchParams.get("metric");
+      if (metric) asked.push(metric);
+      if (!metric) return new Response(JSON.stringify({ reactions: { summary: { total_count: 3 } }, comments: { summary: { total_count: 1 } } }));
+      if (metric !== has) return new Response(JSON.stringify({ error: { message: "invalid metric" } }), { status: 400 });
+      return new Response(JSON.stringify({ data: [{ values: [{ value: 42 }] }] }));
+    }) as Fetch;
+    expect(await postStats("facebook", "p1", "t", NOW, answer("post_total_media_view_unique"))).toMatchObject({ likes: 3, comments: 1, reach: 42 });
+    expect(asked).toEqual(["post_total_media_view_unique"]);
+    asked.length = 0;
+    expect((await postStats("facebook", "p1", "t", NOW, answer("post_impressions_unique")))?.reach).toBe(42);
+    expect(asked).toEqual(["post_total_media_view_unique", "post_impressions_unique"]);
+    expect((await postStats("facebook", "p1", "t", NOW, answer("none")))?.reach).toBeUndefined();
   });
 });
