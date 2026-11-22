@@ -535,9 +535,13 @@ export async function postStats(network: Network, remoteId: string, token: strin
       `/${remoteId}`,
       { fields: "reactions.summary(total_count).limit(0),comments.summary(total_count).limit(0),shares", access_token: token },
     );
-    const reach = await graph<{ data?: { values?: { value?: number }[] }[] }>(f, `/${remoteId}/insights`, { metric: "post_impressions_unique", access_token: token })
-      .then((r) => num(r.data?.[0]?.values?.[0]?.value))
-      .catch(() => undefined);
+    // Meta retired post_impressions_unique; post_total_media_view_unique is its
+    // replacement. The old name is still tried for any API version that has it.
+    const reachOf = (metric: string) =>
+      graph<{ data?: { values?: { value?: number }[] }[] }>(f, `/${remoteId}/insights`, { metric, access_token: token })
+        .then((r) => num(r.data?.[0]?.values?.[0]?.value))
+        .catch(() => undefined);
+    const reach = (await reachOf("post_total_media_view_unique")) ?? (await reachOf("post_impressions_unique"));
     return { likes: num(p.reactions?.summary?.total_count) ?? 0, comments: num(p.comments?.summary?.total_count) ?? 0, shares: num(p.shares?.count) ?? 0, reach };
   }
   if (network === "instagram") {
