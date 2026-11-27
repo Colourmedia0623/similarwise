@@ -3,5 +3,6 @@
 	reverse_proxy app:3000
 }
 
-# The private copy's address, written by the deploy (empty until it's set up).
+# The private copies' addresses, written by the deploy (each empty until it's set up).
 import Caddyfile.dss
+import Caddyfile.gbl
