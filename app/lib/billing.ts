@@ -50,6 +50,7 @@ export const PAGES: [string, Tier][] = [
   ["/app/ranks", "grow"],
   ["/app/audit", "grow"],
   ["/app/product-seo", "grow"],
+  ["/app/product-photos", "grow"],
   ["/app/ai", "grow"],
   ["/app/ideas", "grow"],
   ["/app/articles", "grow"],
