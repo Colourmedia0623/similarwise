@@ -28,6 +28,21 @@ services:
       - dss-data:/data
     restart: unless-stopped
 
+  # The private copy for gift-boxes-limited-uwdxttru.myshopify.com
+  # (shopify.app.gbl.toml), the same way: its own credentials and database,
+  # free. Runs only once the deploy has its secret (the "gbl" profile).
+  gbl:
+    image: similarwise:latest
+    pull_policy: never
+    profiles: [gbl]
+    env_file: .env.gbl
+    environment:
+      DATABASE_URL: file:/data/similarwise.sqlite
+      PORT: "3000"
+    volumes:
+      - gbl-data:/data
+    restart: unless-stopped
+
   caddy:
     image: caddy:2.10
     env_file: .env
@@ -37,6 +52,7 @@ services:
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./Caddyfile.dss:/etc/caddy/Caddyfile.dss:ro
+      - ./Caddyfile.gbl:/etc/caddy/Caddyfile.gbl:ro
       - caddy-data:/data
     depends_on:
       - app
@@ -45,4 +61,5 @@ services:
 volumes:
   app-data:
   dss-data:
+  gbl-data:
   caddy-data:

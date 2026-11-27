@@ -78,3 +78,17 @@ gets every page free, as Colourmedia's own stores do.
    `SHOPIFY_DSS_AUTOMATION_TOKEN`.
 4. Run "Deploy to EC2", then "Push Shopify app config" with app `dss`.
 5. Install it from the custom distribution link the Dev Dashboard gives.
+
+## The free private copy for Gift Boxes Limited
+
+Similarwise GBL (custom distribution) is a third app run the same way, for
+gift-boxes-limited-uwdxttru.myshopify.com, with its own database and address.
+
+1. Dev Dashboard: create the app, choose Custom distribution for
+   gift-boxes-limited-uwdxttru.myshopify.com, and put its client ID in
+   `shopify.app.gbl.toml` in place of `REPLACE_WITH_GBL_CLIENT_ID`.
+2. DNS: an A record for `gbl.similarwise.colourmedia.net` to the server.
+3. GitHub secrets: `SHOPIFY_GBL_API_SECRET` and
+   `SHOPIFY_GBL_AUTOMATION_TOKEN`.
+4. Run "Deploy to EC2", then "Push Shopify app config" with app `gbl`.
+5. Install it from the custom distribution link the Dev Dashboard gives.
