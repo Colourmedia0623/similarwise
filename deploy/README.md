@@ -86,7 +86,7 @@ gift-boxes-limited-uwdxttru.myshopify.com, with its own database and address.
 
 1. Dev Dashboard: create the app, choose Custom distribution for
    gift-boxes-limited-uwdxttru.myshopify.com, and put its client ID in
-   `shopify.app.gbl.toml` in place of `REPLACE_WITH_GBL_CLIENT_ID`.
+   `shopify.app.gbl.toml` (done).
 2. DNS: an A record for `gbl.similarwise.colourmedia.net` to the server.
 3. GitHub secrets: `SHOPIFY_GBL_API_SECRET` and
    `SHOPIFY_GBL_AUTOMATION_TOKEN`.

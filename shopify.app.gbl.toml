@@ -3,7 +3,7 @@
 # gift-boxes-limited-uwdxttru.myshopify.com (custom distribution, free), run
 # from the same code beside the public app with its own database. Keep the rest of this file in step with shopify.app.toml.
 # client_id comes from the private app's page in the Shopify Dev Dashboard.
-client_id = "REPLACE_WITH_GBL_CLIENT_ID"
+client_id = "c6c4f689fcf827a3b4d21bf83db0734d"
 name = "Similarwise GBL"
 application_url = "https://gbl.similarwise.colourmedia.net"
 embedded = true
