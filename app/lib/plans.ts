@@ -25,6 +25,7 @@ export const PLAN_PAGES: { path: string; label: string }[] = [
   { path: "/app/ranks", label: "Rank tracker" },
   { path: "/app/audit", label: "Site audit" },
   { path: "/app/product-seo", label: "Product SEO" },
+  { path: "/app/product-photos", label: "Product from photos" },
   { path: "/app/ai", label: "AI mentions" },
   { path: "/app/ideas", label: "Keyword ideas" },
   { path: "/app/articles", label: "Blog articles" },

@@ -115,7 +115,7 @@ function Bell({ notices }: { notices: { items: Notice[]; unread: number } }) {
 const GROUPS: [string, string[]][] = [
   ["", ["/app", "/app/setup"]],
   ["Competitors", ["/app/competitors", "/app/similar", "/app/prices", "/app/stock", "/app/tech", "/app/traffic", "/app/channels"]],
-  ["Search and content", ["/app/keywords", "/app/ranks", "/app/audit", "/app/product-seo", "/app/ai", "/app/ideas", "/app/articles", "/app/calendar", "/app/links", "/app/outreach"]],
+  ["Search and content", ["/app/keywords", "/app/ranks", "/app/audit", "/app/product-seo", "/app/product-photos", "/app/ai", "/app/ideas", "/app/articles", "/app/calendar", "/app/links", "/app/outreach"]],
   ["Social", ["/app/listening", "/app/publishing", "/app/inbox", "/app/social", "/app/paid-social"]],
   ["Ads and analytics", ["/app/ads", "/app/ad-ideas", "/app/google", "/app/reports"]],
   ["Account", ["/app/settings", "/app/plans", "/app/help", "/app/waitlist", "/app/admin", "/app/admin/plans"]],
